@@ -78,6 +78,14 @@ export default function PaymentReturn({ outcome }) {
     // ── FULL-PAGE MODE ────────────────────────────────────────────────────────
     if (!bookingId) { setStatus("failed"); return; }
 
+    // Treat the response as paid ONLY on the explicit paid/Confirmed signal.
+    // A `state === 'failed'` means the PayMongo session is dead (last
+    // payment attempt failed or was cancelled) — stop polling and show
+    // failure immediately instead of pretending to verify.
+    const isPaidResponse = (data) =>
+      data?.paid === true || data?.status === "Confirmed" || data?.state === "paid";
+    const isDeadResponse = (data) => data?.state === "failed";
+
     if (outcome === "failed") {
       let tries = 0;
       async function pollAfterCancel() {
@@ -85,7 +93,8 @@ export default function PaymentReturn({ outcome }) {
           const data = isGuest
             ? await getGuestPaymentStatus(bookingId)
             : await getPaymentStatus(bookingId);
-          if (data.paid || data.status === "Confirmed") { setStatus("confirmed"); return; }
+          if (isPaidResponse(data)) { setStatus("confirmed"); return; }
+          if (isDeadResponse(data)) { setStatus("failed"); return; }
           tries++;
           if (tries < 8) setTimeout(pollAfterCancel, 2000);
           else setStatus("failed");
@@ -109,7 +118,8 @@ export default function PaymentReturn({ outcome }) {
           ? await getGuestPaymentStatus(bookingId)
           : await getPaymentStatus(bookingId);
         if (cancelled) return;
-        if (data.paid || data.status === "Confirmed") { setStatus("confirmed"); return; }
+        if (isPaidResponse(data)) { setStatus("confirmed"); return; }
+        if (isDeadResponse(data)) { setStatus("failed"); return; }
         tries++;
         // Bumped from 6 to 10 tries (~20s of polling) since
         // mobile-network PayMongo confirmations sometimes outrun

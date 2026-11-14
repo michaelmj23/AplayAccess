@@ -212,7 +212,8 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   }, [error]);
 
   // Listen for postMessage from PaymentReturn page running inside the popup.
-  // This fires immediately when PayMongo redirects to our /payment/success page.
+  // This fires immediately when PayMongo redirects back to /payment/success
+  // or /payment/failed.
   useEffect(() => {
     if (!paymentPopup?.bookingId) return;
 
@@ -220,51 +221,84 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       // Only accept messages from our own origin
       if (event.origin !== window.location.origin) return;
 
-      if (event.data?.type === "paymongo_paid" || event.data?.type === "paymongo_cancelled") {
-        try { paymentPopup?.popup?.close(); } catch { /* ignore */ }
-        const bId = paymentPopup?.bookingId;
+      const isPaid      = event.data?.type === "paymongo_paid";
+      const isCancelled = event.data?.type === "paymongo_cancelled";
+      if (!isPaid && !isCancelled) return;
 
-        // Close the popup but keep polling running (popup: null, no redirected flag).
-        // ALSO start calling confirm-payment with retries as a parallel path.
-        // Whichever succeeds first (polling or confirm) will close the modal.
-        setPaymentPopup(prev => prev ? { ...prev, popup: null } : null);
+      try { paymentPopup?.popup?.close(); } catch { /* ignore */ }
+      const bId = paymentPopup?.bookingId;
+      setPaymentPopup(prev => prev ? { ...prev, popup: null } : null);
+      if (!bId) return;
 
-        if (!bId) return;
+      const confirmFn = guestMode
+        ? () => guestConfirmPayment(bId, paymentOption === "full")
+        : () => api.post(`/api/bookings/${bId}/confirm-payment`, { fully_paid: paymentOption === "full" });
 
-        // Backend verifies with PayMongo before confirming.
-        // GCash may take seconds to update payment_status — retry up to 10 times (20s).
-        const confirmFn = guestMode
-          ? () => guestConfirmPayment(bId, paymentOption === "full")
-          : () => api.post(`/api/bookings/${bId}/confirm-payment`, { fully_paid: paymentOption === "full" });
+      // Abandons the pending-payment state and shows a cancelled error.
+      // Also cancels the booking server-side so the room isn't held.
+      const markCancelled = () => {
+        setPaymentPopup(null);
+        setTimeLeft(null);
+        clearPendingPayment();
+        (guestMode ? cancelGuestBooking(bId) : cancelBooking(bId)).catch(() => {});
+        setError(isCancelled
+          ? "Payment was cancelled. Your booking was not confirmed."
+          : "Payment could not be completed. Your booking was not confirmed.");
+      };
 
-        let attempts = 0;
-        const tryConfirm = () => {
-          confirmFn()
-            .then(() => {
-              // Confirmed! Close everything.
-              setPaymentPopup(null);
-              setTimeLeft(null);
-              clearPendingPayment();
-              onBooked?.(bookingResultRef.current);
-              onClose();
-            })
-            .catch(err => {
-              const status = err?.response?.status;
-              attempts++;
-              if ((status === 402 || status === 503) && attempts < 10) {
-                setTimeout(tryConfirm, 2000);
-              }
-              // Don't show error — polling is also running as backup.
-              // If both fail, the timer will expire and user sees the reopen UI.
-            });
-        };
-        tryConfirm();
+      // Only treat confirm-payment's response as success when it explicitly
+      // says the booking is Confirmed. "Already processed" on a Cancelled
+      // booking used to look like success here — now the backend returns
+      // 410 for those, and we also sanity-check the body.
+      const treatAsConfirmed = (resp) => {
+        const data = resp?.data ?? {};
+        return data.status === "Confirmed" || data.paid === true;
+      };
+
+      const success = () => {
+        setPaymentPopup(null);
+        setTimeLeft(null);
+        clearPendingPayment();
+        onBooked?.(bookingResultRef.current);
+        onClose();
+      };
+
+      if (isCancelled) {
+        // Cancel-url arrived. Do ONE verification in case the guest paid
+        // then hit back/close (rare but possible on mobile), then give up.
+        // No retry loop — a failed/cancelled session shouldn't hold the
+        // user in limbo for 20 s pretending to verify.
+        confirmFn()
+          .then(resp => { if (treatAsConfirmed(resp)) success(); else markCancelled(); })
+          .catch(() => markCancelled());
+        return;
       }
+
+      // Success-url arrived. GCash may take a few seconds to settle, so
+      // retry on 402 (still pending). 410 means the session is dead —
+      // don't retry, show failure immediately.
+      let attempts = 0;
+      const tryConfirm = () => {
+        confirmFn()
+          .then(resp => { if (treatAsConfirmed(resp)) success(); else markCancelled(); })
+          .catch(err => {
+            const status = err?.response?.status;
+            if (status === 410) { markCancelled(); return; }
+            attempts++;
+            if ((status === 402 || status === 503) && attempts < 10) {
+              setTimeout(tryConfirm, 2000);
+              return;
+            }
+            // Other errors: the parallel status poller is still running,
+            // so it may still resolve. The timer will expire otherwise.
+          });
+      };
+      tryConfirm();
     }
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [paymentPopup, onBooked, onClose]);
+  }, [paymentPopup, onBooked, onClose, guestMode, paymentOption]);
 
   // Poll payment status — runs while waiting for payment.
   // The status endpoint checks PayMongo server-side and confirms when paid.
@@ -291,6 +325,20 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
           clearPendingPayment();
           onBooked?.(bookingResultRef.current);
           onClose();
+          return;
+        }
+        // Backend tells us the PayMongo session is dead (last payment
+        // attempt failed or user cancelled). Stop pretending to verify
+        // and surface the failure immediately so the modal doesn't hang
+        // on "Verifying payment…" for 15 min.
+        if (status.state === "failed") {
+          clearInterval(interval);
+          try { popup?.close(); } catch { /* ignore */ }
+          setPaymentPopup(null);
+          setTimeLeft(null);
+          clearPendingPayment();
+          (guestMode ? cancelGuestBooking(bookingId) : cancelBooking(bookingId)).catch(() => {});
+          setError("Payment was not completed. Your booking was not confirmed.");
         }
       } catch {
         // ignore transient errors; keep polling
@@ -298,7 +346,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     }, 1500);
 
     return () => clearInterval(interval);
-  }, [paymentPopup, onBooked, onClose]);
+  }, [paymentPopup, onBooked, onClose, guestMode]);
 
   // Countdown timer — decrements every second while payment is pending
   useEffect(() => {
