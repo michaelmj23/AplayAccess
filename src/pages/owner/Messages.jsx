@@ -29,6 +29,21 @@ function initials(name = "") {
   return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2) || "?";
 }
 
+// Linkify public-route paths (/rooms, /resort, /gallery…) in auto-reply
+// and manual message bodies so staff can click to open the referenced
+// page in a new tab instead of copy-pasting from the chat bubble.
+// Mirrors the regex in src/components/ChatWidget.jsx BotText.
+const ROUTE_RE = /(\/(?:rooms|resort|gallery|dashboard|announcements)(?:\/[a-z-]*)?\b)/g;
+function renderBodyWithLinks(body) {
+  if (!body) return body;
+  const parts = String(body).split(ROUTE_RE);
+  return parts.map((part, i) =>
+    /^\/(?:rooms|resort|gallery|dashboard|announcements)/.test(part)
+      ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline font-semibold hover:opacity-80">{part}</a>
+      : <span key={i}>{part}</span>
+  );
+}
+
 const MATCH_TYPES = [
   { value: "contains",    label: "Contains",    desc: "Keyword appears anywhere" },
   { value: "exact",       label: "Exact",       desc: "Message is exactly the keyword" },
@@ -136,7 +151,7 @@ function Bubble({ msg, isStaff }) {
           ${isStaff
             ? "bg-sky-600 text-white rounded-br-sm"
             : "bg-white text-slate-800 border border-slate-200 rounded-bl-sm"}`}>
-          {msg.body}
+          {renderBodyWithLinks(msg.body)}
         </div>
         <span className="text-[10px] text-slate-400 px-1">
           {isStaff ? `${msg.sender} · ` : ""}{fmtDate(msg.created_at)}

@@ -139,13 +139,20 @@ export default function StaffChatWidget() {
     ? threads.find(t => t.id === selectedThreadId) ?? null
     : null;
 
-  // Top 10 most-recent threads, unread first. The backend returns
-  // them latest first already, so we just stable-sort by unread.
+  // Top 10 threads: unread first, then by most-recent activity. The
+  // previous sort-then-reverse-slice-reverse chain inverted the order
+  // and buried fresh unread threads at the bottom — staff would miss
+  // new messages because day-old replied threads sat above them.
   const visibleThreads = [...threads]
-    .sort((a, b) => Number(!a.is_read) - Number(!b.is_read))
-    .reverse()
-    .slice(-10)
-    .reverse();
+    .sort((a, b) => {
+      // Unread wins over read.
+      if (!!a.is_read !== !!b.is_read) return a.is_read ? 1 : -1;
+      // Within the same read-state, newest-activity first.
+      const aTs = new Date(a.replies?.at(-1)?.created_at ?? a.created_at ?? 0).getTime();
+      const bTs = new Date(b.replies?.at(-1)?.created_at ?? b.created_at ?? 0).getTime();
+      return bTs - aTs;
+    })
+    .slice(0, 10);
 
   const totalUnread = threads.filter(t => !t.is_read).length;
 
