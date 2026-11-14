@@ -91,7 +91,7 @@ export default function Terms() {
           <section>
             <h2 className="text-xl font-bold text-slate-900 mt-4 mb-2">5. Check-in &amp; conduct</h2>
             <ul className="list-disc pl-6 space-y-1">
-              <li>Check-in times follow the booking type: Day (7 AM – 5 PM), Night (6 PM – 6 AM), 24-hour (start hour you picked, 24 hours later).</li>
+              <li>Check-in times follow the booking type: Day (7 AM – 5 PM), Night (6 PM – 6 AM), 24-hour (arrive any time on the booked day, check-out 6 AM the next morning).</li>
               <li>Present a valid ID and the booking's reservation number at the gate. The resort may refuse entry for identification mismatches.</li>
               <li>Guest headcount may be verified at the gate. Additional entrance fees apply for any unregistered guests.</li>
               <li>Treat resort staff and other guests respectfully. We reserve the right to end a stay without refund for harassment, intoxication that threatens safety, property damage, or illegal activity on premises.</li>
