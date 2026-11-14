@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { getNewsletterSubscribers, sendNewsletterCampaign } from "../../lib/adminApi";
+import { getNewsletterSubscribers, sendNewsletterCampaign, deleteNewsletterSubscriber } from "../../lib/adminApi";
 import useFocusTrap from "../../hooks/useFocusTrap.js";
 import { usePagination, PaginationBar } from "../../lib/pagination.jsx";
+import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 
 const TEMPLATES = [
   {
@@ -161,6 +162,12 @@ export default function OwnerNewsletter() {
   const [loading,     setLoading]     = useState(true);
   const [search,      setSearch]      = useState("");
 
+  // Per-row delete — admin + owner only. Safety net for the "customer
+  // emailed us asking to be removed" case; primary unsubscribe path is
+  // still the HMAC-verified link in each campaign email.
+  const [deleteTarget, setDeleteTarget] = useState(null); // { id, email } | null
+  const [deleting,     setDeleting]     = useState(false);
+
   // Compose modal
   const [composeOpen, setComposeOpen] = useState(false);
   const [subject,     setSubject]     = useState("");
@@ -254,6 +261,25 @@ export default function OwnerNewsletter() {
     setTemplates(updated);
     saveTemplates(updated);
     if (editingIdx === i) cancelEdit();
+  }
+
+  // Owner/admin per-row delete. Removes from the subscribers table +
+  // activity log entry on the backend. Rare backstop action, so errors
+  // fall back to an alert rather than a dedicated toast system.
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    const { id, email } = deleteTarget;
+    setDeleting(true);
+    try {
+      await deleteNewsletterSubscriber(id);
+      setSubscribers((prev) => prev.filter((s) => s.id !== id));
+      setTotal((prev) => Math.max(0, prev - 1));
+      setDeleteTarget(null);
+    } catch (e) {
+      alert(e?.response?.data?.message || `Failed to remove ${email}. Please try again.`);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function handleSend() {
@@ -350,15 +376,16 @@ export default function OwnerNewsletter() {
                 <th className="px-6 py-3 text-left">#</th>
                 <th className="px-6 py-3 text-left">Email</th>
                 <th className="px-6 py-3 text-left">Subscribed</th>
+                <th className="px-6 py-3 text-right w-24">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
-                <tr><td colSpan={3} className="px-6 py-10 text-center text-slate-400">
+                <tr><td colSpan={4} className="px-6 py-10 text-center text-slate-400">
                   <i className="fas fa-spinner fa-spin mr-2" aria-hidden="true"></i>Loading…
                 </td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={3} className="px-6 py-10 text-center text-slate-400">
+                <tr><td colSpan={4} className="px-6 py-10 text-center text-slate-400">
                   {search ? "No subscribers match your search." : "No subscribers yet."}
                 </td></tr>
               ) : paginated.map((s, i) => (
@@ -371,6 +398,17 @@ export default function OwnerNewsletter() {
                   <td className="px-6 py-3 text-slate-400 text-xs">{(safePage - 1) * 25 + i + 1}</td>
                   <td className="px-6 py-3 font-medium text-slate-800">{s.email}</td>
                   <td className="px-6 py-3 text-slate-400 text-xs">{formatDate(s.created_at)}</td>
+                  <td className="px-6 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget({ id: s.id, email: s.email })}
+                      className="h-9 w-9 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                      title={`Remove ${s.email}`}
+                      aria-label={`Remove ${s.email} from newsletter`}
+                    >
+                      <i className="fas fa-trash text-sm" aria-hidden="true"></i>
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -709,6 +747,22 @@ export default function OwnerNewsletter() {
           </div>
         </div>
       )}
+
+      {/* Per-row remove confirm — danger variant. Deliberately opens
+          for admin/owner alike; backend route is admin_or_owner-gated
+          on the server side, so no extra client check needed. */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Remove subscriber?"
+        message={deleteTarget ? (
+          <>Remove <strong>{deleteTarget.email}</strong> from the newsletter list? They won't receive future campaigns. This can't be undone — they'd need to subscribe again themselves.</>
+        ) : ''}
+        confirmLabel={deleting ? 'Removing…' : 'Remove'}
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={handleDelete}
+        onCancel={() => { if (!deleting) setDeleteTarget(null); }}
+      />
     </div>
   );
 }

@@ -115,6 +115,7 @@ export const validatePromo         = (code, subtotal) => api.post('/api/validate
 // ── Newsletter (owner only) ───────────────────────────────────────────────────
 export const getNewsletterSubscribers  = ()           => api.get('/api/admin/newsletter');
 export const sendNewsletterCampaign    = (subject, body) => api.post('/api/admin/newsletter/send', { subject, body });
+export const deleteNewsletterSubscriber = (id)          => api.delete(`/api/admin/newsletter/${id}`);
 
 // ── Announcements ─────────────────────────────────────────────────────────────
 export const getAdminAnnouncements    = ()           => api.get('/api/admin/announcements');
