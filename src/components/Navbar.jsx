@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext.jsx";
 import useLockBodyScroll from "../hooks/useLockBodyScroll.js";
@@ -12,8 +12,14 @@ import VerifyEmailModal from "./modals/VerifyEmailModal.jsx";
 import Toast, { useToast } from "./ui/Toast.jsx";
 import ConfirmDialog from "./ui/ConfirmDialog.jsx";
 
+// Keep in sync with RequireAuth.jsx + StaffLogin.jsx. If a new staff role
+// appears anywhere, add it here or they'll be left stranded on the public
+// page after signing in via the Navbar's Login modal.
+const STAFF_ROLE_REDIRECTS = { front_desk: "/frontdesk", admin: "/admin", owner: "/owner" };
+
 export default function Navbar() {
   const { user, login, logout } = useAuth();
+  const navigate = useNavigate();
   const [toast, showToast, clearToast, toastType] = useToast();
 
   const [loginOpen,  setLoginOpen]  = useState(false);
@@ -48,6 +54,10 @@ export default function Navbar() {
     login(u);
     setLoginOpen(false);
     showToast(`Welcome back, ${u?.name || ""}!`, "success");
+    // Staff/owner/admin shouldn't be left stranded on the public page —
+    // send them to their portal. Guests stay where they are.
+    const dest = STAFF_ROLE_REDIRECTS[u?.role];
+    if (dest) navigate(dest);
   }
 
   function requestLogout() {
@@ -70,6 +80,10 @@ export default function Navbar() {
     // away — the welcome toast fires when they close it.
     if (u?.email_verified_at) {
       showToast(`Welcome, ${u?.name || ""}!`, "success");
+      // Google sign-up that resolved to an existing staff/owner account:
+      // send them to their portal instead of leaving them on the public page.
+      const dest = STAFF_ROLE_REDIRECTS[u?.role];
+      if (dest) navigate(dest);
     } else {
       setPendingWelcomeName(u?.name || "");
       setVerifyOpen(true);
