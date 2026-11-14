@@ -80,7 +80,10 @@ export default function Navbar() {
             ? <img src={brand.logoImage} alt="" className="h-8 w-auto object-contain shrink-0" loading="eager" decoding="async" />
             : <span className="text-2xl shrink-0" aria-hidden="true">🏖️</span>
           }
-          <span className="text-base md:text-xl font-bold text-sky-600 truncate">{brand.siteName}</span>
+          {/* Brand text hides below 380px (iPhone SE class) so the Book Now
+              button + hamburger don't force a truncated "Aplaya Beach Re…".
+              The logo image still identifies the site at those widths. */}
+          <span className="hidden min-[380px]:inline text-base md:text-xl font-bold text-sky-600 truncate">{brand.siteName}</span>
         </Link>
 
         {/* Desktop Navigation */}
