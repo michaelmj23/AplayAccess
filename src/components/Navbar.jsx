@@ -10,6 +10,7 @@ import LoginModal from "./modals/LoginModal.jsx";
 import SignupModal from "./modals/SignupModal.jsx";
 import VerifyEmailModal from "./modals/VerifyEmailModal.jsx";
 import Toast, { useToast } from "./ui/Toast.jsx";
+import ConfirmDialog from "./ui/ConfirmDialog.jsx";
 
 export default function Navbar() {
   const { user, login, logout } = useAuth();
@@ -18,6 +19,7 @@ export default function Navbar() {
   const [loginOpen,  setLoginOpen]  = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [menuOpen,   setMenuOpen]   = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   // Opened immediately after a fresh (unverified) signup. Google
   // signups skip this — backend marks them verified since Google
   // confirmed the email.
@@ -46,6 +48,18 @@ export default function Navbar() {
     login(u);
     setLoginOpen(false);
     showToast(`Welcome back, ${u?.name || ""}!`, "success");
+  }
+
+  function requestLogout() {
+    setMenuOpen(false);        // close mobile menu if open
+    setConfirmLogout(true);
+  }
+
+  async function confirmLogoutNow() {
+    const name = user?.name;
+    setConfirmLogout(false);
+    await logout();
+    showToast(name ? `See you next time, ${name}!` : "You've been signed out.", "success");
   }
 
   function handleSignupSuccess(u) {
@@ -131,7 +145,7 @@ export default function Navbar() {
               >
                 My Account
               </NavLink>
-              <button onClick={logout} className="text-sm font-medium text-red-700 hover:text-red-800 py-2 -my-2 px-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500" type="button">Logout</button>
+              <button onClick={requestLogout} className="text-sm font-medium text-red-700 hover:text-red-800 py-2 -my-2 px-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500" type="button">Logout</button>
             </>
           ) : (
             <button onClick={() => setLoginOpen(true)} className="text-gray-700 hover:text-sky-600 text-sm font-medium py-2 -my-2 px-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500" type="button">Login</button>
@@ -227,7 +241,7 @@ export default function Navbar() {
                   )}
                 </NavLink>
                 <button
-                  onClick={logout}
+                  onClick={requestLogout}
                   className="w-full text-left px-3 py-3 rounded-lg text-red-600 hover:bg-red-50 text-sm font-medium"
                   type="button"
                 >
@@ -275,6 +289,17 @@ export default function Navbar() {
       />
 
       <Toast message={toast} type={toastType} onClose={clearToast} />
+
+      <ConfirmDialog
+        open={confirmLogout}
+        title="Log out?"
+        message={user?.name ? `${user.name}, this will end your session.` : "This will end your session."}
+        confirmLabel="Log out"
+        cancelLabel="Stay signed in"
+        variant="warning"
+        onConfirm={confirmLogoutNow}
+        onCancel={() => setConfirmLogout(false)}
+      />
     </nav>
   );
 }
