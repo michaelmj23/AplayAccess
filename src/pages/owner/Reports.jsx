@@ -464,8 +464,11 @@ export default function OwnerReports() {
             as the money metrics. Forfeited is INCLUDED in Total Revenue;
             it's surfaced separately for transparency, not as additive. */}
         {/* 6 KPIs in one row at lg (1024px) truncated both labels and
-            values; push the 6-col density to xl so each tile has room. */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+            values; push the 6-col density to xl so each tile has room.
+            Also stack to 1-col on narrow mobile (<640px) — at that
+            width the icon badge + ₱-value wouldn't fit side-by-side and
+            values were getting cut like '₱17,89…'. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           {[
             { label: "Total Revenue",      value: loading ? "—" : fmt(revenue),              icon: "fa-money-bill-wave", color: "bg-green-100 text-green-600",
               subtitle: forfeited > 0 ? `incl. ${fmt(forfeited)} forfeited` : null },
