@@ -6,7 +6,6 @@ import { createPaymentLink, getPaymentStatus } from "../../lib/paymentApi.js";
 import { api } from "../../lib/api.js";
 import { validatePromo } from "../../lib/adminApi.js";
 import { fmtDateTime } from "../../lib/format";
-import HourGridPicker from "../ui/HourGridPicker.jsx";
 import { savePendingPayment, clearPendingPayment } from "../../hooks/usePendingPayment.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import VerifyEmailModal from "./VerifyEmailModal.jsx";
@@ -49,13 +48,6 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// 12-hour label used in confirmation summary / receipts.
-function formatHourLabel(h) {
-  const suffix = h < 12 ? "AM" : "PM";
-  const twelve = h % 12 === 0 ? 12 : h % 12;
-  return `${twelve}:00 ${suffix}`;
-}
-
 export default function BookingModal({ open, onClose, selectedRoom, rooms, onBooked, guestMode = false, resumeBooking = null }) {
   // Resume mode: user clicked a Pending booking from MyBookings / Dashboard.
   // We skip the room/date/guests picker entirely — the booking exists
@@ -75,9 +67,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   const modalRef        = useRef(null);
   const bookingResultRef = useRef(null); // stores API response after booking created
   const [bookingType, setBookingType] = useState("day"); // "day" | "night" | "24hr"
-  // For 24hr bookings the guest picks any on-the-hour start time (0–23).
-  // Defaults to a 7AM start; gets validated against the 12-hour lead rule.
-  const [checkInHour, setCheckInHour] = useState(7);
   const [visitDate, setVisitDate]     = useState("");
   // Room selection is tracked by its primary-key id so duplicate names
   // can't collapse availability / metadata / submitted-id onto the wrong
@@ -196,7 +185,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       date:         visitDate,
       booking_type: bookingType,
     });
-    if (bookingType === "24hr") params.set("check_in_hour", String(checkInHour));
 
     setAvailChecking(true);
     const timer = setTimeout(() => {
@@ -213,7 +201,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     }, 300);
 
     return () => { clearTimeout(timer); };
-  }, [visitDate, bookingType, checkInHour]);
+  }, [visitDate, bookingType]);
 
   // Scroll modal to top whenever an error appears so it's always visible
   useEffect(() => {
@@ -349,7 +337,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       setVisitDate("");
       setError("");
       setBookingType("day");
-      setCheckInHour(6);
       setAvailability(null);
       setPaymentPopup(null);
       setTimeLeft(null);
@@ -393,22 +380,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     if (!allowedTypes) return;
     if (!allowedTypes.includes(bookingType)) setBookingType(allowedTypes[0]);
   }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // When the selected date is today, hours earlier than "now" are disabled
-  // in the hour-grid picker. Pre-existing auto-switch from Day → Night at
-  // 5 PM handles the Day slot; this handles the 24hr slot.
-  const isTodaySelected = visitDate === todayStr();
-  const minHourToday    = isTodaySelected ? new Date().getHours() : 0;
-
-  // If the user picks today with a 24hr start that's already past, bump
-  // the selection forward to the current hour so the value is always valid.
-  useEffect(() => {
-    if (!isTodaySelected) return;
-    if (checkInHour < minHourToday) setCheckInHour(minHourToday);
-    // Intentionally skip checkInHour in deps — we only re-clamp when the
-    // date changes (otherwise the user's later upward edits would ping-pong).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visitDate]);
 
   // ── Derived pricing — room rate only, 20% reservation fee ─────────────────
   const is24hr   = bookingType === "24hr";
@@ -520,10 +491,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     }
     if (!visitDate) { setError("Please select a visit date."); return; }
     if (!roomId)    { setError("Please select a room/cottage."); return; }
-    if (is24hr && isTodaySelected && checkInHour < minHourToday) {
-      setError("The chosen start time is already past. Pick a later hour today or a future date.");
-      return;
-    }
     if (availability !== null && availability[String(roomId)] !== true) {
       setError("Selected room is not available for the chosen date. Please select another."); return;
     }
@@ -661,9 +628,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         .filter(([, qty]) => Number(qty) > 0)
         .map(([name, qty]) => ({ name, qty: Number(qty) }));
       if (pickedAmenities.length > 0) bookingPayload.amenities = pickedAmenities;
-
-      // 24hr bookings pass a start hour; the server also 12-hour-lead-checks this.
-      if (bookingType === "24hr") bookingPayload.check_in_hour = checkInHour;
 
       // Guest mode: add contact info + use public endpoint
       if (guestMode) {
@@ -949,7 +913,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   {[
                     { key: "day",   icon: "fa-sun",   label: "Day",    time: "7AM\u20135PM",  disabled: !visitDate || dayPassed || !typeAllowed("day") },
                     { key: "night", icon: "fa-moon",  label: "Night",   time: "6PM\u20136AM",  disabled: !visitDate || !typeAllowed("night") },
-                    { key: "24hr",  icon: "fa-clock", label: "24 Hrs", time: "Any start", disabled: !visitDate || !typeAllowed("24hr") },
+                    { key: "24hr",  icon: "fa-clock", label: "24 Hrs", time: "7AM–next 6AM", disabled: !visitDate || !typeAllowed("24hr") },
                   ].map(opt => {
                     const active = bookingType === opt.key;
                     return (
@@ -992,19 +956,13 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   </div>
                 )}
 
-                {/* 24hr: pick any on-the-hour start time */}
+                {/* 24hr bookings have a fixed window (7 AM – next day 6 AM).
+                    Guests arrive any time during the day; no start-hour
+                    picker needed. */}
                 {is24hr && (
-                  <div className="mt-3">
-                    <p id="booking-modal-checkin-hour-label" className="block text-xs font-medium text-gray-600 mb-2">
-                      Start time <span className="text-red-600" aria-hidden="true">*</span>
-                    </p>
-                    <HourGridPicker
-                      value={checkInHour}
-                      onChange={setCheckInHour}
-                      accent="blue"
-                      labelId="booking-modal-checkin-hour-label"
-                      minHour={minHourToday}
-                    />
+                  <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-900">
+                    <i className="fas fa-circle-info mr-1.5" aria-hidden="true"></i>
+                    You can arrive any time on the selected date. Check-out is 6:00 AM the next morning.
                   </div>
                 )}
               </div>
@@ -2007,7 +1965,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
              desktop preview (z-[10000]) are the only siblings that
              must outrank the parent itself. */}
         {confirmOpen && (() => {
-          const hourLabel = formatHourLabel(checkInHour);
           // Literal-class lookup tables for the booking-type badge —
           // Tailwind v4 purges classes built from template literals,
           // so `bg-${color}-100` won't survive the build for any
@@ -2021,7 +1978,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
           const typeInfo = {
             day:    { label: "Day Visit",  icon: "fa-sun",   color: "blue",   checkIn: "7:00 AM", checkOut: "5:00 PM (same day)" },
             night:  { label: "Night Stay",  icon: "fa-moon",  color: "indigo", checkIn: "6:00 PM", checkOut: "6:00 AM (next day)" },
-            "24hr": { label: `24 Hours (${hourLabel})`, icon: "fa-clock", color: "purple", checkIn: hourLabel, checkOut: `${hourLabel} (next day)` },
+            "24hr": { label: "24 Hours",   icon: "fa-clock", color: "purple", checkIn: "Any time (from 7 AM)", checkOut: "6:00 AM (next day)" },
           }[bookingType] ?? { label: "Day Visit", icon: "fa-sun", color: "blue", checkIn: "7:00 AM", checkOut: "5:00 PM (same day)" };
           const rateLabel = bookingType === "night" ? "Overnight rate" : is24hr ? "24-hour rate" : "Day visit rate";
           return (

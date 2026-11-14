@@ -11,7 +11,6 @@ import { validatePromo, getAdminGuests } from '../../lib/adminApi';
 import Toast, { useToast } from '../../components/ui/Toast';
 import Modal from '../../components/modals/Modal';
 import { fmtMoney, localDateStr } from '../../lib/format';
-import HourGridPicker from '../../components/ui/HourGridPicker.jsx';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const todayStr = () => localDateStr();
@@ -23,13 +22,6 @@ const todayStr = () => localDateStr();
 // Legacy '24hr-pm' is kept here for rendering old bookings only — new walk-ins
 // always use '24hr' with a staff-picked start hour.
 const FALLBACK_RATES = { day: 50, night: 80, '24hr': 100, '24hr-pm': 100 };
-
-// 12-hour label used in confirmation summary / receipts.
-function formatHourLabel(h) {
-  const suffix = h < 12 ? 'AM' : 'PM';
-  const twelve = h % 12 === 0 ? 12 : h % 12;
-  return `${twelve}:00 ${suffix}`;
-}
 
 // Strip a phone string down to digits only — used as the dedup key
 // when merging walk-in guests (special_requests) with registered
@@ -56,7 +48,6 @@ const EMPTY_FORM = {
   roomId: '', date: todayStr(),
   payMethod: 'Cash', notes: '',
   bookingType: 'day', // 'day' | 'night' | '24hr'
-  checkInHour: 6,     // 0–23, used when bookingType === '24hr'
   guests: 1,
 };
 
@@ -430,30 +421,13 @@ export default function WalkIn({ embedded = false }) {
     });
   }, [visibleAddons]);
 
-  // Disable already-past hours when the walk-in is for today. Walk-ins have
-  // no lead-time rule, so the current hour itself stays selectable (the
-  // guest is at the counter *now*).
-  const isTodaySelected = form.date === today;
-  const minHourToday    = isTodaySelected ? new Date().getHours() : 0;
-
-  // Keep the selected start-hour valid when the date or booking type
-  // changes — if it's now below the floor, bump it up.
-  useEffect(() => {
-    if (!isTodaySelected) return;
-    if ((form.checkInHour ?? 6) < minHourToday) {
-      setForm(prev => ({ ...prev, checkInHour: minHourToday }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.date, form.bookingType]);
-
   // Fetch per-window add-on availability whenever the slot inputs change.
   // Mirrors the shared inventory check that the backend walk-in endpoint runs
   // at submit, so staff see "sold out" before they pick a qty that will fail.
   useEffect(() => {
     if (!form.date || addons.length === 0) { setAddonAvailability({}); return; }
     let cancelled = false;
-    const hour = form.bookingType === '24hr' ? (form.checkInHour ?? 6) : null;
-    addonAvailabilityForSlot({ date: form.date, bookingType: form.bookingType, hour })
+    addonAvailabilityForSlot({ date: form.date, bookingType: form.bookingType, hour: null })
       .then(r => {
         if (cancelled) return;
         const map = {};
@@ -473,7 +447,7 @@ export default function WalkIn({ embedded = false }) {
       })
       .catch(() => { if (!cancelled) setAddonAvailability({}); });
     return () => { cancelled = true; };
-  }, [form.date, form.bookingType, form.checkInHour, addons.length]);
+  }, [form.date, form.bookingType, addons.length]);
 
   // Use visibleAddons so the per-room price override (Patrice videoke
   // vs catalog videoke) feeds the summary + totals correctly.
@@ -526,9 +500,6 @@ export default function WalkIn({ embedded = false }) {
       setFormError(`This room only supports: ${allowedTypes.join(', ')}.`); return;
     }
     if (!form.roomId) { setFormError('Please select a room.'); return; }
-    if (is24hr && isTodaySelected && Number(form.checkInHour ?? 6) < minHourToday) {
-      setFormError('That start time is already past. Pick a later hour today or a future date.'); return;
-    }
     const selRoom = rooms.find(r => String(r.id) === String(form.roomId));
     if (availability !== null && (!selRoom || availability[String(selRoom.id)] !== true)) {
       setFormError('This room is not available for the selected date and booking type.'); return;
@@ -541,12 +512,10 @@ export default function WalkIn({ embedded = false }) {
   async function handleConfirmCreate() {
     setConfirmOpen(false);
     // Pick a reasonable HH:MM:SS for the datetime; the backend overrides with
-    // the canonical window anyway (and uses check_in_hour for 24hr bookings).
+    // the canonical fixed window anyway.
     const checkInTime = form.bookingType === 'night'
       ? '18:00:00'
-      : form.bookingType === '24hr'
-        ? `${String(form.checkInHour ?? 6).padStart(2, '0')}:00:00`
-        : '06:00:00';
+      : '07:00:00';
     const checkIn     = `${form.date} ${checkInTime}`;
     const guestName   = form.fullName.trim();
     // Only submit amenities that are currently visible for the
@@ -564,7 +533,6 @@ export default function WalkIn({ embedded = false }) {
         guest_email:       form.email.trim() || undefined,
         room_id:           Number(form.roomId),
         check_in:          checkIn,
-        check_in_hour:     form.bookingType === '24hr' ? Number(form.checkInHour ?? 6) : undefined,
         guests:            Number(form.guests || 1),
         payment_method:    form.payMethod.toLowerCase(),
         special_requests:  form.notes.trim() || undefined,
@@ -618,19 +586,17 @@ export default function WalkIn({ embedded = false }) {
       {confirmOpen && (() => {
         const selRoom    = rooms.find(r => String(r.id) === String(form.roomId));
         const guestName  = form.fullName.trim();
-        const pickedHour    = Number(form.checkInHour ?? 6);
-        const pickedHourLbl = formatHourLabel(pickedHour);
         const checkInLabel  = form.bookingType === 'night' ? '6:00 PM'
-                            : form.bookingType === '24hr'  ? pickedHourLbl
-                            : '6:00 AM';
-        const checkOutLabel = form.bookingType === 'night' ? '7:00 AM (next day)'
-                            : form.bookingType === '24hr'  ? `${pickedHourLbl} (next day)`
-                            : '6:00 PM';
+                            : form.bookingType === '24hr'  ? 'Any time (from 7 AM)'
+                            : '7:00 AM';
+        const checkOutLabel = form.bookingType === 'night' ? '6:00 AM (next day)'
+                            : form.bookingType === '24hr'  ? '6:00 AM (next day)'
+                            : '5:00 PM';
         const dateLabel  = form.date ? new Date(form.date + 'T00:00:00').toLocaleDateString('en-PH', {
           weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
         }) : '—';
         const typeLabel  = form.bookingType === 'night' ? 'Night Stay'
-                         : form.bookingType === '24hr'  ? `24 Hours (${pickedHourLbl})`
+                         : form.bookingType === '24hr'  ? '24 Hours'
                          : 'Day Visit';
 
         // Calculate remaining hours in slot if booking is for today
@@ -640,7 +606,7 @@ export default function WalkIn({ embedded = false }) {
           const h = now.getHours() + now.getMinutes() / 60;
           if (form.bookingType === 'day')        remainingHrs = 17 - h;        // ends 5PM
           else if (form.bookingType === 'night')  remainingHrs = (h >= 18 ? (24 - h) + 6 : 6 - h);  // ends 6AM
-          else if (form.bookingType === '24hr')   remainingHrs = 24; // 24 hours from staff-picked start
+          else if (form.bookingType === '24hr')   remainingHrs = (24 - h) + 6; // ends 6 AM next day
         }
         const shortStay = remainingHrs !== null && remainingHrs > 0 && remainingHrs < 4;
 
@@ -1107,19 +1073,11 @@ export default function WalkIn({ embedded = false }) {
                       </p>
                     )}
 
-                    {/* 24hr: pick any on-the-hour start time (walk-ins have no lead rule) */}
+                    {/* 24hr: fixed window (7 AM – next day 6 AM); no start-hour picker */}
                     {is24hr && (
-                      <div className="mt-3">
-                        <p id="walkin-checkin-hour-label" className="block text-xs font-medium text-slate-600 mb-2">
-                          Start time *
-                        </p>
-                        <HourGridPicker
-                          value={form.checkInHour ?? 6}
-                          onChange={(h) => setField('checkInHour', h)}
-                          accent="sky"
-                          labelId="walkin-checkin-hour-label"
-                          minHour={minHourToday}
-                        />
+                      <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
+                        <i className="fas fa-circle-info mr-1.5" aria-hidden="true"></i>
+                        Guest may arrive any time on the selected date. Check-out is 6:00 AM the next morning.
                       </div>
                     )}
                   </div>
@@ -1280,12 +1238,9 @@ export default function WalkIn({ embedded = false }) {
                   }`}>
                     <i className={`fas ${form.bookingType === 'night' ? 'fa-moon' : is24hr ? 'fa-clock' : 'fa-sun'}`}></i>
                     {(() => {
-                      if (form.bookingType === 'night') return '6:00 PM → 7:00 AM (next day)';
-                      if (form.bookingType === '24hr') {
-                        const lbl = formatHourLabel(Number(form.checkInHour ?? 6));
-                        return `${lbl} → ${lbl} (next day)`;
-                      }
-                      return '6:00 AM → 6:00 PM';
+                      if (form.bookingType === 'night') return '6:00 PM → 6:00 AM (next day)';
+                      if (form.bookingType === '24hr')  return '7:00 AM → 6:00 AM (next day)';
+                      return '7:00 AM → 5:00 PM';
                     })()}
                   </div>
                 </div>
@@ -1469,13 +1424,12 @@ export default function WalkIn({ embedded = false }) {
                     '24hr': { bg: 'bg-purple-50',  border: 'border-purple-200', text: 'text-purple-800', sub: 'text-purple-700', hr: 'border-purple-200' },
                   };
                   const tc = typeColors[form.bookingType] ?? typeColors.day;
-                  const pickedHourLbl = formatHourLabel(Number(form.checkInHour ?? 6));
                   const ciLabel = form.bookingType === 'night' ? '6:00 PM'
-                                : form.bookingType === '24hr'  ? pickedHourLbl
-                                : '6:00 AM';
-                  const coLabel = form.bookingType === 'night' ? '7:00 AM (next day)'
-                                : form.bookingType === '24hr'  ? `${pickedHourLbl} (next day)`
-                                : '6:00 PM';
+                                : form.bookingType === '24hr'  ? 'Any time (from 7 AM)'
+                                : '7:00 AM';
+                  const coLabel = form.bookingType === 'night' ? '6:00 AM (next day)'
+                                : form.bookingType === '24hr'  ? '6:00 AM (next day)'
+                                : '5:00 PM';
                   const rateLabel = form.bookingType === 'night' ? 'Night rate' : is24hr ? '24 hr rate' : 'Day rate';
                   return (
                     <div className={`p-3 rounded text-sm border ${tc.bg} ${tc.border}`}>

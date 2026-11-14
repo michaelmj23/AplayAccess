@@ -74,7 +74,7 @@ Aliases live in `bootstrap/app.php`. The `admin_role` alias name is kept for his
 | What a model is allowed to fill | The model's `$fillable` in `app/Models/*.php` |
 | Pricing / entrance fees defaults | `Setting::pricing()` + `SettingSeeder` — rates are editable at runtime via `/owner/settings` |
 | What rooms exist + rates | `database/seeders/RoomSeeder.php` (or the live DB — rates are editable by the owner) |
-| Booking types and slot windows | `booking_type` column is enum-like (`day`, `night`, `24hr`, `24hr-pm`). Day = 7 AM – 5 PM, Night = 6 PM – 6 AM, 24hr = staff/guest-picked start hour + 24 hrs. 5-6 PM and 6-7 AM are cleaner windows between slots. `is24hr === '24hr' || '24hr-pm'` is the common coalescing check across the app. |
+| Booking types and slot windows | `booking_type` column is enum-like (`day`, `night`, `24hr`, `24hr-pm`). Day = 7 AM – 5 PM, Night = 6 PM – 6 AM, 24hr = 7 AM selected day – 6 AM next day (guest/staff picks date only, flexible arrival anytime). 5-6 PM and 6-7 AM are cleaner windows between slots. `is24hr === '24hr' || '24hr-pm'` is the common coalescing check across the app. `24hr-pm` is legacy — only exists on old bookings created before 24hr became a fixed window. |
 | Room categories | `category` column on `rooms` — values seen in code: `room`, `cottage`, `pavilion`, `tent`, `admission` (the last is a pseudo-room for gate-only walk-ins) |
 
 ## Stable notes that the code doesn't fully spell out
