@@ -406,18 +406,31 @@ export default function OwnerNewsletter() {
             </div>
 
             {/* Result banner */}
-            {result && (
-              <div className="mx-6 mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-3">
-                <i className="fas fa-check-circle text-emerald-500 mt-0.5" aria-hidden="true"></i>
-                <div>
-                  <p className="text-sm font-semibold text-emerald-800">Campaign Sent!</p>
-                  <p className="text-xs text-emerald-600 mt-0.5">
-                    {result.sent} email{result.sent !== 1 ? 's' : ''} delivered
-                    {result.failed > 0 ? `, ${result.failed} failed` : ''}.
-                  </p>
+            {result && (() => {
+              // Three-state banner driven by backend sent/failed counts.
+              // Backend returns HTTP 200 regardless of outcome (so we
+              // can't key off the HTTP tier) — the owner needs to see
+              // at a glance whether the campaign actually went out.
+              const allSent    = result.sent > 0 && result.failed === 0;
+              const allFailed  = result.sent === 0 && result.failed > 0;
+              const tone = allSent
+                ? { bg: 'bg-emerald-50', border: 'border-emerald-200', icon: 'fa-check-circle',       iconText: 'text-emerald-500', heading: 'text-emerald-800', body: 'text-emerald-600', title: 'Campaign Sent!' }
+                : allFailed
+                ? { bg: 'bg-rose-50',    border: 'border-rose-200',    icon: 'fa-times-circle',       iconText: 'text-rose-500',    heading: 'text-rose-800',    body: 'text-rose-600',    title: 'Campaign Failed to Send' }
+                : { bg: 'bg-amber-50',   border: 'border-amber-200',   icon: 'fa-exclamation-circle', iconText: 'text-amber-500',   heading: 'text-amber-800',   body: 'text-amber-700',   title: 'Campaign Sent with Some Failures' };
+              return (
+                <div className={`mx-6 mt-4 p-4 ${tone.bg} border ${tone.border} rounded-xl flex items-start gap-3`} role={allFailed ? 'alert' : undefined}>
+                  <i className={`fas ${tone.icon} ${tone.iconText} mt-0.5`} aria-hidden="true"></i>
+                  <div>
+                    <p className={`text-sm font-semibold ${tone.heading}`}>{tone.title}</p>
+                    <p className={`text-xs ${tone.body} mt-0.5`}>
+                      {result.sent} email{result.sent !== 1 ? 's' : ''} delivered
+                      {result.failed > 0 ? `, ${result.failed} failed` : ''}.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Tabs: Compose | Templates | Preview */}
             {!result && (
