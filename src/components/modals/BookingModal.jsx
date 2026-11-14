@@ -416,12 +416,19 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // Time-slot guard: disable booking types whose window already passed today
   const isToday     = visitDate === todayStr();
   const currentHour = new Date().getHours();
-  const dayPassed   = isToday && currentHour >= 17;   // Day (7AM–5PM) window closed
+  const dayPassed    = isToday && currentHour >= 17;   // Day (7AM–5PM) window closed
+  // 24hr covers 7 AM today → 6 AM tomorrow. Booking it at 4 PM or later
+  // gives the guest only ~14 hours for a "24-hour" product, so we lock
+  // it out from 4 PM onward and nudge them to a future date (or Night).
+  const twentyFourPassed = isToday && currentHour >= 16;
 
-  // Auto-switch away from Day if its window passed
+  // Auto-switch away from Day or 24hr if its window passed
   useEffect(() => {
     if (dayPassed && bookingType === "day") setBookingType("night");
   }, [dayPassed]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (twentyFourPassed && bookingType === "24hr") setBookingType("night");
+  }, [twentyFourPassed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-switch to first allowed type when room with restrictions is selected
   useEffect(() => {
@@ -961,7 +968,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   {[
                     { key: "day",   icon: "fa-sun",   label: "Day",    time: "7AM\u20135PM",  disabled: !visitDate || dayPassed || !typeAllowed("day") },
                     { key: "night", icon: "fa-moon",  label: "Night",   time: "6PM\u20136AM",  disabled: !visitDate || !typeAllowed("night") },
-                    { key: "24hr",  icon: "fa-clock", label: "24 Hrs", time: "7AM–next 6AM", disabled: !visitDate || !typeAllowed("24hr") },
+                    { key: "24hr",  icon: "fa-clock", label: "24 Hrs", time: "7AM–next 6AM", disabled: !visitDate || twentyFourPassed || !typeAllowed("24hr") },
                   ].map(opt => {
                     const active = bookingType === opt.key;
                     return (

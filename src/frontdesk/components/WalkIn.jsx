@@ -324,14 +324,20 @@ export default function WalkIn({ embedded = false }) {
 
 
   // Time-slot guard: disable booking types whose window already passed today
-  const isToday     = form.date === today;
-  const currentHour = new Date().getHours();
-  const dayPassed   = isToday && currentHour >= 17;   // Day (7AM–5PM) window closed
+  const isToday          = form.date === today;
+  const currentHour      = new Date().getHours();
+  const dayPassed        = isToday && currentHour >= 17;   // Day (7AM–5PM) window closed
+  // 24hr covers 7 AM today → 6 AM tomorrow. Locked from 4 PM onward so
+  // a walk-in doesn't book a "24-hour" slot with only ~14 hours left.
+  const twentyFourPassed = isToday && currentHour >= 16;
 
-  // Auto-switch away from Day if its window passed
+  // Auto-switch away from Day or 24hr if its window passed
   useEffect(() => {
     if (dayPassed && form.bookingType === 'day') setField('bookingType', 'night');
   }, [dayPassed]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (twentyFourPassed && form.bookingType === '24hr') setField('bookingType', 'night');
+  }, [twentyFourPassed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function setField(key, val) { setForm(f => ({ ...f, [key]: val })); }
 
@@ -1047,7 +1053,7 @@ export default function WalkIn({ embedded = false }) {
                       {[
                         { type: 'day',   icon: 'fa-sun',   label: 'Day',   disabled: !form.date || dayPassed || !typeAllowed('day') },
                         { type: 'night', icon: 'fa-moon',  label: 'Night', disabled: !form.date || !typeAllowed('night') },
-                        { type: '24hr',  icon: 'fa-clock', label: '24 Hrs', disabled: !form.date || !typeAllowed('24hr') },
+                        { type: '24hr',  icon: 'fa-clock', label: '24 Hrs', disabled: !form.date || twentyFourPassed || !typeAllowed('24hr') },
                       ].map(opt => {
                         const active = opt.type === '24hr' ? is24hr : form.bookingType === opt.type;
                         return (
