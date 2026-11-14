@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { createPortal } from "react-dom";
 import Modal from "../../components/modals/Modal.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
@@ -685,6 +686,7 @@ export default function AdminRooms() {
 
   return (
     <>
+      <Helmet><title>Rooms — Aplaya Beach Resort</title></Helmet>
       <TabBar tabs={TABS} active={activeTab} onChange={setActiveTab} />
     <div className="p-6 space-y-6">
       <Toast message={toast} type={toastType} onClose={clearToast} action={toastAction} />

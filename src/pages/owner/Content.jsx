@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { createPortal } from "react-dom";
 import { getAdminGallery, updateAdminGallery, batchCreateGallery, renameCategoryGallery, toggleCategoryHidden, batchFeaturedGallery, deleteAdminGallery, getAdminContacts, markAdminContactRead, replyAdminContact, updateAdminContent, getAdminReviews, updateAdminReview, deleteAdminReview, getResortAmenities, createResortAmenity, updateResortAmenity, deleteResortAmenity } from "../../lib/adminApi";
 import { api } from "../../lib/api";
@@ -3715,6 +3716,7 @@ export default function AdminContent() {
 
   return (
     <>
+      <Helmet><title>Manage Website — Aplaya Beach Resort</title></Helmet>
       <TabBar tabs={OUTER_TABS} active={outerTab} onChange={setOuterTab} />
     <div className="p-6 space-y-6">
       <Toast message={toast} type={toastType} onClose={clearToast} />

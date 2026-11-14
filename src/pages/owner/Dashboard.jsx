@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { Helmet } from "react-helmet-async";
 import { Line, Doughnut } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -375,6 +376,7 @@ export default function OwnerDashboard() {
 
   return (
     <div className="p-6 space-y-6">
+      <Helmet><title>Owner Dashboard — Aplaya Beach Resort</title></Helmet>
 
       {/* Header + refresh */}
       <div className="flex items-center justify-between">

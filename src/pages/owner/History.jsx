@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { getAdminHistory, getAdminHistoryFacets } from "../../lib/adminApi";
 import useDebounce from "../../hooks/useDebounce.js";
 import Modal from "../../components/modals/Modal.jsx";
@@ -347,6 +348,7 @@ export default function AdminHistory() {
 
   return (
     <>
+    <Helmet><title>History — Aplaya Beach Resort</title></Helmet>
     <div className="p-6 space-y-6">
       <Toast message={toast} type={toastType} onClose={clearToast} />
 

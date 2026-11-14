@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useNotifications } from "../../context/NotificationContext.jsx";
 
@@ -176,6 +177,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      <Helmet><title>Admin Dashboard — Aplaya Beach Resort</title></Helmet>
       {/* Greeting */}
       <div className="mb-6">
         <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { getNewsletterSubscribers, sendNewsletterCampaign, deleteNewsletterSubscriber } from "../../lib/adminApi";
 import useFocusTrap from "../../hooks/useFocusTrap.js";
 import { usePagination, PaginationBar } from "../../lib/pagination.jsx";
@@ -302,6 +303,7 @@ export default function OwnerNewsletter() {
 
   return (
     <div className="p-6 space-y-6">
+      <Helmet><title>Newsletter — Aplaya Beach Resort</title></Helmet>
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

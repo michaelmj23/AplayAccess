@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { Helmet } from "react-helmet-async";
 import { getAdminMessages, replyAdminMessage, markAdminMessageRead, deleteAdminMessage, toggleMessagingBlock, getActiveGuestsForMessaging, composeAdminMessage, getAutoReplies, createAutoReply, updateAutoReply, deleteAutoReply } from "../../lib/adminApi";
 import Modal from "../../components/modals/Modal.jsx";
 import Avatar from "../../components/ui/Avatar.jsx";
@@ -790,6 +791,7 @@ export default function AdminMessages() {
 
   return (
     <div className="p-4 md:p-5 space-y-3 h-full flex flex-col">
+      <Helmet><title>Messages — Aplaya Beach Resort</title></Helmet>
       <Toast message={toast} type={toastType} onClose={clearToast} action={toastAction} />
 
       {/* Auto-Reply Rules Panel */}

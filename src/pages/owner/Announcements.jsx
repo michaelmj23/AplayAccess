@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Helmet } from "react-helmet-async";
 import Modal from "../../components/modals/Modal.jsx";
 import Toast, { useToast } from "../../components/ui/Toast";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
@@ -411,6 +412,7 @@ export default function AdminAnnouncements() {
 
   return (
     <div className="p-6 space-y-6">
+      <Helmet><title>Announcements — Aplaya Beach Resort</title></Helmet>
       {/* Toast at top so it overlays modals */}
       <Toast message={toast} type={toastType} onClose={clearToast} action={toastAction} />
 

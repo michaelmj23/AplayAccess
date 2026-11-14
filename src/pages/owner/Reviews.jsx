@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Helmet } from "react-helmet-async";
 import Modal from "../../components/modals/Modal.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import Toast, { useToast } from "../../components/ui/Toast";
@@ -226,6 +227,7 @@ export default function AdminReviews() {
 
   return (
     <div className="p-6 space-y-6">
+      <Helmet><title>Reviews — Aplaya Beach Resort</title></Helmet>
       <Toast message={toast} type={toastType} onClose={clearToast} action={toastAction} />
 
       {/* ── #2 ConfirmDialog for actions ── */}

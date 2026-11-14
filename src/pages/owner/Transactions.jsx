@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { Bar } from "react-chartjs-2";
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from "chart.js";
 import { getAdminBookings, getAnalyticsOverview } from "../../lib/adminApi.js";
@@ -273,6 +274,7 @@ export default function OwnerTransactions() {
 
   return (
     <div className="p-6 space-y-6">
+      <Helmet><title>Transactions — Aplaya Beach Resort</title></Helmet>
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

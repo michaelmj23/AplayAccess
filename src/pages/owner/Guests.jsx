@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Helmet } from "react-helmet-async";
 import Modal from "../../components/modals/Modal.jsx";
 import Toast, { useToast } from "../../components/ui/Toast";
 import { getAdminGuests } from "../../lib/adminApi";
@@ -128,6 +129,7 @@ export default function AdminGuests() {
 
   return (
     <div className="p-6 space-y-6">
+      <Helmet><title>Guests — Aplaya Beach Resort</title></Helmet>
       {/* Header */}
       <div className="bg-white rounded-xl shadow-sm p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>

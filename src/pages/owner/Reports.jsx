@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import { Helmet } from "react-helmet-async";
 import { Bar, Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -311,6 +312,7 @@ export default function OwnerReports() {
 
   return (
     <div className="p-6 space-y-6">
+      <Helmet><title>Reports — Aplaya Beach Resort</title></Helmet>
 
       {/* Tab switcher */}
       <div className="flex gap-2 border-b border-slate-200 pb-0">
