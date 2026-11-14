@@ -76,8 +76,8 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   const bookingResultRef = useRef(null); // stores API response after booking created
   const [bookingType, setBookingType] = useState("day"); // "day" | "night" | "24hr"
   // For 24hr bookings the guest picks any on-the-hour start time (0–23).
-  // Defaults to a 6AM start; gets validated against the 12-hour lead rule.
-  const [checkInHour, setCheckInHour] = useState(6);
+  // Defaults to a 7AM start; gets validated against the 12-hour lead rule.
+  const [checkInHour, setCheckInHour] = useState(7);
   const [visitDate, setVisitDate]     = useState("");
   // Room selection is tracked by its primary-key id so duplicate names
   // can't collapse availability / metadata / submitted-id onto the wrong
@@ -381,7 +381,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // Time-slot guard: disable booking types whose window already passed today
   const isToday     = visitDate === todayStr();
   const currentHour = new Date().getHours();
-  const dayPassed   = isToday && currentHour >= 18;   // Day (6AM–6PM) window closed
+  const dayPassed   = isToday && currentHour >= 17;   // Day (7AM–5PM) window closed
 
   // Auto-switch away from Day if its window passed
   useEffect(() => {
@@ -396,7 +396,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
 
   // When the selected date is today, hours earlier than "now" are disabled
   // in the hour-grid picker. Pre-existing auto-switch from Day → Night at
-  // 6 PM handles the Day slot; this handles the 24hr slot.
+  // 5 PM handles the Day slot; this handles the 24hr slot.
   const isTodaySelected = visitDate === todayStr();
   const minHourToday    = isTodaySelected ? new Date().getHours() : 0;
 
@@ -947,8 +947,8 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 </label>
                 <div className="flex gap-2" role="group" aria-labelledby="booking-type-label">
                   {[
-                    { key: "day",   icon: "fa-sun",   label: "Day",    time: "6AM\u20136PM",  disabled: !visitDate || dayPassed || !typeAllowed("day") },
-                    { key: "night", icon: "fa-moon",  label: "Night",   time: "6PM\u20137AM",  disabled: !visitDate || !typeAllowed("night") },
+                    { key: "day",   icon: "fa-sun",   label: "Day",    time: "7AM\u20135PM",  disabled: !visitDate || dayPassed || !typeAllowed("day") },
+                    { key: "night", icon: "fa-moon",  label: "Night",   time: "6PM\u20136AM",  disabled: !visitDate || !typeAllowed("night") },
                     { key: "24hr",  icon: "fa-clock", label: "24 Hrs", time: "Any start", disabled: !visitDate || !typeAllowed("24hr") },
                   ].map(opt => {
                     const active = bookingType === opt.key;
@@ -2019,10 +2019,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
             purple: "bg-purple-100 text-purple-800",
           };
           const typeInfo = {
-            day:    { label: "Day Visit",  icon: "fa-sun",   color: "blue",   checkIn: "6:00 AM", checkOut: "6:00 PM (same day)" },
-            night:  { label: "Night Stay",  icon: "fa-moon",  color: "indigo", checkIn: "6:00 PM", checkOut: "7:00 AM (next day)" },
+            day:    { label: "Day Visit",  icon: "fa-sun",   color: "blue",   checkIn: "7:00 AM", checkOut: "5:00 PM (same day)" },
+            night:  { label: "Night Stay",  icon: "fa-moon",  color: "indigo", checkIn: "6:00 PM", checkOut: "6:00 AM (next day)" },
             "24hr": { label: `24 Hours (${hourLabel})`, icon: "fa-clock", color: "purple", checkIn: hourLabel, checkOut: `${hourLabel} (next day)` },
-          }[bookingType] ?? { label: "Day Visit", icon: "fa-sun", color: "blue", checkIn: "6:00 AM", checkOut: "6:00 PM (same day)" };
+          }[bookingType] ?? { label: "Day Visit", icon: "fa-sun", color: "blue", checkIn: "7:00 AM", checkOut: "5:00 PM (same day)" };
           const rateLabel = bookingType === "night" ? "Overnight rate" : is24hr ? "24-hour rate" : "Day visit rate";
           return (
           <div className="fixed inset-0 z-[60] overflow-y-auto flex items-center justify-center px-4 py-10"

@@ -1289,8 +1289,8 @@ export default function AdminRooms() {
               <div className="p-5">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {[
-                    ["Day Rate",       "day_rate",       "fa-sun",   "6AM\u20136PM" ],
-                    ["Overnight Rate", "overnight_rate", "fa-moon",  "6PM\u20137AM" ],
+                    ["Day Rate",       "day_rate",       "fa-sun",   "7AM\u20135PM" ],
+                    ["Overnight Rate", "overnight_rate", "fa-moon",  "6PM\u20136AM" ],
                     ["24hr Rate",      "rate_24hr",      "fa-clock", "Full day"     ],
                   ].map(([label, key, icon, sub]) => (
                     <div key={key} className="bg-white rounded-lg border border-slate-200 p-3.5">
@@ -1510,8 +1510,8 @@ export default function AdminRooms() {
                 <p className="text-xs text-slate-400">Leave all unchecked to allow all types.</p>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { key: "day",   label: "Day",      sub: "6AM \u2013 6PM",  icon: "fa-sun",   checkedBg: "bg-amber-50 border-amber-300 ring-1 ring-amber-200",   checkedIcon: "text-amber-600"   },
-                    { key: "night", label: "Night",    sub: "6PM \u2013 7AM",  icon: "fa-moon",  checkedBg: "bg-indigo-50 border-indigo-300 ring-1 ring-indigo-200", checkedIcon: "text-indigo-600"  },
+                    { key: "day",   label: "Day",      sub: "7AM \u2013 5PM",  icon: "fa-sun",   checkedBg: "bg-amber-50 border-amber-300 ring-1 ring-amber-200",   checkedIcon: "text-amber-600"   },
+                    { key: "night", label: "Night",    sub: "6PM \u2013 6AM",  icon: "fa-moon",  checkedBg: "bg-indigo-50 border-indigo-300 ring-1 ring-indigo-200", checkedIcon: "text-indigo-600"  },
                     { key: "24hr",  label: "24 Hours", sub: "Full day",        icon: "fa-clock", checkedBg: "bg-emerald-50 border-emerald-300 ring-1 ring-emerald-200", checkedIcon: "text-emerald-600" },
                   ].map(({ key, label, sub, icon, checkedBg, checkedIcon }) => {
                     const checked = (editing?.allowed_booking_types ?? []).includes(key);

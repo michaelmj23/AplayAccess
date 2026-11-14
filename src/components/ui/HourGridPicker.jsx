@@ -8,7 +8,7 @@
 // Design notes:
 //  - One cell per hour: shows just "6" / "12" etc., the AM/PM row header
 //    carries the period. Tooltips + aria-label still speak the full time.
-//  - Quick picks (6 AM / 12 PM / 6 PM) cover ~90% of bookings so most
+//  - Quick picks (7 AM / 12 PM / 5 PM) cover ~90% of bookings so most
 //    users never touch the full grid.
 //  - The summary sentence below updates live so the full start/end
 //    window is always one glance away — no need to repeat it on every
@@ -26,7 +26,7 @@
 
 const AM_HOURS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const PM_HOURS = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
-const QUICK_PICKS = [6, 12, 18]; // 6 AM / 12 PM / 6 PM
+const QUICK_PICKS = [7, 12, 17]; // 7 AM / 12 PM / 5 PM
 
 function hourLabel12(h) {
   const suffix = h < 12 ? "AM" : "PM";

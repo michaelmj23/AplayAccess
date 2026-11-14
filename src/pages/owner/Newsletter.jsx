@@ -37,7 +37,7 @@ Summer is in full swing, and there's no better place to enjoy it than Aplaya Bea
 Whether you're looking for a relaxing day by the beach, a romantic overnight getaway, or a fun-filled family vacation, we have the perfect package for you.
 
 🌊 Beachfront cottages, pavilions, and rooms — pick your group size.
-☀️ Day visits from 6 AM, overnight from 6 PM, or stay the full 24 hours.
+☀️ Day visits from 7 AM, overnight from 6 PM, or stay the full 24 hours.
 🚪 Walk-ins welcome — or reserve online and pay with GCash.
 
 Book now and make this summer unforgettable!

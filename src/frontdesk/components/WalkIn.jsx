@@ -335,7 +335,7 @@ export default function WalkIn({ embedded = false }) {
   // Time-slot guard: disable booking types whose window already passed today
   const isToday     = form.date === today;
   const currentHour = new Date().getHours();
-  const dayPassed   = isToday && currentHour >= 18;   // Day (6AM–6PM) window closed
+  const dayPassed   = isToday && currentHour >= 17;   // Day (7AM–5PM) window closed
 
   // Auto-switch away from Day if its window passed
   useEffect(() => {
@@ -638,8 +638,8 @@ export default function WalkIn({ embedded = false }) {
         if (form.date === today) {
           const now = new Date();
           const h = now.getHours() + now.getMinutes() / 60;
-          if (form.bookingType === 'day')        remainingHrs = 18 - h;        // ends 6PM
-          else if (form.bookingType === 'night')  remainingHrs = (h >= 18 ? (24 - h) + 7 : 7 - h);  // ends 7AM
+          if (form.bookingType === 'day')        remainingHrs = 17 - h;        // ends 5PM
+          else if (form.bookingType === 'night')  remainingHrs = (h >= 18 ? (24 - h) + 6 : 6 - h);  // ends 6AM
           else if (form.bookingType === '24hr')   remainingHrs = 24; // 24 hours from staff-picked start
         }
         const shortStay = remainingHrs !== null && remainingHrs > 0 && remainingHrs < 4;

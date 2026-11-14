@@ -16,8 +16,8 @@ import { fmtDateTime } from "../../lib/format";
 function toResumeBooking(b) {
   if (!b) return null;
   const typeLabels = {
-    day: 'Day Visit (6 AM – 6 PM)',
-    night: 'Night Stay (6 PM – 7 AM)',
+    day: 'Day Visit (7 AM – 5 PM)',
+    night: 'Night Stay (6 PM – 6 AM)',
     '24hr': '24 Hours',
     '24hr-pm': '24 Hours',
   };

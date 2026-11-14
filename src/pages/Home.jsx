@@ -64,7 +64,7 @@ const HOME_DEFAULTS = {
     sectionSubtitle: "The basics, done right. No add-on fees for what should be included.",
     features: [
       { icon: "fa-umbrella-beach", title: "Beachfront cottages",   desc: "Private cottages and pavilions a few steps from the water — book the one that fits your group size." },
-      { icon: "fa-clock",          title: "Three booking windows", desc: "Day visit (6 AM–6 PM), overnight (6 PM–7 AM), or full 24-hour. Pick the one that matches the trip." },
+      { icon: "fa-clock",          title: "Three booking windows", desc: "Day visit (7 AM–5 PM), overnight (6 PM–6 AM), or full 24-hour. Pick the one that matches the trip." },
       { icon: "fa-mobile-screen",  title: "Online or at the gate", desc: "Reserve online with GCash, or pay cash on arrival. Same rates either way." },
       // Removed "Entrance covered too" card — falsely claimed
       // entrance fee was built into the booking total. In reality

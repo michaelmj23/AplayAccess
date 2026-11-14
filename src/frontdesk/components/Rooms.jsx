@@ -46,28 +46,29 @@ function countdown(ms) {
 }
 
 // ─── Slot windows ─────────────────────────────────────────────────────────────
-// Day Visit   = today 06:00 – today 18:00
-// Overnight   = today 18:00 – tomorrow 07:00 (or yesterday 18:00 – today 07:00
+// Day Visit   = today 07:00 – today 17:00
+// Overnight   = today 18:00 – tomorrow 06:00 (or yesterday 18:00 – today 06:00
 //               if the viewer is currently in the small-hours window)
+// 5-6 PM and 6-7 AM are cleaning windows between slots.
 // A booking "occupies" a slot iff its [checkIn, checkOut) range overlaps the
 // slot window. This correctly handles 24hr bookings that straddle both slots.
 function dayWindow(now) {
   const d = now;
-  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 6,  0, 0, 0);
-  const end   = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 18, 0, 0, 0);
+  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 7,  0, 0, 0);
+  const end   = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 17, 0, 0, 0);
   return [start, end];
 }
 
 function overnightWindow(now) {
   const d = now;
-  // Before 7 AM the "current overnight" is last night, not tonight.
-  if (d.getHours() < 7) {
+  // Before 6 AM the "current overnight" is last night, not tonight.
+  if (d.getHours() < 6) {
     const start = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, 18, 0, 0, 0);
-    const end   = new Date(d.getFullYear(), d.getMonth(), d.getDate(),      7, 0, 0, 0);
+    const end   = new Date(d.getFullYear(), d.getMonth(), d.getDate(),      6, 0, 0, 0);
     return [start, end];
   }
   const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(),     18, 0, 0, 0);
-  const end   = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1,  7, 0, 0, 0);
+  const end   = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1,  6, 0, 0, 0);
   return [start, end];
 }
 
@@ -716,7 +717,7 @@ export default function FDRooms({ embedded = false }) {
   }, [roomInfos, filter]);
 
   // After 6PM PH time, overnight is the active shift — show it first, fade day
-  // Before 6AM, overnight is still active (ends 7AM)
+  // Before 6AM, overnight is still active (ends 6AM)
   const currentHour  = new Date().getHours();
   const isNightShift = currentHour >= 18 || currentHour < 6;
 

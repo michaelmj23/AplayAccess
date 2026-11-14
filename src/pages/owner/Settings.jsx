@@ -7,7 +7,7 @@ import { getAdminSettings, updateAdminSettings } from "../../lib/adminApi";
 const PRICING_FIELDS = [
   {
     key:         "entrance_fee_day",
-    label:       "Entrance Fee — Day (6AM–6PM)",
+    label:       "Entrance Fee — Day (7AM–5PM)",
     description: "Per guest for daytime visits.",
     icon:        "fa-sun",
     prefix:      "₱",
@@ -16,7 +16,7 @@ const PRICING_FIELDS = [
   },
   {
     key:         "entrance_fee_night",
-    label:       "Entrance Fee — Night (6PM–7AM)",
+    label:       "Entrance Fee — Night (6PM–6AM)",
     description: "Per guest for nighttime visits.",
     icon:        "fa-moon",
     prefix:      "₱",
