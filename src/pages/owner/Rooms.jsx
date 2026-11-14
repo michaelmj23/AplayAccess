@@ -809,7 +809,7 @@ export default function AdminRooms() {
           </div>
           <div className="flex flex-col md:flex-row md:items-center gap-3 w-full md:w-auto">
             <div className="relative w-full md:w-64">
-              <input type="text" aria-label="Search rooms" placeholder="Search rooms\u2026"
+              <input type="text" aria-label="Search rooms" placeholder="Search rooms…"
                 value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
                 className="w-full pr-10 pl-10 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400 text-sm"
               />

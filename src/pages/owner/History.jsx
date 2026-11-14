@@ -348,7 +348,7 @@ export default function AdminHistory() {
 
   return (
     <>
-    <Helmet><title>History — Aplaya Beach Resort</title></Helmet>
+    <Helmet><title>Activity Log — Aplaya Beach Resort</title></Helmet>
     <div className="p-6 space-y-6">
       <Toast message={toast} type={toastType} onClose={clearToast} />
 

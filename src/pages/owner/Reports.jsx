@@ -463,7 +463,9 @@ export default function OwnerReports() {
             the owner can see the split at a glance — same logical cluster
             as the money metrics. Forfeited is INCLUDED in Total Revenue;
             it's surfaced separately for transparency, not as additive. */}
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+        {/* 6 KPIs in one row at lg (1024px) truncated both labels and
+            values; push the 6-col density to xl so each tile has room. */}
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           {[
             { label: "Total Revenue",      value: loading ? "—" : fmt(revenue),              icon: "fa-money-bill-wave", color: "bg-green-100 text-green-600",
               subtitle: forfeited > 0 ? `incl. ${fmt(forfeited)} forfeited` : null },
