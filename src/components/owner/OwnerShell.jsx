@@ -11,6 +11,7 @@ import { updateProfile, changePassword } from "../../lib/profileApi.js";
 import { uploadFile } from "../../lib/uploadApi.js";
 import useLockBodyScroll from "../../hooks/useLockBodyScroll.js";
 import useFocusTrap from "../../hooks/useFocusTrap.js";
+import ConfirmDialog from "../ui/ConfirmDialog.jsx";
 import Modal from "../modals/Modal.jsx";
 import StaffChatWidget from "../StaffChatWidget.jsx";
 import { Helmet } from "react-helmet-async";
@@ -234,9 +235,19 @@ export default function OwnerShell() {
   const isActive = (path) =>
     path === "/owner" ? location.pathname === "/owner" : location.pathname.startsWith(path);
 
-  const handleLogout = async () => {
+  const [confirmLogout, setConfirmLogout] = useState(false);
+
+  const requestLogout = () => {
     setProfileOpen(false);
+    setMobileOpen(false);
+    setConfirmLogout(true);
+  };
+
+  const doLogout = async () => {
+    const name = user?.name;
+    setConfirmLogout(false);
     await logout();
+    showToast(name ? `See you next time, ${name}!` : "You've been signed out.", "success");
     navigate("/staff-login");
   };
 
@@ -341,7 +352,7 @@ export default function OwnerShell() {
           </div>
         )}
         <button
-          onClick={handleLogout}
+          onClick={requestLogout}
           className="flex items-center w-full px-2 py-2 text-blue-100 hover:bg-brand-hover rounded transition"
         >
           <i className="fas fa-sign-out-alt mr-3 w-5 text-center" aria-hidden="true"></i>
@@ -460,7 +471,7 @@ export default function OwnerShell() {
                     </button>
                     <button
                       role="menuitem"
-                      onClick={handleLogout}
+                      onClick={requestLogout}
                       className="p-3 flex items-center w-full text-left hover:bg-gray-50 text-red-500"
                     >
                       <i className="fas fa-sign-out-alt mr-3" aria-hidden="true"></i>
@@ -678,6 +689,17 @@ export default function OwnerShell() {
       )}
 
       <Toast message={toast} type={toastType} onClose={clearToast} />
+
+      <ConfirmDialog
+        open={confirmLogout}
+        title="Log out?"
+        message={user?.name ? `${user.name}, this will end your session.` : "This will end your session."}
+        confirmLabel="Log out"
+        cancelLabel="Stay signed in"
+        variant="warning"
+        onConfirm={doLogout}
+        onCancel={() => setConfirmLogout(false)}
+      />
 
       {/* Staff quick-reply widget — floating bubble that lets the
           owner reply to a recent guest message without leaving

@@ -10,6 +10,7 @@ import Toast, { useToast } from "../ui/Toast.jsx";
 import { updateProfile, changePassword } from "../../lib/profileApi.js";
 import useLockBodyScroll from "../../hooks/useLockBodyScroll.js";
 import useFocusTrap from "../../hooks/useFocusTrap.js";
+import ConfirmDialog from "../ui/ConfirmDialog.jsx";
 import Modal from "../modals/Modal.jsx";
 import { Helmet } from "react-helmet-async";
 
@@ -213,9 +214,19 @@ export default function AdminShell() {
       ? location.pathname === "/admin"
       : location.pathname.startsWith(path);
 
-  const handleLogout = async () => {
+  const [confirmLogout, setConfirmLogout] = useState(false);
+
+  const requestLogout = () => {
     setProfileOpen(false);
+    setMobileOpen(false);
+    setConfirmLogout(true);
+  };
+
+  const doLogout = async () => {
+    const name = user?.name;
+    setConfirmLogout(false);
     await logout();
+    showToast(name ? `See you next time, ${name}!` : "You've been signed out.", "success");
     navigate("/staff-login");
   };
 
@@ -430,7 +441,7 @@ export default function AdminShell() {
         )}
         <button
           type="button"
-          onClick={handleLogout}
+          onClick={requestLogout}
           aria-label={collapsed && !mobile ? "Logout" : undefined}
           className="flex items-center w-full p-2 min-h-11 text-blue-100 hover:bg-brand-hover hover:text-white rounded transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand"
         >
@@ -553,7 +564,7 @@ export default function AdminShell() {
                     <button
                       type="button"
                       role="menuitem"
-                      onClick={handleLogout}
+                      onClick={requestLogout}
                       className="p-3 min-h-11 flex items-center w-full text-left hover:bg-gray-50 text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-inset"
                     >
                       <i className="fas fa-sign-out-alt mr-3" aria-hidden="true"></i>
@@ -831,6 +842,17 @@ export default function AdminShell() {
 
       {/* Shared Toast */}
       <Toast message={toast} type={toastType} onClose={clearToast} />
+
+      <ConfirmDialog
+        open={confirmLogout}
+        title="Log out?"
+        message={user?.name ? `${user.name}, this will end your session.` : "This will end your session."}
+        confirmLabel="Log out"
+        cancelLabel="Stay signed in"
+        variant="warning"
+        onConfirm={doLogout}
+        onCancel={() => setConfirmLogout(false)}
+      />
 
       {/* Floating quick-reply widget — same pattern as OwnerShell.
           Lets admin answer a recent guest message without leaving
