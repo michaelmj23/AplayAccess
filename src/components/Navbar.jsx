@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext.jsx";
 import useLockBodyScroll from "../hooks/useLockBodyScroll.js";
@@ -87,15 +87,47 @@ export default function Navbar() {
         <div className="hidden md:flex items-center gap-4">
           {/* py-2 -my-2 keeps the visual rhythm tight while
               providing a 32-pt+ vertical hit slot per link with
-              a focus-visible ring for keyboard users. */}
-          <Link to="/" className="text-gray-700 hover:text-sky-600 text-sm font-medium py-2 -my-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">Home</Link>
-          <Link to="/resort" className="text-gray-700 hover:text-sky-600 text-sm font-medium py-2 -my-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">Resort</Link>
-          <Link to="/rooms" className="text-gray-700 hover:text-sky-600 text-sm font-medium py-2 -my-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">Rooms</Link>
-          <Link to="/gallery" className="text-gray-700 hover:text-sky-600 text-sm font-medium py-2 -my-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">Gallery</Link>
+              a focus-visible ring for keyboard users.
+              Active-page gets a sky-600 color + underline so
+              users always know which section they're in.
+              aria-current="page" is set automatically by NavLink
+              on the active link for assistive tech. */}
+          {[
+            { to: "/",        label: "Home" },
+            { to: "/resort",  label: "Resort" },
+            { to: "/rooms",   label: "Rooms" },
+            { to: "/gallery", label: "Gallery" },
+          ].map(item => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === "/"}
+              className={({ isActive }) =>
+                `text-sm font-medium py-2 -my-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 border-b-2 ${
+                  isActive
+                    ? "text-sky-600 border-sky-600"
+                    : "text-gray-700 hover:text-sky-600 border-transparent"
+                }`
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
 
           {user ? (
             <>
-              <Link to="/dashboard" className="text-gray-700 hover:text-sky-600 text-sm font-medium py-2 -my-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">My Account</Link>
+              <NavLink
+                to="/dashboard"
+                className={({ isActive }) =>
+                  `text-sm font-medium py-2 -my-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 border-b-2 ${
+                    isActive
+                      ? "text-sky-600 border-sky-600"
+                      : "text-gray-700 hover:text-sky-600 border-transparent"
+                  }`
+                }
+              >
+                My Account
+              </NavLink>
               <button onClick={logout} className="text-sm font-medium text-red-700 hover:text-red-800 py-2 -my-2 px-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500" type="button">Logout</button>
             </>
           ) : (
@@ -143,26 +175,54 @@ export default function Navbar() {
           className="md:hidden bg-white border-t shadow-lg focus:outline-none"
         >
           <div className="px-4 py-3 space-y-1" onClick={() => setMenuOpen(false)}>
-            <Link to="/" className="block px-3 py-3 rounded-lg text-gray-700 hover:bg-gray-100 text-sm font-medium">
-              <i className="fas fa-home w-5 text-center mr-2 text-gray-400" aria-hidden="true"></i>Home
-            </Link>
-            <Link to="/resort" className="block px-3 py-3 rounded-lg text-gray-700 hover:bg-gray-100 text-sm font-medium">
-              <i className="fas fa-umbrella-beach w-5 text-center mr-2 text-gray-400" aria-hidden="true"></i>Resort
-            </Link>
-            <Link to="/rooms" className="block px-3 py-3 rounded-lg text-gray-700 hover:bg-gray-100 text-sm font-medium">
-              <i className="fas fa-bed w-5 text-center mr-2 text-gray-400" aria-hidden="true"></i>Rooms
-            </Link>
-            <Link to="/gallery" className="block px-3 py-3 rounded-lg text-gray-700 hover:bg-gray-100 text-sm font-medium">
-              <i className="fas fa-images w-5 text-center mr-2 text-gray-400" aria-hidden="true"></i>Gallery
-            </Link>
+            {[
+              { to: "/",        label: "Home",    icon: "fa-home" },
+              { to: "/resort",  label: "Resort",  icon: "fa-umbrella-beach" },
+              { to: "/rooms",   label: "Rooms",   icon: "fa-bed" },
+              { to: "/gallery", label: "Gallery", icon: "fa-images" },
+            ].map(item => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === "/"}
+                className={({ isActive }) =>
+                  `block px-3 py-3 rounded-lg text-sm font-medium ${
+                    isActive
+                      ? "bg-sky-50 text-sky-700"
+                      : "text-gray-700 hover:bg-gray-100"
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <i className={`fas ${item.icon} w-5 text-center mr-2 ${isActive ? "text-sky-600" : "text-gray-400"}`} aria-hidden="true"></i>
+                    {item.label}
+                  </>
+                )}
+              </NavLink>
+            ))}
 
             <div className="border-t border-gray-100 my-2"></div>
 
             {user ? (
               <>
-                <Link to="/dashboard" className="block px-3 py-3 rounded-lg text-gray-700 hover:bg-gray-100 text-sm font-medium">
-                  <i className="fas fa-user w-5 text-center mr-2 text-gray-400" aria-hidden="true"></i>My Account
-                </Link>
+                <NavLink
+                  to="/dashboard"
+                  className={({ isActive }) =>
+                    `block px-3 py-3 rounded-lg text-sm font-medium ${
+                      isActive
+                        ? "bg-sky-50 text-sky-700"
+                        : "text-gray-700 hover:bg-gray-100"
+                    }`
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      <i className={`fas fa-user w-5 text-center mr-2 ${isActive ? "text-sky-600" : "text-gray-400"}`} aria-hidden="true"></i>
+                      My Account
+                    </>
+                  )}
+                </NavLink>
                 <button
                   onClick={logout}
                   className="w-full text-left px-3 py-3 rounded-lg text-red-600 hover:bg-red-50 text-sm font-medium"
