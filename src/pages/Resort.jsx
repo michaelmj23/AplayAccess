@@ -13,6 +13,7 @@ import { getBookings } from "../lib/bookingApi.js";
 import { fmtDateTime } from "../lib/format.js";
 import { RESORT_ID } from "../lib/config.js";
 import { Helmet } from "react-helmet-async";
+import ConfirmDialog from "../components/ui/ConfirmDialog.jsx";
 
 // Local data for UI enrichment + offline fallback
 import { rooms as roomsFallback } from "../data/rooms.js";
@@ -309,6 +310,10 @@ export default function Resort() {
 
   // Newsletter inline feedback (no modal needed)
   const [newsletter, setNewsletter] = useState({ email: "", msg: "", type: "", submitting: false });
+  // Gated via ConfirmDialog: Submit validates + opens the dialog, Confirm
+  // actually fires the POST. Keeps the existing inline validation and
+  // success/error toasts; only adds the extra "are you sure" step.
+  const [confirmSub, setConfirmSub] = useState(false);
 
   // Gallery lightbox
   const [lightboxIdx, setLightboxIdx] = useState(null);
@@ -650,7 +655,9 @@ export default function Resort() {
     }
   }
 
-  async function submitNewsletter(e) {
+  // Form submit — validate inline, then open the confirm dialog.
+  // Doesn't POST yet; that happens on dialog Confirm.
+  function submitNewsletter(e) {
     e.preventDefault();
     const email = newsletter.email.trim();
 
@@ -665,6 +672,17 @@ export default function Resort() {
       return;
     }
 
+    // Clear any lingering inline error, open the confirm dialog.
+    setNewsletter((p) => ({ ...p, msg: "", type: "" }));
+    setConfirmSub(true);
+  }
+
+  // Dialog Confirm — actually fire the POST. Success + error toasts
+  // unchanged from before; on success we also reset the input so the
+  // field is ready for another address.
+  async function confirmSubscribeNewsletter() {
+    const email = newsletter.email.trim();
+    setConfirmSub(false);
     setNewsletter((p) => ({ ...p, submitting: true, msg: "", type: "" }));
     try {
       const res = await api.post("/api/newsletter", { email });
@@ -1831,6 +1849,20 @@ export default function Resort() {
         </div>
       )}
 
+      {/* Newsletter subscribe confirm — info variant (sky/blue, not
+          danger). Validation already ran in submitNewsletter; the
+          dialog just gives the visitor a chance to back out of an
+          accidental submit before we POST to /api/newsletter. */}
+      <ConfirmDialog
+        open={confirmSub}
+        title="Confirm subscription"
+        message={<>Subscribe <strong>{newsletter.email}</strong> to the Aplaya Beach Resort newsletter? You'll get occasional emails about promos and events. You can unsubscribe any time.</>}
+        confirmLabel="Subscribe"
+        cancelLabel="Cancel"
+        variant="info"
+        onConfirm={confirmSubscribeNewsletter}
+        onCancel={() => setConfirmSub(false)}
+      />
     </div>
   );
 }
