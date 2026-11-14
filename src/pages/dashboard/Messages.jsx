@@ -269,20 +269,28 @@ export default function Messages() {
             </div>
           </div>
         </div>
+      ) : threads.length === 0 ? (
+        /* First-time guest state — the 2-pane split (list + chat) only
+           makes sense once at least one thread exists. With zero threads
+           it rendered TWO empty-state panels plus a disabled compose
+           below the real one, which read as broken/loading. Collapse to
+           a single centered card; the top compose bar is the only input
+           they need. */
+        <div className="p-10 text-center">
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-slate-100 mb-4">
+            <i className="fas fa-inbox text-slate-400 text-2xl" aria-hidden="true"></i>
+          </div>
+          <p className="text-slate-700 font-semibold text-base">No conversations yet</p>
+          <p className="text-sm text-slate-500 mt-1.5 max-w-sm mx-auto">
+            Send a message to the resort using the box above to start a conversation.
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr]">
 
           {/* Thread list */}
           <div className={`border-r ${mobileChat ? "hidden lg:block" : ""}`}>
-            {threads.length === 0 ? (
-              <div className="p-8 text-center">
-                <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-slate-100 mb-3">
-                  <i className="fas fa-inbox text-slate-300 text-2xl"></i>
-                </div>
-                <p className="text-slate-500 font-medium text-sm">No messages yet</p>
-                <p className="text-xs text-slate-600 mt-1">Use the input above to send your first message.</p>
-              </div>
-            ) : (
+            {(
               threads.map((thread) => (
                 <button
                   key={thread.id}
