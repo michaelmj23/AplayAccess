@@ -127,10 +127,17 @@ function printDailyReport(dateBookings, reportDateLabel, totalRevenue, entranceR
     return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:8pt;font-weight:bold;color:${fg};background:${bg}">${s}</span>`;
   };
   const statusCount = (s) => dateBookings.filter(b => b.status === s).length;
-  // Gross = full value of all bookings regardless of status (shows potential earnings)
+  // Gross = full value of all bookings regardless of status (shows potential earnings).
+  // Used only for the "Gross Booking Value" summary card (labeled "Full value if no cancellations").
   const grossTotal = dateBookings.reduce((s,b) => s + Number(b.total||0) + calcEntrance(b, entranceRates), 0);
-  const efTotal = dateBookings.reduce((s,b) => s + calcEntrance(b, entranceRates), 0);
-  const totalGuests = dateBookings.reduce((s,b) => s + (b.guests||0), 0);
+  // Active-only sums for the "Total Guests" summary card + the per-row
+  // Totals tfoot — cancelled rows contribute nothing to what the resort
+  // actually served, so including them inflated the numbers.
+  const activeDateBookings = dateBookings.filter(b => b.status !== 'Cancelled');
+  const cancelledCount     = dateBookings.length - activeDateBookings.length;
+  const activeRoomTotal    = activeDateBookings.reduce((s,b) => s + Number(b.total||0), 0);
+  const efTotal            = activeDateBookings.reduce((s,b) => s + calcEntrance(b, entranceRates), 0);
+  const totalGuests        = activeDateBookings.reduce((s,b) => s + (b.guests||0), 0);
   const tableRows = dateBookings.map(b => `<tr${b.status==='Cancelled'?' style="color:#94a3b8"':''}><td style="font-family:monospace;font-size:8.5pt;color:#64748b">${esc(b.id)}</td><td>${esc(b.guest)}</td><td>${esc(b.roomType)}</td><td>${fmtT(b.checkIn)}</td><td>${fmtT(b.checkOut)}</td><td style="text-align:center">${calcDuration(b.checkIn, b.checkOut)}</td><td style="text-align:center">${b.guests}</td><td style="text-align:right">${fmtM(b.total)}</td><td style="text-align:right;color:#92400e">${fmtM(calcEntrance(b, entranceRates))}</td><td>${statusBadge(esc(b.status))}</td></tr>`).join('');
   const css = `*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10pt;color:#1a1a1a;padding:32px}.hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e3a8a;padding-bottom:16px;margin-bottom:24px}.co{font-size:18pt;font-weight:bold;color:#1e3a8a}.cosub{font-size:9pt;color:#64748b;margin-top:3px}.rt{text-align:right}.rt h2{font-size:13pt;font-weight:bold;color:#1e3a8a}.rt p{font-size:10pt;color:#334155;margin-top:2px}.rt small{font-size:8pt;color:#94a3b8}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}.card{border:1px solid #e2e8f0;border-radius:6px;padding:12px 14px}.lbl{font-size:8pt;color:#64748b;text-transform:uppercase;letter-spacing:.05em}.val{font-size:16pt;font-weight:bold;color:#0f172a;margin-top:4px}.hint{font-size:8pt;color:#94a3b8;margin-top:2px}.srow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px}.sbox{border:1px solid #e2e8f0;border-radius:6px;padding:10px;text-align:center}.sbox .n{font-size:18pt;font-weight:bold;color:#0f172a}.sbox .s{font-size:8pt;color:#64748b;text-transform:uppercase;letter-spacing:.04em}.sech{font-size:9pt;font-weight:bold;color:#1e3a8a;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #e2e8f0;padding-bottom:6px;margin-bottom:10px;margin-top:20px}table{width:100%;border-collapse:collapse;font-size:9pt}th{background:#1e3a8a;color:#fff;padding:7px 8px;text-align:left;font-size:8pt;text-transform:uppercase;letter-spacing:.04em}td{padding:6px 8px;border-bottom:1px solid #f1f5f9}tr:nth-child(even) td{background:#f8fafc}tfoot td{background:#1e3a8a!important;color:#fff!important;font-weight:bold;padding:7px 8px}.ftr{margin-top:28px;border-top:1px solid #e2e8f0;padding-top:10px;display:flex;justify-content:space-between;font-size:8pt;color:#94a3b8}@page{margin:1.5cm}`;
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Daily Report — ${reportDateLabel}</title><style>${css}</style></head><body>
@@ -138,7 +145,7 @@ function printDailyReport(dateBookings, reportDateLabel, totalRevenue, entranceR
 <div class="cards"><div class="card"><div class="lbl">Total Bookings</div><div class="val">${dateBookings.length}</div></div><div class="card"><div class="lbl">Total Guests</div><div class="val">${totalGuests}</div></div><div class="card"><div class="lbl">Revenue Collected</div><div class="val" style="font-size:13pt">${fmtM(totalRevenue)}</div><div class="hint">Completed + forfeited fees</div></div><div class="card"><div class="lbl">Gross Booking Value</div><div class="val" style="font-size:13pt">${fmtM(grossTotal)}</div><div class="hint">Full value if no cancellations</div></div></div>
 <div class="sech" style="margin-top:0">Status Breakdown</div><div class="srow" style="grid-template-columns:repeat(3,1fr)">${['Confirmed','Completed','Cancelled'].map(s=>`<div class="sbox"><div class="n">${statusCount(s)}</div><div class="s">${s}</div></div>`).join('')}</div>
 <div class="sech">Booking Details</div>
-<table><thead><tr><th>ID</th><th>Guest</th><th>Room</th><th>Check-in</th><th>Check-out</th><th style="text-align:center">Duration</th><th style="text-align:center">Guests</th><th style="text-align:right">Room Total</th><th style="text-align:right">Entrance Fee</th><th>Status</th></tr></thead><tbody>${tableRows}</tbody><tfoot><tr><td colspan="6">Totals</td><td style="text-align:center">${totalGuests}</td><td style="text-align:right">${fmtM(grossTotal - efTotal)}</td><td style="text-align:right">${fmtM(efTotal)}</td><td style="text-align:right">${fmtM(totalRevenue)} collected</td></tr></tfoot></table>
+<table><thead><tr><th>ID</th><th>Guest</th><th>Room</th><th>Check-in</th><th>Check-out</th><th style="text-align:center">Duration</th><th style="text-align:center">Guests</th><th style="text-align:right">Room Total</th><th style="text-align:right">Entrance Fee</th><th>Status</th></tr></thead><tbody>${tableRows}</tbody><tfoot><tr><td colspan="6">Totals${cancelledCount > 0 ? ` (excl. ${cancelledCount} cancelled)` : ''}</td><td style="text-align:center">${totalGuests}</td><td style="text-align:right">${fmtM(activeRoomTotal)}</td><td style="text-align:right">${fmtM(efTotal)}</td><td style="text-align:right">${fmtM(totalRevenue)} collected</td></tr></tfoot></table>
 <div class="ftr"><span>AplayAccess · Aplaya Beach Resort · Front Desk</span><span>Confidential — Internal use only</span><span>Generated: ${now}</span></div>
 </body></html>`;
   // Hidden-iframe print via the shared util — works on mobile where
@@ -192,6 +199,20 @@ export default function Reports() {
     b.checkIn?.slice(0, 10) === reportDate ||
     (b.status === 'Cancelled' && b.updatedAt?.slice(0, 10) === reportDate)
   ), [bookings, reportDate]);
+
+  // Active = dateBookings minus cancellations. Used anywhere a "Totals"
+  // sum should reflect what the resort actually served/charged — Room
+  // Total, Entrance Fee, Guests. Cancelled rows contribute nothing to
+  // those columns because nobody showed up, so including them in the
+  // tfoot inflated the numbers and confused staff reading the report.
+  // Revenue Collected (totalRevenue) is computed separately and still
+  // uses the full dateBookings — a cancelled booking's forfeited
+  // reservation fee is real money in hand and legitimately revenue.
+  const activeDateBookings = useMemo(
+    () => dateBookings.filter(b => b.status !== 'Cancelled'),
+    [dateBookings]
+  );
+  const cancelledCount = dateBookings.length - activeDateBookings.length;
 
   // Pagination for the per-row Booking Details. Aggregates above
   // (totalRevenue, totalGuests, gross, etc.) still operate on the
@@ -366,15 +387,17 @@ export default function Reports() {
                 </tbody>
                 <tfoot className="bg-slate-50 font-semibold text-sm">
                   <tr>
-                    <td colSpan={6} className="px-4 py-3 text-right text-slate-600">Totals:</td>
+                    <td colSpan={6} className="px-4 py-3 text-right text-slate-600">
+                      Totals{cancelledCount > 0 ? <span className="font-normal text-slate-400"> (excl. {cancelledCount} cancelled)</span> : ''}:
+                    </td>
                     <td className="px-4 py-3 text-center">
-                      {dateBookings.reduce((s, b) => s + (b.guests || 0), 0)}
+                      {activeDateBookings.reduce((s, b) => s + (b.guests || 0), 0)}
                     </td>
                     <td className="px-4 py-3">
-                      {fmtMoney(dateBookings.reduce((s, b) => s + Number(b.total || 0), 0))}
+                      {fmtMoney(activeDateBookings.reduce((s, b) => s + Number(b.total || 0), 0))}
                     </td>
                     <td className="px-4 py-3 text-amber-700">
-                      {fmtMoney(dateBookings.reduce((s, b) => s + calcEntrance(b, entranceRates), 0))}
+                      {fmtMoney(activeDateBookings.reduce((s, b) => s + calcEntrance(b, entranceRates), 0))}
                     </td>
                     <td className="px-4 py-3 text-emerald-700">
                       {fmtMoney(totalRevenue)} collected
@@ -440,25 +463,26 @@ export default function Reports() {
               {/* Mobile equivalent of the tfoot Totals row. */}
               <li className="rounded-xl border border-slate-200 bg-slate-50 p-4 mt-3">
                 <p className="text-xs font-semibold text-slate-600 mb-2">
-                  Totals — {dateBookings.length} booking{dateBookings.length !== 1 ? 's' : ''}
+                  Totals — {activeDateBookings.length} booking{activeDateBookings.length !== 1 ? 's' : ''}
+                  {cancelledCount > 0 && <span className="font-normal text-slate-400"> (excl. {cancelledCount} cancelled)</span>}
                 </p>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <p className="text-[10px] uppercase font-semibold text-slate-600 tracking-wide">Guests</p>
                     <p className="font-semibold text-slate-800 mt-0.5">
-                      {dateBookings.reduce((s, b) => s + (b.guests || 0), 0)}
+                      {activeDateBookings.reduce((s, b) => s + (b.guests || 0), 0)}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] uppercase font-semibold text-slate-600 tracking-wide">Room Total</p>
                     <p className="font-semibold text-slate-800 mt-0.5">
-                      {fmtMoney(dateBookings.reduce((s, b) => s + Number(b.total || 0), 0))}
+                      {fmtMoney(activeDateBookings.reduce((s, b) => s + Number(b.total || 0), 0))}
                     </p>
                   </div>
                   <div>
                     <p className="text-[10px] uppercase font-semibold text-slate-600 tracking-wide">Entrance</p>
                     <p className="font-semibold text-amber-700 mt-0.5">
-                      {fmtMoney(dateBookings.reduce((s, b) => s + calcEntrance(b, entranceRates), 0))}
+                      {fmtMoney(activeDateBookings.reduce((s, b) => s + calcEntrance(b, entranceRates), 0))}
                     </p>
                   </div>
                   <div className="text-right">

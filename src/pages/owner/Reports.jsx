@@ -147,6 +147,15 @@ export default function OwnerReports() {
   // contribute ₱0 naturally (paid_amount = 0), so no status filter is
   // needed. This matches the backend Stats + Analytics-overview numbers.
   const revenue        = useMemo(() => bookings.reduce((s, b) => s + Number(b.paidAmount ?? 0), 0), [bookings]);
+  // Active-only revenue (excludes cancelled bookings' forfeited fees).
+  // Used by the Monthly Booking Details tfoot — the label there is
+  // "Total (excl. cancelled)" AND cancelled rows render their paidAmount
+  // with line-through to signal they're excluded from the footer. The
+  // visual + label were correct; the math was summing `revenue` (all
+  // rows) which contradicted both. `revenue` itself stays as-is for the
+  // Total Revenue summary card + Revenue-by-Room block, where the
+  // "incl. forfeited" label makes the inclusion honest.
+  const activeRevenue  = useMemo(() => active.reduce((s, b) => s + Number(b.paidAmount ?? 0), 0), [active]);
   // Forfeited portion of the above — purely informational, so the owner
   // can see how much of total revenue came from cancellations rather
   // than actual stays. Shown as its own card below.
@@ -603,7 +612,7 @@ export default function OwnerReports() {
                 <tfoot className="bg-slate-50 border-t-2 border-slate-300 font-semibold text-sm">
                   <tr>
                     <td colSpan={4} className="px-6 py-3 text-slate-700">Total (excl. cancelled)</td>
-                    <td className="px-6 py-3 text-slate-900">{fmt(revenue)}</td>
+                    <td className="px-6 py-3 text-slate-900">{fmt(activeRevenue)}</td>
                     <td />
                   </tr>
                 </tfoot>
@@ -659,7 +668,7 @@ export default function OwnerReports() {
               <li className="rounded-xl border border-slate-200 bg-slate-50 p-4 mt-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-semibold text-slate-600">Total (excl. cancelled)</span>
-                  <span className="font-semibold text-slate-900">{fmt(revenue)}</span>
+                  <span className="font-semibold text-slate-900">{fmt(activeRevenue)}</span>
                 </div>
               </li>
             </ul>
