@@ -3586,7 +3586,7 @@ function SitePreviewModal({ open, onClose }) {
         {/* URL bar */}
         <div className="flex-1 mx-3">
           <div className="bg-white/10 text-white/80 text-xs px-3 py-1.5 rounded-lg font-mono truncate">
-            localhost:5173{page}
+            {typeof window !== 'undefined' ? window.location.host : ''}{page}
           </div>
         </div>
 
