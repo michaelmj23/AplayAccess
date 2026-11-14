@@ -482,8 +482,10 @@ export default function GuestDashboard() {
         </div>
       )}
 
-      {/* Upcoming + Past */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Upcoming + Past — items-start keeps the shorter panel (often
+          the empty Upcoming side) from stretching to match the taller
+          Past Stays column. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
         {/* Upcoming Bookings */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200">

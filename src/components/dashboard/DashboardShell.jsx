@@ -329,7 +329,11 @@ export default function DashboardShell() {
       )}
 
       {/* Layout */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 md:grid-cols-[250px_1fr] gap-6">
+      {/* minmax(0,1fr) on the main track (not plain 1fr) so wide content
+          like the bookings table with overflow-x-auto actually shrinks
+          and scrolls internally instead of pushing the whole page into
+          horizontal scroll at ≤1024px viewports. */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 md:grid-cols-[250px_minmax(0,1fr)] gap-6">
         {/* Sidebar */}
         <aside
           ref={sidebarTrapRef}
