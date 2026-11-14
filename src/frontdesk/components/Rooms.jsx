@@ -866,7 +866,7 @@ export default function FDRooms({ embedded = false }) {
                           {isDay ? 'Day Visit' : 'Overnight Stay'}
                         </span>
                         <span className={`text-xs ${isDay ? 'text-amber-600' : 'text-indigo-600'}`}>
-                          {isDay ? '6:00 AM – 6:00 PM' : '6:00 PM – 7:00 AM'}
+                          {isDay ? '7:00 AM – 5:00 PM' : '6:00 PM – 6:00 AM'}
                         </span>
                       </div>
                       {(() => {
