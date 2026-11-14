@@ -610,16 +610,30 @@ export default function Rooms() {
                             ({cards.length})
                           </span>
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-                          {cards.map(renderRoomCard)}
+                        {/* flex-wrap + justify-center so a partial last row
+                            (e.g. Rooms = 7 → 1 orphan; Pavilions = 2 → 1
+                            empty cell) centers naturally instead of hugging
+                            the left with empty space to the right. */}
+                        <div className="flex flex-wrap justify-center gap-6 lg:gap-8">
+                          {cards.map(c => (
+                            <div key={c.id ?? c.name}
+                                 className="w-full md:w-[calc((100%-24px)/2)] lg:w-[calc((100%-64px)/3)]">
+                              {renderRoomCard(c)}
+                            </div>
+                          ))}
                         </div>
                       </section>
                     );
                   })}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-                  {roomCards.map(renderRoomCard)}
+                <div className="flex flex-wrap justify-center gap-6 lg:gap-8">
+                  {roomCards.map(c => (
+                    <div key={c.id ?? c.name}
+                         className="w-full md:w-[calc((100%-24px)/2)] lg:w-[calc((100%-64px)/3)]">
+                      {renderRoomCard(c)}
+                    </div>
+                  ))}
                 </div>
               )}
 
