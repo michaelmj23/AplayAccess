@@ -933,9 +933,19 @@ export default function Resort() {
               </div>
             )}
 
-            {/* ── POPULATED STATE ── */}
-            {announcements !== null && announcements.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* ── POPULATED STATE ──
+                 Grid column count adapts to the number of visible cards so
+                 a single announcement doesn't hug the left 1/3 of a 3-col
+                 grid with a sea of empty space to its right. */}
+            {announcements !== null && announcements.length > 0 && (() => {
+              const shown = Math.min(announcements.length, 3);
+              const gridClass = shown === 1
+                ? "grid grid-cols-1 gap-6 max-w-sm mx-auto"
+                : shown === 2
+                  ? "grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto"
+                  : "grid grid-cols-1 md:grid-cols-3 gap-6";
+              return (
+              <div className={gridClass}>
                 {announcements.slice(0, 3).map((item) => (
                   <div
                     key={item.id}
@@ -973,7 +983,8 @@ export default function Resort() {
                   </div>
                 ))}
               </div>
-            )}
+              );
+            })()}
           </div>
         </section>
 
