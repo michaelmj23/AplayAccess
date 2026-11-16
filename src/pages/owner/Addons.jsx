@@ -1192,6 +1192,59 @@ export default function AdminAddons() {
                   <input required type="number" min={1} max={100} value={editing?.max_qty ?? ""} onChange={e => setField("max_qty", e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 text-sm transition" />
                 </div>
+                {/* Live stock snapshot — only when editing an existing
+                    add-on. Shows the owner the restock impact as they
+                    type a new Max Qty: Remaining preview updates live
+                    so they can see "set it to 25 → 5 free units" before
+                    clicking Save. */}
+                {editing?.id && stockMap[editing.id] && !stockMap[editing.id].is_room_attached && (() => {
+                  const live = stockMap[editing.id];
+                  const newMax = Number(editing.max_qty) || 0;
+                  const newRemaining = Math.max(0, newMax - live.allocated);
+                  const over = live.allocated > newMax;
+                  return (
+                    <div className="col-span-2 rounded-lg bg-slate-50 border border-slate-200 p-3">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                          <i className="fas fa-warehouse mr-1.5 text-slate-400" aria-hidden="true"></i>Live stock snapshot
+                        </span>
+                        {over && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">
+                            <i className="fas fa-triangle-exclamation text-[9px]" aria-hidden="true"></i>
+                            New Max Qty is below current allocation
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-md bg-white border border-slate-200 p-2">
+                          <p className="text-[10px] font-semibold text-slate-500 uppercase">Allocated</p>
+                          <p className="text-base font-bold text-slate-800 tabular-nums mt-0.5">{live.allocated}</p>
+                        </div>
+                        <div className="rounded-md bg-sky-50 border border-sky-100 p-2">
+                          <p className="text-[10px] font-semibold text-sky-600 uppercase">Max Qty (new)</p>
+                          <p className="text-base font-bold text-sky-800 tabular-nums mt-0.5">{newMax || "—"}</p>
+                        </div>
+                        <div className={`rounded-md border p-2 ${over ? "bg-rose-50 border-rose-100" : newRemaining <= 0 ? "bg-rose-50 border-rose-100" : newRemaining / Math.max(newMax, 1) <= 0.25 ? "bg-amber-50 border-amber-100" : "bg-emerald-50 border-emerald-100"}`}>
+                          <p className={`text-[10px] font-semibold uppercase ${over || newRemaining <= 0 ? "text-rose-600" : newRemaining / Math.max(newMax, 1) <= 0.25 ? "text-amber-600" : "text-emerald-600"}`}>Remaining (new)</p>
+                          <p className={`text-base font-bold tabular-nums mt-0.5 ${over || newRemaining <= 0 ? "text-rose-800" : newRemaining / Math.max(newMax, 1) <= 0.25 ? "text-amber-800" : "text-emerald-800"}`}>
+                            {newRemaining}
+                          </p>
+                        </div>
+                      </div>
+                      {over && (
+                        <p className="text-[11px] text-rose-700 mt-2">
+                          There are {live.allocated} units currently out on active bookings. Lowering Max Qty below that will show Remaining as 0 but can't force those bookings to release stock.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+                {editing?.id && stockMap[editing.id]?.is_room_attached && (
+                  <div className="col-span-2 rounded-lg bg-indigo-50 border border-indigo-100 p-3 text-[11px] text-indigo-800">
+                    <i className="fas fa-link mr-1.5" aria-hidden="true"></i>
+                    This add-on is attached to {stockMap[editing.id].rooms_count} room{stockMap[editing.id].rooms_count === 1 ? "" : "s"} as a fixture. Its stock reflects room occupancy, not pool depletion.
+                  </div>
+                )}
                 {/* ── #4 pricing type radio — conditional class instead of peer-checked on icon ── */}
                 <div className="col-span-2">
                   <label className="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">Pricing Type <span className="text-red-400">*</span></label>
