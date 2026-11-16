@@ -4,6 +4,7 @@ import Modal from "../../components/modals/Modal.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import Toast, { useToast } from "../../components/ui/Toast";
 import { getAdminAddons, createAdminAddon, updateAdminAddon, deleteAdminAddon } from "../../lib/adminApi";
+import { addonAvailabilityForSlot } from "../../lib/frontdeskApi";
 import useDebounce from "../../hooks/useDebounce.js";
 
 const BLANK = {
@@ -25,6 +26,11 @@ export default function AdminAddons() {
   const [page, setPage] = useState(1);
 
   const [addons,    setAddons]    = useState([]);
+  // Live global pool state keyed by addon id → { allocated, remaining }.
+  // Pool is global (not windowed), so a single lookup is correct for all rows.
+  // Missing keys = inactive addon or availability endpoint didn't return it;
+  // the UI renders "—" in that case.
+  const [stockMap,  setStockMap]  = useState({});
   const [loading,   setLoading]   = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [saving,    setSaving]    = useState(false);
@@ -48,8 +54,24 @@ export default function AdminAddons() {
   const load = useCallback(() => {
     setLoading(true);
     setLoadError(false);
-    getAdminAddons()
-      .then(r => setAddons(r.data.data))
+    // Fetch the catalog and the live pool state in parallel. Availability
+    // endpoint requires booking_id or date+type, but the pool is global so
+    // any valid slot returns correct numbers — we pass today+day as a probe.
+    const today = new Date().toISOString().slice(0, 10);
+    Promise.all([
+      getAdminAddons(),
+      addonAvailabilityForSlot({ date: today, bookingType: "day" }).catch(() => null),
+    ])
+      .then(([addonsRes, availRes]) => {
+        setAddons(addonsRes.data.data);
+        if (availRes?.data) {
+          const map = {};
+          for (const row of availRes.data) {
+            map[row.id] = { allocated: Number(row.allocated) || 0, remaining: Number(row.remaining) || 0 };
+          }
+          setStockMap(map);
+        }
+      })
       .catch(() => { setLoadError(true); showToast("Failed to load add-ons.", "error"); })
       .finally(() => setLoading(false));
   }, [showToast]);
@@ -72,6 +94,8 @@ export default function AdminAddons() {
     let aVal, bVal;
     if (sortBy === "Price")       { aVal = Number(a.price);   bVal = Number(b.price); }
     else if (sortBy === "Max Qty") { aVal = Number(a.max_qty); bVal = Number(b.max_qty); }
+    else if (sortBy === "Allocated") { aVal = stockMap[a.id]?.allocated ?? -1; bVal = stockMap[b.id]?.allocated ?? -1; }
+    else if (sortBy === "Remaining") { aVal = stockMap[a.id]?.remaining ?? -1; bVal = stockMap[b.id]?.remaining ?? -1; }
     else if (sortBy === "Type")    { aVal = a.per_booking ? 1 : 0; bVal = b.per_booking ? 1 : 0; }
     else if (sortBy === "Status")  { aVal = a.is_active ? 0 : 1; bVal = b.is_active ? 0 : 1; }
     else { aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase(); }
@@ -83,6 +107,15 @@ export default function AdminAddons() {
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const safePage   = Math.min(page, totalPages);
   const paginated  = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  // Color buckets for the remaining-stock pill. Thresholds mirror the
+  // staff mental model: out = red, scarce (≤25%) = amber, otherwise emerald.
+  function stockPillClass(remaining, maxQty) {
+    if (remaining == null) return "bg-slate-100 text-slate-500";
+    if (remaining <= 0) return "bg-rose-100 text-rose-800";
+    if (maxQty > 0 && remaining / maxQty <= 0.25) return "bg-amber-100 text-amber-800";
+    return "bg-emerald-100 text-emerald-800";
+  }
 
   // reset page when filters change
   useEffect(() => { setPage(1); }, [debouncedSearch, filterStatus]);
@@ -525,7 +558,7 @@ export default function AdminAddons() {
                         onChange={toggleSelectAll}
                         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-400" />
                     </th>
-                    {[["Name","Name"],["Price","Price"],["Max Qty","Max Qty"],["Type","Type"],["Status","Status"]].map(([label,key]) => (
+                    {[["Name","Name"],["Price","Price"],["Max Qty","Max Qty"],["Allocated","Allocated"],["Remaining","Remaining"],["Type","Type"],["Status","Status"]].map(([label,key]) => (
                       <th key={key} className="px-6 py-3 text-left">
                         <button onClick={() => handleSort(key)}
                           className="flex items-center gap-1 hover:text-emerald-600 transition-colors group">
@@ -566,6 +599,20 @@ export default function AdminAddons() {
                         <span className="font-semibold text-slate-800">{"\u20B1"}{Number(item.price).toLocaleString()}</span>
                       </td>
                       <td className="px-6 py-4">{item.max_qty}</td>
+                      <td className="px-6 py-4 tabular-nums">
+                        {stockMap[item.id]
+                          ? <span className="text-slate-700">{stockMap[item.id].allocated}</span>
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-6 py-4">
+                        {stockMap[item.id] ? (
+                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold tabular-nums ${stockPillClass(stockMap[item.id].remaining, item.max_qty)}`}>
+                            {stockMap[item.id].remaining}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                           item.per_booking ? "bg-purple-100 text-purple-800" : "bg-info-bg text-info-fg"
@@ -656,11 +703,29 @@ export default function AdminAddons() {
                         </span>
                       </div>
 
-                      {/* Body — Max Qty + Type */}
+                      {/* Body — Max Qty / Allocated / Remaining / Type */}
                       <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-100">
                         <div>
                           <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Max Qty</p>
-                          <p className="text-sm text-slate-700 mt-0.5">{item.max_qty}</p>
+                          <p className="text-sm text-slate-700 mt-0.5 tabular-nums">{item.max_qty}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Allocated</p>
+                          <p className="text-sm text-slate-700 mt-0.5 tabular-nums">
+                            {stockMap[item.id] ? stockMap[item.id].allocated : <span className="text-slate-300">—</span>}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Remaining</p>
+                          <div className="mt-0.5">
+                            {stockMap[item.id] ? (
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums ${stockPillClass(stockMap[item.id].remaining, item.max_qty)}`}>
+                                {stockMap[item.id].remaining}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 text-sm">—</span>
+                            )}
+                          </div>
                         </div>
                         <div>
                           <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Type</p>
@@ -778,8 +843,41 @@ export default function AdminAddons() {
                     </span>
                     <span className="text-[10px] font-semibold text-sky-600 uppercase tracking-wide">Max Qty</span>
                   </div>
-                  <p className="text-lg font-bold text-sky-800">{viewItem.max_qty}</p>
+                  <p className="text-lg font-bold text-sky-800 tabular-nums">{viewItem.max_qty}</p>
                 </div>
+                {/* Allocated card — live pool usage */}
+                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="h-6 w-6 rounded-md bg-slate-200 flex items-center justify-center">
+                      <i className="fas fa-box-open text-slate-600 text-[10px]" aria-hidden="true"></i>
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-wide">Allocated</span>
+                  </div>
+                  <p className="text-lg font-bold text-slate-800 tabular-nums">
+                    {stockMap[viewItem.id] ? stockMap[viewItem.id].allocated : <span className="text-slate-300">—</span>}
+                  </p>
+                </div>
+                {/* Remaining card — live pool availability, color-coded */}
+                {(() => {
+                  const s = stockMap[viewItem.id];
+                  const tone = !s ? { bg: "bg-slate-50 border-slate-200", icon: "bg-slate-200 text-slate-600", label: "text-slate-600", value: "text-slate-300" }
+                    : s.remaining <= 0 ? { bg: "bg-rose-50 border-rose-100", icon: "bg-rose-100 text-rose-600", label: "text-rose-600", value: "text-rose-800" }
+                    : viewItem.max_qty > 0 && s.remaining / viewItem.max_qty <= 0.25 ? { bg: "bg-amber-50 border-amber-100", icon: "bg-amber-100 text-amber-600", label: "text-amber-600", value: "text-amber-800" }
+                    : { bg: "bg-emerald-50 border-emerald-100", icon: "bg-emerald-100 text-emerald-600", label: "text-emerald-600", value: "text-emerald-800" };
+                  return (
+                    <div className={`rounded-xl border p-3.5 ${tone.bg}`}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className={`h-6 w-6 rounded-md flex items-center justify-center ${tone.icon}`}>
+                          <i className="fas fa-warehouse text-[10px]" aria-hidden="true"></i>
+                        </span>
+                        <span className={`text-[10px] font-semibold uppercase tracking-wide ${tone.label}`}>Remaining</span>
+                      </div>
+                      <p className={`text-lg font-bold tabular-nums ${tone.value}`}>
+                        {s ? s.remaining : "—"}
+                      </p>
+                    </div>
+                  );
+                })()}
                 {/* Type card */}
                 <div className={`rounded-xl border p-3.5 ${viewItem.per_booking ? "bg-purple-50 border-purple-100" : "bg-sky-50 border-sky-100"}`}>
                   <div className="flex items-center gap-2 mb-1.5">
