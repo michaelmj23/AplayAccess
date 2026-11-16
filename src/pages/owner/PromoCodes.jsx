@@ -1020,7 +1020,7 @@ export default function PromoCodes() {
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">
                       {form.type === "percentage" ? "%" : "\u20B1"}
                     </span>
-                    <input type="number" min="0" max={form.type === "percentage" ? 100 : undefined} step="any"
+                    <input type="number" min="0" max={form.type === "percentage" ? 100 : undefined} step={1} inputMode="numeric"
                       value={form.value} onChange={(e) => setForm((p) => ({ ...p, value: e.target.value }))} required
                       placeholder={form.type === "percentage" ? "e.g. 10" : "e.g. 500"}
                       className="w-full pl-8 pr-3.5 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 placeholder:text-slate-300 transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />

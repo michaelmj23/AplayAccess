@@ -12,7 +12,7 @@ const PRICING_FIELDS = [
     icon:        "fa-sun",
     prefix:      "₱",
     suffix:      "/ head",
-    step:        "any",
+    step:        1,
   },
   {
     key:         "entrance_fee_night",
@@ -21,7 +21,7 @@ const PRICING_FIELDS = [
     icon:        "fa-moon",
     prefix:      "₱",
     suffix:      "/ head",
-    step:        "any",
+    step:        1,
   },
   {
     key:         "entrance_fee_24hr",
@@ -30,7 +30,7 @@ const PRICING_FIELDS = [
     icon:        "fa-clock",
     prefix:      "₱",
     suffix:      "/ head",
-    step:        "any",
+    step:        1,
   },
   {
     key:         "reservation_fee_pct",

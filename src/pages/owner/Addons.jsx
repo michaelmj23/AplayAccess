@@ -1183,7 +1183,7 @@ export default function AdminAddons() {
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">Price <span className="text-red-400">*</span></label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">{"\u20B1"}</span>
-                    <input required type="number" min={0} value={editing?.price ?? ""} onChange={e => setField("price", e.target.value)}
+                    <input required type="number" min={0} step={1} inputMode="numeric" value={editing?.price ?? ""} onChange={e => setField("price", e.target.value)}
                       className="w-full pl-8 pr-3.5 py-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 text-sm transition" />
                   </div>
                 </div>

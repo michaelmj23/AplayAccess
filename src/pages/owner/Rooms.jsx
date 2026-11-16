@@ -1303,7 +1303,7 @@ export default function AdminRooms() {
                       </div>
                       <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">{"\u20B1"}</span>
-                        <input required type="number" min={0}
+                        <input required type="number" min={0} step={1} inputMode="numeric"
                           value={editing?.[key] ?? ""}
                           onChange={e => setField(key, e.target.value)}
                           className="w-full pl-8 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 focus:bg-white text-sm font-medium transition" />
@@ -1628,9 +1628,9 @@ export default function AdminRooms() {
                               <span className="text-xs text-slate-600 font-medium">₱</span>
                               <input
                                 type="number"
-                                inputMode="decimal"
+                                inputMode="numeric"
                                 min="0"
-                                step="0.01"
+                                step="1"
                                 value={row?.price ?? ''}
                                 disabled={!relation}
                                 onChange={e => setAddonField(cat.id, 'price', e.target.value)}
