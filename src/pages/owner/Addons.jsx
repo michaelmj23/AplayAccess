@@ -125,8 +125,13 @@ export default function AdminAddons() {
 
   // Color buckets for the remaining-stock pill. Thresholds mirror the
   // staff mental model: out = red, scarce (≤25%) = amber, otherwise emerald.
-  function stockPillClass(remaining, maxQty) {
-    if (remaining == null) return "bg-slate-100 text-slate-500";
+  // Room-attached fixtures get a neutral slate pill because their
+  // "remaining = 0" just means every carrying room is booked — not a
+  // restock signal.
+  function stockPillClass(stockRow, maxQty) {
+    if (!stockRow) return "bg-slate-100 text-slate-500";
+    if (stockRow.is_room_attached) return "bg-slate-100 text-slate-600";
+    const remaining = Number(stockRow.remaining);
     if (remaining <= 0) return "bg-rose-100 text-rose-800";
     if (maxQty > 0 && remaining / maxQty <= 0.25) return "bg-amber-100 text-amber-800";
     return "bg-emerald-100 text-emerald-800";
@@ -698,9 +703,16 @@ export default function AdminAddons() {
                       </td>
                       <td className="px-6 py-4">
                         {stockMap[item.id] ? (
-                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold tabular-nums ${stockPillClass(stockMap[item.id].remaining, item.max_qty)}`}>
-                            {stockMap[item.id].remaining}
-                          </span>
+                          <>
+                            <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold tabular-nums ${stockPillClass(stockMap[item.id], item.max_qty)}`}>
+                              {stockMap[item.id].remaining}
+                            </span>
+                            {stockMap[item.id].is_room_attached && (
+                              <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700" title="Room-attached fixture — not tracked against the shared pool">
+                                <i className="fas fa-link text-[9px]" aria-hidden="true"></i>Fixture
+                              </span>
+                            )}
+                          </>
                         ) : (
                           <span className="text-slate-300">—</span>
                         )}
@@ -811,9 +823,16 @@ export default function AdminAddons() {
                           <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Remaining</p>
                           <div className="mt-0.5">
                             {stockMap[item.id] ? (
-                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums ${stockPillClass(stockMap[item.id].remaining, item.max_qty)}`}>
-                                {stockMap[item.id].remaining}
-                              </span>
+                              <>
+                                <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums ${stockPillClass(stockMap[item.id], item.max_qty)}`}>
+                                  {stockMap[item.id].remaining}
+                                </span>
+                                {stockMap[item.id].is_room_attached && (
+                                  <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700" title="Room-attached fixture — not tracked against the shared pool">
+                                    <i className="fas fa-link text-[9px]" aria-hidden="true"></i>Fixture
+                                  </span>
+                                )}
+                              </>
                             ) : (
                               <span className="text-slate-300 text-sm">—</span>
                             )}
@@ -953,6 +972,7 @@ export default function AdminAddons() {
                 {(() => {
                   const s = stockMap[viewItem.id];
                   const tone = !s ? { bg: "bg-slate-50 border-slate-200", icon: "bg-slate-200 text-slate-600", label: "text-slate-600", value: "text-slate-300" }
+                    : s.is_room_attached ? { bg: "bg-slate-50 border-slate-200", icon: "bg-slate-200 text-slate-600", label: "text-slate-600", value: "text-slate-700" }
                     : s.remaining <= 0 ? { bg: "bg-rose-50 border-rose-100", icon: "bg-rose-100 text-rose-600", label: "text-rose-600", value: "text-rose-800" }
                     : viewItem.max_qty > 0 && s.remaining / viewItem.max_qty <= 0.25 ? { bg: "bg-amber-50 border-amber-100", icon: "bg-amber-100 text-amber-600", label: "text-amber-600", value: "text-amber-800" }
                     : { bg: "bg-emerald-50 border-emerald-100", icon: "bg-emerald-100 text-emerald-600", label: "text-emerald-600", value: "text-emerald-800" };
@@ -967,6 +987,12 @@ export default function AdminAddons() {
                       <p className={`text-lg font-bold tabular-nums ${tone.value}`}>
                         {s ? s.remaining : "—"}
                       </p>
+                      {s?.is_room_attached && (
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          <i className="fas fa-link text-[9px] mr-1" aria-hidden="true"></i>
+                          Room fixture — excluded from low-stock alerts
+                        </p>
+                      )}
                     </div>
                   );
                 })()}
