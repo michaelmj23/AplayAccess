@@ -328,6 +328,22 @@ export default function Bookings({ embedded = false }) {
     return { all: bookings.length, online, walkin };
   }, [bookings]);
 
+  // Urgency tiles above the filters — each number answers one staff
+  // question at a glance ("what's waiting for me right now?") and routes
+  // the filter when clicked. Counts span every booking, not just the
+  // current filter, so the tiles stay stable as you drill in.
+  const urgencyCounts = useMemo(() => {
+    const todayStr = new Date().toDateString();
+    let arriving = 0, checkedIn = 0, overdue = 0, pending = 0;
+    for (const b of bookings) {
+      if (isOverdueCheckout(b)) overdue++;
+      if (b.status === 'Checked In') checkedIn++;
+      if (b.status === 'Pending') pending++;
+      if (b.status === 'Confirmed' && b.checkIn && new Date(String(b.checkIn).replace(' ', 'T')).toDateString() === todayStr) arriving++;
+    }
+    return { arriving, checkedIn, overdue, pending };
+  }, [bookings]);
+
   function syncBooking(bookingId, updates) {
     setBookings(prev => prev.map(b => b.bookingId === bookingId ? { ...b, ...updates } : b));
   }
@@ -564,6 +580,50 @@ export default function Bookings({ embedded = false }) {
             >
               <i className="fas fa-plus" aria-hidden="true"></i>New Walk-in
             </button>
+          </div>
+
+          {/* Urgency tiles — answer "what needs me right now?" before
+              staff even touches a filter. Each tile sets filterStatus to
+              the matching bucket; "Arriving today" uses the Confirmed
+              status plus a visual hint (the sort already groups today's
+              arrivals at the top). Tiles with 0 render dimmed and
+              disabled so the pulse of urgent counts stays honest. */}
+          <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
+            {[
+              { key: 'arriving',  label: 'Arriving today',  count: urgencyCounts.arriving,  icon: 'fa-plane-arrival',   target: 'Confirmed', tone: { bg: 'bg-amber-50', ring: 'ring-amber-200', text: 'text-amber-700', dot: 'bg-amber-500' } },
+              { key: 'checkedin', label: 'Checked in',      count: urgencyCounts.checkedIn, icon: 'fa-door-open',       target: 'Checked In', tone: { bg: 'bg-emerald-50', ring: 'ring-emerald-200', text: 'text-emerald-700', dot: 'bg-emerald-500' } },
+              { key: 'overdue',   label: 'Overdue',          count: urgencyCounts.overdue,   icon: 'fa-triangle-exclamation', target: 'Overdue', tone: { bg: 'bg-rose-50', ring: 'ring-rose-200', text: 'text-rose-700', dot: 'bg-rose-500' } },
+              { key: 'pending',   label: 'Pending',          count: urgencyCounts.pending,   icon: 'fa-hourglass-half',  target: 'Pending', tone: { bg: 'bg-sky-50', ring: 'ring-sky-200', text: 'text-sky-700', dot: 'bg-sky-500' } },
+            ].map(t => {
+              const empty = t.count === 0;
+              const active = filterStatus === t.target;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setFilterStatus(t.target)}
+                  disabled={empty && !active}
+                  aria-pressed={active}
+                  className={`relative text-left rounded-xl p-3 transition min-h-[72px] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-sky-500 ${
+                    empty && !active
+                      ? 'bg-slate-50 opacity-60 cursor-not-allowed'
+                      : `${t.tone.bg} hover:brightness-95 ${active ? `ring-2 ${t.tone.ring}` : 'ring-1 ring-transparent'}`
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`h-7 w-7 rounded-lg flex items-center justify-center ${empty && !active ? 'bg-slate-200 text-slate-400' : `${t.tone.dot} text-white`}`}>
+                      <i className={`fas ${t.icon} text-xs`} aria-hidden="true"></i>
+                    </span>
+                    <span className={`text-xs font-semibold ${empty && !active ? 'text-slate-500' : t.tone.text}`}>
+                      {t.label}
+                    </span>
+                  </div>
+                  <p className={`mt-1.5 text-2xl font-bold tabular-nums ${empty && !active ? 'text-slate-400' : t.tone.text}`}>
+                    {t.count}
+                  </p>
+                </button>
+              );
+            })}
           </div>
 
           {/* Source segmented toggle — primary slicer */}
