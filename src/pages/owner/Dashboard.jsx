@@ -17,6 +17,7 @@ import { api } from "../../lib/api";
 import { localDateStr } from "../../lib/format";
 import Toast, { useToast } from "../../components/ui/Toast";
 import { useAuth } from "../../context/AuthContext.jsx";
+import LowStockAlert from "../../components/addons/LowStockAlert.jsx";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -397,6 +398,10 @@ export default function OwnerDashboard() {
           <i className={`fas fa-sync-alt ${refreshing ? "fa-spin" : ""}`} aria-hidden="true"></i>
         </button>
       </div>
+
+      {/* Low-stock alert — renders nothing when the pool is healthy, so
+          it stays invisible on a clean dashboard. */}
+      <LowStockAlert portal="owner" />
 
       {/* KPI Cards — Row 1: Revenue & Bookings */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">

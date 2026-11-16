@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import Modal from "../../components/modals/Modal.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import Toast, { useToast } from "../../components/ui/Toast";
 import { getAdminAddons, createAdminAddon, updateAdminAddon, deleteAdminAddon } from "../../lib/adminApi";
 import { addonAvailabilityForSlot } from "../../lib/frontdeskApi";
+import { isLowStock as isLowStockFn, findLowStock } from "../../lib/addonStock";
 import useDebounce from "../../hooks/useDebounce.js";
 
 const BLANK = {
@@ -22,7 +24,13 @@ export default function AdminAddons() {
   const [sortDir, setSortDir] = useState(() => localStorage.getItem("addons_sortDir") || "asc");
   const [searchTerm, setSearchTerm] = useState("");
   const debouncedSearch = useDebounce(searchTerm, 300);
-  const [filterStatus, setFilterStatus] = useState("all"); // all | active | inactive
+  // filterStatus: all | active | inactive | low (low = active + remaining
+  // under the hybrid threshold). Initialized from ?filter=low so the
+  // dashboard alert's "Review" button lands on a pre-filtered page.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [filterStatus, setFilterStatus] = useState(
+    searchParams.get("filter") === "low" ? "low" : "all"
+  );
   const [page, setPage] = useState(1);
 
   const [addons,    setAddons]    = useState([]);
@@ -83,12 +91,19 @@ export default function AdminAddons() {
   const filtered = addons.filter(a => {
     if (filterStatus === "active" && !a.is_active) return false;
     if (filterStatus === "inactive" && a.is_active) return false;
+    if (filterStatus === "low") {
+      if (!a.is_active) return false;
+      if (!isLowStockFn(stockMap[a.id], a.max_qty)) return false;
+    }
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
       return a.name.toLowerCase().includes(q) || (a.description || "").toLowerCase().includes(q);
     }
     return true;
   });
+
+  // Live list of low-stock add-ons for the banner at the top of the page.
+  const lowStockItems = useMemo(() => findLowStock(addons, stockMap), [addons, stockMap]);
 
   const sorted = [...filtered].sort((a, b) => {
     let aVal, bVal;
@@ -119,6 +134,21 @@ export default function AdminAddons() {
 
   // reset page when filters change
   useEffect(() => { setPage(1); }, [debouncedSearch, filterStatus]);
+
+  // Keep ?filter=low in the URL so the chip state survives reload and
+  // deep-linking from the dashboard banner works. Clean the param otherwise.
+  useEffect(() => {
+    const current = searchParams.get("filter");
+    if (filterStatus === "low" && current !== "low") {
+      const next = new URLSearchParams(searchParams);
+      next.set("filter", "low");
+      setSearchParams(next, { replace: true });
+    } else if (filterStatus !== "low" && current === "low") {
+      const next = new URLSearchParams(searchParams);
+      next.delete("filter");
+      setSearchParams(next, { replace: true });
+    }
+  }, [filterStatus, searchParams, setSearchParams]);
 
   /* ── pagination helpers (ellipsis) ── */
   function getPageNumbers() {
@@ -414,7 +444,7 @@ export default function AdminAddons() {
             </button>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {["all", "active", "inactive"].map(f => (
             <button key={f} onClick={() => setFilterStatus(f)}
               className={`px-3.5 py-2 rounded-lg text-xs font-semibold capitalize transition ${
@@ -425,8 +455,70 @@ export default function AdminAddons() {
               {f === "all" ? "All" : f === "active" ? "Active" : "Inactive"}
             </button>
           ))}
+          <button
+            onClick={() => setFilterStatus(filterStatus === "low" ? "all" : "low")}
+            disabled={lowStockItems.length === 0 && filterStatus !== "low"}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed ${
+              filterStatus === "low"
+                ? "bg-amber-100 text-amber-800 ring-1 ring-amber-200"
+                : "bg-slate-50 text-slate-500 hover:bg-amber-50 hover:text-amber-700"
+            }`}
+            title={lowStockItems.length === 0 ? "Nothing is low on stock right now" : `${lowStockItems.length} add-on${lowStockItems.length === 1 ? "" : "s"} low on stock`}
+          >
+            <i className="fas fa-triangle-exclamation text-[10px]" aria-hidden="true"></i>
+            Low Stock
+            {lowStockItems.length > 0 && (
+              <span className={`ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums ${
+                filterStatus === "low" ? "bg-amber-200 text-amber-900" : "bg-amber-500 text-white"
+              }`}>
+                {lowStockItems.length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
+
+      {/* Inline low-stock banner — top of page, same data as the chip
+          count. Clicking it filters the list to those items. Hidden when
+          nothing is low. */}
+      {lowStockItems.length > 0 && filterStatus !== "low" && (() => {
+        const hasOut = lowStockItems.some(a => a.remaining === 0);
+        const tone = hasOut
+          ? { bar: "bg-rose-50 border-rose-200", icon: "bg-rose-100 text-rose-600", title: "text-rose-900", chip: "bg-rose-100 text-rose-800" }
+          : { bar: "bg-amber-50 border-amber-200", icon: "bg-amber-100 text-amber-700", title: "text-amber-900", chip: "bg-amber-100 text-amber-800" };
+        return (
+          <div className={`rounded-xl border p-4 ${tone.bar} flex items-start gap-3`}>
+            <span className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${tone.icon}`}>
+              <i className="fas fa-triangle-exclamation" aria-hidden="true"></i>
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className={`text-sm font-semibold ${tone.title}`}>
+                {lowStockItems.length} add-on{lowStockItems.length === 1 ? "" : "s"} {hasOut ? "need restocking" : "running low"}
+              </p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {lowStockItems.slice(0, 5).map(a => (
+                  <span key={a.id} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium tabular-nums ${tone.chip}`}>
+                    <i className={`fas ${a.icon || "fa-tag"} text-[10px]`} aria-hidden="true"></i>
+                    {a.name} · {a.remaining} left
+                  </span>
+                ))}
+                {lowStockItems.length > 5 && (
+                  <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium ${tone.chip}`}>
+                    +{lowStockItems.length - 5} more
+                  </span>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => setFilterStatus("low")}
+              className={`shrink-0 self-start text-xs font-semibold px-3 py-1.5 rounded-lg transition ${tone.chip} hover:brightness-95`}
+            >
+              Filter
+              <i className="fas fa-filter ml-1.5 text-[10px]" aria-hidden="true"></i>
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Bulk action bar */}
       {selected.size > 0 && (

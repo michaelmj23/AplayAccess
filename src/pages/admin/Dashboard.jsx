@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useNotifications } from "../../context/NotificationContext.jsx";
+import LowStockAlert from "../../components/addons/LowStockAlert.jsx";
 
 // Operational KPI dashboard for admin, following the kpi-dashboard-
 // design skill's tactical-tier pattern: ≤ 5 headline KPIs, real-time
@@ -183,6 +184,11 @@ export default function AdminDashboard() {
         <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">
           {greeting}, {user?.name || "Admin"}.
         </h1>
+      </div>
+
+      {/* Low-stock alert — renders nothing when the pool is healthy. */}
+      <div className="mb-6">
+        <LowStockAlert portal="admin" />
       </div>
 
       {/* Row 1 — headline KPIs. Each one is a live operational count
