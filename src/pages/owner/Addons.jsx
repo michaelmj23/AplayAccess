@@ -655,7 +655,7 @@ export default function AdminAddons() {
                         onChange={toggleSelectAll}
                         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-400" />
                     </th>
-                    {[["Name","Name"],["Price","Price"],["Max Qty","Max Qty"],["Allocated","Allocated"],["Remaining","Remaining"],["Type","Type"],["Status","Status"]].map(([label,key]) => (
+                    {[["Name","Name"],["Price","Price"],["Allocated","Allocated"],["Max Qty","Max Qty"],["Remaining","Remaining"],["Type","Type"],["Status","Status"]].map(([label,key]) => (
                       <th key={key} className="px-6 py-3 text-left">
                         <button onClick={() => handleSort(key)}
                           className="flex items-center gap-1 hover:text-emerald-600 transition-colors group">
@@ -695,12 +695,12 @@ export default function AdminAddons() {
                       <td className="px-6 py-4">
                         <span className="font-semibold text-slate-800">{"\u20B1"}{Number(item.price).toLocaleString()}</span>
                       </td>
-                      <td className="px-6 py-4">{item.max_qty}</td>
                       <td className="px-6 py-4 tabular-nums">
                         {stockMap[item.id]
                           ? <span className="text-slate-700">{stockMap[item.id].allocated}</span>
                           : <span className="text-slate-300">—</span>}
                       </td>
+                      <td className="px-6 py-4">{item.max_qty}</td>
                       <td className="px-6 py-4">
                         {stockMap[item.id] ? (
                           <>
@@ -807,17 +807,19 @@ export default function AdminAddons() {
                         </span>
                       </div>
 
-                      {/* Body — Max Qty / Allocated / Remaining / Type */}
+                      {/* Body — Allocated / Max Qty / Remaining / Type.
+                          Reading left-to-right tells the stock story:
+                          "N allocated out of M, X remaining." */}
                       <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-100">
-                        <div>
-                          <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Max Qty</p>
-                          <p className="text-sm text-slate-700 mt-0.5 tabular-nums">{item.max_qty}</p>
-                        </div>
                         <div>
                           <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Allocated</p>
                           <p className="text-sm text-slate-700 mt-0.5 tabular-nums">
                             {stockMap[item.id] ? stockMap[item.id].allocated : <span className="text-slate-300">—</span>}
                           </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Max Qty</p>
+                          <p className="text-sm text-slate-700 mt-0.5 tabular-nums">{item.max_qty}</p>
                         </div>
                         <div>
                           <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Remaining</p>
@@ -946,17 +948,9 @@ export default function AdminAddons() {
                   </div>
                   <p className="text-lg font-bold text-emerald-800">{"\u20B1"}{Number(viewItem.price).toLocaleString()}</p>
                 </div>
-                {/* Max Qty card */}
-                <div className="rounded-xl bg-sky-50 border border-sky-100 p-3.5">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="h-6 w-6 rounded-md bg-sky-100 flex items-center justify-center">
-                      <i className="fas fa-layer-group text-sky-600 text-[10px]" aria-hidden="true"></i>
-                    </span>
-                    <span className="text-[10px] font-semibold text-sky-600 uppercase tracking-wide">Max Qty</span>
-                  </div>
-                  <p className="text-lg font-bold text-sky-800 tabular-nums">{viewItem.max_qty}</p>
-                </div>
-                {/* Allocated card — live pool usage */}
+                {/* Allocated card — live pool usage. Ordered first so
+                    reading the cards tells the stock story:
+                    Allocated → Max Qty → Remaining. */}
                 <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5">
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="h-6 w-6 rounded-md bg-slate-200 flex items-center justify-center">
@@ -967,6 +961,16 @@ export default function AdminAddons() {
                   <p className="text-lg font-bold text-slate-800 tabular-nums">
                     {stockMap[viewItem.id] ? stockMap[viewItem.id].allocated : <span className="text-slate-300">—</span>}
                   </p>
+                </div>
+                {/* Max Qty card */}
+                <div className="rounded-xl bg-sky-50 border border-sky-100 p-3.5">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="h-6 w-6 rounded-md bg-sky-100 flex items-center justify-center">
+                      <i className="fas fa-layer-group text-sky-600 text-[10px]" aria-hidden="true"></i>
+                    </span>
+                    <span className="text-[10px] font-semibold text-sky-600 uppercase tracking-wide">Max Qty</span>
+                  </div>
+                  <p className="text-lg font-bold text-sky-800 tabular-nums">{viewItem.max_qty}</p>
                 </div>
                 {/* Remaining card — live pool availability, color-coded */}
                 {(() => {
