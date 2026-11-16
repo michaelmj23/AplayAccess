@@ -130,11 +130,15 @@ export default function Bookings({ embedded = false }) {
   const [sortBy, setSortBy]               = useState('Urgency');
   const [sortDir, setSortDir]             = useState('asc');
   const [searchTerm, setSearchTerm]       = useState('');
-  const VALID_STATUSES = ['Pending','Confirmed','Checked In','Completed','Cancelled','Overdue'];
+  // 'Active' is a synthetic bucket — everything EXCEPT Completed + Cancelled.
+  // It's the default landing view because staff spend their day on bookings
+  // that still need action; resolved rows flood the list otherwise and bury
+  // today's arrivals/overdues/pending.
+  const VALID_STATUSES = ['Active','Pending','Confirmed','Checked In','Completed','Cancelled','Overdue'];
   const VALID_SOURCES  = ['all','online','walkin'];
   const [filterStatus, setFilterStatus]   = useState(() => {
     const s = searchParams.get('status');
-    return VALID_STATUSES.includes(s) ? s : 'All';
+    return VALID_STATUSES.includes(s) ? s : 'Active';
   });
   const [filterSource, setFilterSource]   = useState(() => {
     const s = searchParams.get('source');
@@ -144,7 +148,7 @@ export default function Bookings({ embedded = false }) {
   // Re-sync filters when URL params change (e.g. clicking a notification while already on this page)
   useEffect(() => {
     const s = searchParams.get('status');
-    setFilterStatus(VALID_STATUSES.includes(s) ? s : 'All');
+    setFilterStatus(VALID_STATUSES.includes(s) ? s : 'Active');
     const src = searchParams.get('source');
     setFilterSource(VALID_SOURCES.includes(src) ? src : 'all');
   }, [searchParams]);
@@ -241,6 +245,7 @@ export default function Bookings({ embedded = false }) {
 
     // Status filter
     if (filterStatus === 'Overdue') list = list.filter(isOverdueCheckout);
+    else if (filterStatus === 'Active') list = list.filter(b => b.status !== 'Completed' && b.status !== 'Cancelled');
     else if (filterStatus !== 'All') list = list.filter(b => b.status === filterStatus);
 
     const term = searchTerm.trim().toLowerCase();
@@ -604,13 +609,14 @@ export default function Bookings({ embedded = false }) {
             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
               aria-label="Filter by status"
               className="border rounded px-3 py-2 text-sm">
+              <option value="Active">Active (hide resolved)</option>
               <option value="All">All Statuses</option>
               <option>Pending</option>
               <option>Confirmed</option>
               <option>Checked In</option>
+              <option>Overdue</option>
               <option>Completed</option>
               <option>Cancelled</option>
-              <option>Overdue</option>
             </select>
             <button onClick={load} className="flex items-center gap-2 text-sky-600 hover:text-sky-800 text-sm ml-auto">
               <i className="fas fa-sync-alt" aria-hidden="true"></i> Refresh
