@@ -845,10 +845,22 @@ function AddonsTab() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => toggle(item)}
+                          disabled={busyId === item.id}
+                          aria-label={`${item.is_active ? "Disable" : "Enable"} ${item.name}`}
+                          title={item.is_active ? "Disable this add-on" : "Enable this add-on"}
+                          className={`inline-flex items-center justify-center h-11 min-w-[44px] px-3 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
+                            item.is_active
+                              ? "text-warning-fg bg-warning-bg hover:opacity-90 focus-visible:ring-amber-500"
+                              : "text-success-fg bg-success-bg hover:opacity-90 focus-visible:ring-emerald-500"
+                          }`}>
+                          <i className={`fas ${busyId === item.id ? "fa-spinner fa-spin" : item.is_active ? "fa-toggle-off" : "fa-toggle-on"} mr-1.5 text-xs`} aria-hidden="true"></i>
+                          {item.is_active ? "Disable" : "Enable"}
+                        </button>
                         <button type="button" onClick={() => setViewItem(item)}
                           aria-label={`View ${item.name}`}
-                          className="inline-flex items-center justify-center h-11 min-w-[44px] px-3 rounded-lg text-sm font-medium text-brand hover:bg-info-bg transition">
+                          className="inline-flex items-center justify-center h-11 min-w-[44px] px-3 rounded-lg text-sm font-medium text-brand hover:bg-info-bg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
                           <i className="fas fa-eye mr-1.5 text-xs" aria-hidden="true"></i>View
                         </button>
                       </div>
