@@ -7,6 +7,8 @@ import {
   toggleAddonActive,
   updateRoomAvailability,
 } from "../../lib/adminApi.js";
+import { addonAvailabilityForSlot } from "../../lib/frontdeskApi.js";
+import { isLowStock as isLowStockFn, findLowStock } from "../../lib/addonStock.js";
 import Modal from "../../components/modals/Modal.jsx";
 import Toast, { useToast } from "../../components/ui/Toast.jsx";
 import useDebounce from "../../hooks/useDebounce.js";
@@ -496,14 +498,24 @@ function RoomsSkeleton() {
 /* ───────────────────────── ADD-ONS TAB ───────────────────────── */
 
 function AddonsTab() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [addons,       setAddons]       = useState([]);
+  // Live global pool state keyed by addon id → { allocated, remaining, is_room_attached, rooms_count }.
+  // Admin can SEE stock but can't change max_qty (owner-only), so this is
+  // informational — supports the "flag to owner for restock" signal.
+  const [stockMap,     setStockMap]     = useState({});
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
   const [loadError,    setLoadError]    = useState(false);
   const [busyId,       setBusyId]       = useState(null);
   const [viewItem,     setViewItem]     = useState(null);
   const [searchTerm,   setSearchTerm]   = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+  // filterStatus: all | active | inactive | low (low = active + remaining
+  // under the hybrid threshold). Initialized from ?filter=low so the
+  // dashboard alert's "Review" button lands admins on a pre-filtered page.
+  const [filterStatus, setFilterStatus] = useState(
+    searchParams.get("filter") === "low" ? "low" : "all"
+  );
   const [page,         setPage]         = useState(1);
   const debouncedSearch = useDebounce(searchTerm, 300);
   const [toast, showToast, clearToast, toastType] = useToast();
@@ -512,8 +524,19 @@ function AddonsTab() {
   const load = useCallback((silent = false) => {
     silent ? setRefreshing(true) : setLoading(true);
     setLoadError(false);
-    getAdminAddons()
-      .then((r) => setAddons(r.data?.data ?? []))
+    // Fetch catalog + live pool in parallel. Pool is global so any slot
+    // probe returns correct numbers (today+day is harmless).
+    const today = new Date().toISOString().slice(0, 10);
+    Promise.all([
+      getAdminAddons(),
+      addonAvailabilityForSlot({ date: today, bookingType: "day" }).catch(() => null),
+    ])
+      .then(([addonsRes, availRes]) => {
+        setAddons(addonsRes.data?.data ?? []);
+        const map = {};
+        for (const row of (availRes?.data ?? [])) map[row.id] = row;
+        setStockMap(map);
+      })
       .catch(() => { setLoadError(true); showToast("Failed to load add-ons.", "error"); })
       .finally(() => { silent ? setRefreshing(false) : setLoading(false); });
   }, [showToast]);
@@ -522,15 +545,49 @@ function AddonsTab() {
 
   useEffect(() => { setPage(1); }, [debouncedSearch, filterStatus]);
 
+  // Keep ?filter=low in the URL while preserving tab=addons so deep-link
+  // round-trips (reload / back / forward) land on the same filtered view.
+  useEffect(() => {
+    const current = searchParams.get("filter");
+    if (filterStatus === "low" && current !== "low") {
+      const next = new URLSearchParams(searchParams);
+      next.set("filter", "low");
+      setSearchParams(next, { replace: true });
+    } else if (filterStatus !== "low" && current === "low") {
+      const next = new URLSearchParams(searchParams);
+      next.delete("filter");
+      setSearchParams(next, { replace: true });
+    }
+  }, [filterStatus, searchParams, setSearchParams]);
+
   const filtered = useMemo(() => addons.filter((a) => {
     if (filterStatus === "active" && !a.is_active) return false;
     if (filterStatus === "inactive" && a.is_active) return false;
+    if (filterStatus === "low") {
+      if (!a.is_active) return false;
+      if (!isLowStockFn(stockMap[a.id], a.max_qty)) return false;
+    }
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
       return a.name.toLowerCase().includes(q) || (a.description || "").toLowerCase().includes(q);
     }
     return true;
-  }), [addons, filterStatus, debouncedSearch]);
+  }), [addons, stockMap, filterStatus, debouncedSearch]);
+
+  const lowStockItems = useMemo(() => findLowStock(addons, stockMap), [addons, stockMap]);
+
+  // Color buckets for the remaining-stock pill. Mirrors owner's logic:
+  // out = red, scarce (≤25%) = amber, otherwise emerald. Room-attached
+  // fixtures get a neutral slate pill (remaining=0 there just means every
+  // carrying room is booked, not a restock signal).
+  function stockPillClass(stockRow, maxQty) {
+    if (!stockRow) return "bg-slate-100 text-slate-500";
+    if (stockRow.is_room_attached) return "bg-slate-100 text-slate-600";
+    const remaining = Number(stockRow.remaining);
+    if (remaining <= 0) return "bg-rose-100 text-rose-800";
+    if (maxQty > 0 && remaining / maxQty <= 0.25) return "bg-amber-100 text-amber-800";
+    return "bg-emerald-100 text-emerald-800";
+  }
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage   = Math.min(page, totalPages);
@@ -589,7 +646,7 @@ function AddonsTab() {
             </button>
           )}
         </div>
-        <div className="flex items-center gap-2" role="group" aria-label="Filter add-ons by status">
+        <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Filter add-ons by status">
           {["all", "active", "inactive"].map((f) => (
             <button key={f} onClick={() => setFilterStatus(f)} type="button"
               aria-pressed={filterStatus === f}
@@ -601,8 +658,75 @@ function AddonsTab() {
               {f === "all" ? "All" : f === "active" ? "Active" : "Inactive"}
             </button>
           ))}
+          <button
+            onClick={() => setFilterStatus(filterStatus === "low" ? "all" : "low")}
+            disabled={lowStockItems.length === 0 && filterStatus !== "low"}
+            type="button"
+            aria-pressed={filterStatus === "low"}
+            title={lowStockItems.length === 0 ? "Nothing is low on stock right now" : `${lowStockItems.length} add-on${lowStockItems.length === 1 ? "" : "s"} low on stock`}
+            className={`inline-flex items-center gap-1.5 justify-center min-h-11 px-4 rounded-lg text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
+              filterStatus === "low"
+                ? "bg-amber-100 text-amber-800 ring-1 ring-amber-200 focus-visible:ring-amber-400"
+                : "bg-slate-50 text-slate-700 hover:bg-amber-50 hover:text-amber-700 focus-visible:ring-slate-400"
+            }`}>
+            <i className="fas fa-triangle-exclamation text-[10px]" aria-hidden="true"></i>
+            Low Stock
+            {lowStockItems.length > 0 && (
+              <span className={`ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums ${
+                filterStatus === "low" ? "bg-amber-200 text-amber-900" : "bg-amber-500 text-white"
+              }`}>
+                {lowStockItems.length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
+
+      {/* Inline low-stock banner — same data as the chip count, shown at
+          top when something needs attention. Hidden when nothing is low or
+          when the filter is already applied. */}
+      {lowStockItems.length > 0 && filterStatus !== "low" && (() => {
+        const hasOut = lowStockItems.some(a => a.remaining === 0);
+        const tone = hasOut
+          ? { bar: "bg-rose-50 border-rose-200", icon: "bg-rose-100 text-rose-600", title: "text-rose-900", chip: "bg-rose-100 text-rose-800" }
+          : { bar: "bg-amber-50 border-amber-200", icon: "bg-amber-100 text-amber-700", title: "text-amber-900", chip: "bg-amber-100 text-amber-800" };
+        return (
+          <div className={`rounded-xl border p-4 ${tone.bar} flex items-start gap-3`}>
+            <span className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${tone.icon}`}>
+              <i className="fas fa-triangle-exclamation" aria-hidden="true"></i>
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className={`text-sm font-semibold ${tone.title}`}>
+                {lowStockItems.length} add-on{lowStockItems.length === 1 ? "" : "s"} {hasOut ? "need restocking" : "running low"}
+              </p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {lowStockItems.slice(0, 5).map(a => (
+                  <span key={a.id} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium tabular-nums ${tone.chip}`}>
+                    <i className={`fas ${a.icon || "fa-tag"} text-[10px]`} aria-hidden="true"></i>
+                    {a.name} · {a.remaining} left
+                  </span>
+                ))}
+                {lowStockItems.length > 5 && (
+                  <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium ${tone.chip}`}>
+                    +{lowStockItems.length - 5} more
+                  </span>
+                )}
+              </div>
+              <p className={`text-[11px] mt-2 ${tone.title} opacity-75`}>
+                <i className="fas fa-info-circle text-[10px] mr-1" aria-hidden="true"></i>
+                Owner controls inventory — flag these for restock.
+              </p>
+            </div>
+            <button
+              onClick={() => setFilterStatus("low")}
+              type="button"
+              className={`shrink-0 self-start text-xs font-semibold px-3 py-1.5 rounded-lg transition ${tone.chip} hover:brightness-95`}>
+              Filter
+              <i className="fas fa-filter ml-1.5 text-[10px]" aria-hidden="true"></i>
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Table card */}
       <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
@@ -639,9 +763,11 @@ function AddonsTab() {
                 <i className="fas fa-puzzle-piece text-slate-300 text-2xl" aria-hidden="true"></i>
               </div>
               <p className="text-slate-500 font-medium">
-                {debouncedSearch || filterStatus !== "all"
-                  ? "No add-ons match your search."
-                  : "No add-ons yet."}
+                {filterStatus === "low"
+                  ? "Nothing is low on stock right now."
+                  : debouncedSearch || filterStatus !== "all"
+                    ? "No add-ons match your search."
+                    : "No add-ons yet."}
               </p>
               {(debouncedSearch || filterStatus !== "all") && (
                 <button onClick={() => { setSearchTerm(""); setFilterStatus("all"); }} type="button"
@@ -656,7 +782,9 @@ function AddonsTab() {
                 <tr>
                   <th className="px-6 py-3 text-left">Name</th>
                   <th className="px-6 py-3 text-left">Price</th>
+                  <th className="px-6 py-3 text-left">Allocated</th>
                   <th className="px-6 py-3 text-left">Max Qty</th>
+                  <th className="px-6 py-3 text-left">Remaining</th>
                   <th className="px-6 py-3 text-left">Type</th>
                   <th className="px-6 py-3 text-left">Status</th>
                   <th className="px-6 py-3 text-right">Actions</th>
@@ -681,7 +809,28 @@ function AddonsTab() {
                     <td className="px-6 py-4">
                       <span className="font-semibold text-slate-800">{"₱"}{Number(item.price).toLocaleString()}</span>
                     </td>
-                    <td className="px-6 py-4">{item.max_qty}</td>
+                    <td className="px-6 py-4 tabular-nums">
+                      {stockMap[item.id]
+                        ? <span className="text-slate-700">{stockMap[item.id].allocated}</span>
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-6 py-4 tabular-nums">{item.max_qty}</td>
+                    <td className="px-6 py-4">
+                      {stockMap[item.id] ? (
+                        <>
+                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold tabular-nums ${stockPillClass(stockMap[item.id], item.max_qty)}`}>
+                            {stockMap[item.id].remaining}
+                          </span>
+                          {stockMap[item.id].is_room_attached && (
+                            <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700" title="Room-attached fixture — not tracked against the shared pool">
+                              <i className="fas fa-link text-[9px]" aria-hidden="true"></i>Fixture
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4">
                       <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
                         {item.per_booking ? "Per Booking" : "Per Item"}
@@ -785,6 +934,49 @@ function AddonsTab() {
                 </div>
               </div>
 
+              {/* Live stock snapshot — visibility only; admin asks owner
+                  to restock, can't change max_qty themselves. */}
+              {stockMap[viewItem.id] && (() => {
+                const s = stockMap[viewItem.id];
+                const low = !s.is_room_attached && isLowStockFn(s, viewItem.max_qty);
+                const out = !s.is_room_attached && Number(s.remaining) <= 0;
+                const remTone = out
+                  ? { bg: "bg-rose-50 border-rose-100", label: "text-rose-600", value: "text-rose-800" }
+                  : low
+                    ? { bg: "bg-amber-50 border-amber-100", label: "text-amber-600", value: "text-amber-800" }
+                    : s.is_room_attached
+                      ? { bg: "bg-slate-50 border-slate-200", label: "text-slate-500", value: "text-slate-700" }
+                      : { bg: "bg-emerald-50 border-emerald-100", label: "text-emerald-600", value: "text-emerald-800" };
+                return (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-3.5">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="h-6 w-6 rounded-md bg-indigo-100 flex items-center justify-center">
+                          <i className="fas fa-chart-line text-indigo-600 text-[10px]" aria-hidden="true"></i>
+                        </span>
+                        <span className="text-[10px] font-semibold text-indigo-600 uppercase tracking-wide">Allocated</span>
+                      </div>
+                      <p className="text-lg font-bold text-indigo-800 tabular-nums">{s.allocated}</p>
+                    </div>
+                    <div className={`rounded-xl border p-3.5 ${remTone.bg}`}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="h-6 w-6 rounded-md bg-white/60 flex items-center justify-center">
+                          <i className={`fas fa-cube ${remTone.label} text-[10px]`} aria-hidden="true"></i>
+                        </span>
+                        <span className={`text-[10px] font-semibold ${remTone.label} uppercase tracking-wide`}>Remaining</span>
+                      </div>
+                      <p className={`text-lg font-bold tabular-nums ${remTone.value}`}>{s.remaining}</p>
+                      {s.is_room_attached && (
+                        <p className="text-[10px] text-slate-500 mt-1">Fixture — reflects room bookings</p>
+                      )}
+                      {!s.is_room_attached && (out || low) && (
+                        <p className={`text-[10px] mt-1 ${remTone.label}`}>Flag to owner for restock</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {viewItem.description && (
                 <div>
                   <p className="text-xs text-slate-500 uppercase tracking-wide">Description</p>
@@ -837,7 +1029,9 @@ function AddonsSkeleton() {
           <tr>
             <th className="px-6 py-3 text-left">Name</th>
             <th className="px-6 py-3 text-left">Price</th>
+            <th className="px-6 py-3 text-left">Allocated</th>
             <th className="px-6 py-3 text-left">Max Qty</th>
+            <th className="px-6 py-3 text-left">Remaining</th>
             <th className="px-6 py-3 text-left">Type</th>
             <th className="px-6 py-3 text-left">Status</th>
             <th className="px-6 py-3 text-right">Actions</th>
@@ -849,6 +1043,8 @@ function AddonsSkeleton() {
               <td className="px-6 py-4"><div className="h-4 bg-slate-200 rounded w-3/4"></div></td>
               <td className="px-6 py-4"><div className="h-4 bg-slate-200 rounded w-16"></div></td>
               <td className="px-6 py-4"><div className="h-4 bg-slate-200 rounded w-10"></div></td>
+              <td className="px-6 py-4"><div className="h-4 bg-slate-200 rounded w-10"></div></td>
+              <td className="px-6 py-4"><div className="h-4 bg-slate-200 rounded w-12"></div></td>
               <td className="px-6 py-4"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
               <td className="px-6 py-4"><div className="h-4 bg-slate-200 rounded w-16"></div></td>
               <td className="px-6 py-4 text-right"><div className="h-8 w-16 bg-slate-200 rounded-lg inline-block"></div></td>
