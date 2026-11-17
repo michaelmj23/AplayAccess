@@ -10,6 +10,7 @@ import {
 import { addonAvailabilityForSlot } from "../../lib/frontdeskApi.js";
 import { isLowStock as isLowStockFn, findLowStock } from "../../lib/addonStock.js";
 import Modal from "../../components/modals/Modal.jsx";
+import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import Toast, { useToast } from "../../components/ui/Toast.jsx";
 import useDebounce from "../../hooks/useDebounce.js";
 import { TabBar } from "../owner/Users.jsx";
@@ -509,6 +510,13 @@ function AddonsTab() {
   const [loadError,    setLoadError]    = useState(false);
   const [busyId,       setBusyId]       = useState(null);
   const [viewItem,     setViewItem]     = useState(null);
+  // Disable guards: fixtures hit a hard block (disabling a package addon on
+  // the catalog does NOT stop auto-attach on its bundled rooms — latent
+  // backend behavior we can't fix from here, so admin is routed to owner
+  // instead). Shared-pool items with allocated > 0 hit a soft confirm so
+  // admin sees the impact. Enabling is always safe — never guarded.
+  const [confirmDisable, setConfirmDisable] = useState(null);
+  const [fixtureBlocked, setFixtureBlocked] = useState(null);
   const [searchTerm,   setSearchTerm]   = useState("");
   // filterStatus: all | active | inactive | low (low = active + remaining
   // under the hybrid threshold). Initialized from ?filter=low so the
@@ -606,6 +614,20 @@ function AddonsTab() {
     } finally {
       setBusyId(null);
     }
+  }
+
+  // Entry point for the row's Disable / Enable click. Routes enabling
+  // straight through, and gates disabling behind a guard that matches
+  // the addon's type.
+  function requestToggle(item) {
+    if (!item.is_active) { toggle(item); return; }
+    const s = stockMap[item.id];
+    if (s?.is_room_attached) {
+      setFixtureBlocked({ ...item, rooms_count: s.rooms_count ?? 0 });
+      return;
+    }
+    const allocated = Number(s?.allocated ?? 0);
+    setConfirmDisable({ ...item, allocated });
   }
 
   return (
@@ -846,7 +868,7 @@ function AddonsTab() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex justify-end gap-2">
-                        <button type="button" onClick={() => toggle(item)}
+                        <button type="button" onClick={() => requestToggle(item)}
                           disabled={busyId === item.id}
                           aria-label={`${item.is_active ? "Disable" : "Enable"} ${item.name}`}
                           title={item.is_active ? "Disable this add-on" : "Enable this add-on"}
@@ -1010,7 +1032,7 @@ function AddonsTab() {
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between gap-3">
-              <button type="button" onClick={() => toggle(viewItem)} disabled={busyId === viewItem.id}
+              <button type="button" onClick={() => requestToggle(viewItem)} disabled={busyId === viewItem.id}
                 aria-label={viewItem.is_active ? `Disable ${viewItem.name}` : `Enable ${viewItem.name}`}
                 className={`inline-flex items-center justify-center gap-2 min-h-11 px-4 rounded-xl text-sm font-semibold transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
                   viewItem.is_active
@@ -1028,6 +1050,67 @@ function AddonsTab() {
           </>
         )}
       </Modal>
+
+      {/* Soft confirm — shared-pool addon with potential in-flight impact.
+          Explains that existing bookings keep their charge and new guests
+          won't see it going forward. */}
+      <ConfirmDialog
+        open={!!confirmDisable}
+        variant="warning"
+        title={`Disable "${confirmDisable?.name ?? ''}"?`}
+        message={
+          confirmDisable ? (
+            <div className="space-y-2">
+              {confirmDisable.allocated > 0 ? (
+                <p>
+                  <strong className="text-slate-900">{confirmDisable.allocated}</strong>{" "}
+                  active booking{confirmDisable.allocated === 1 ? "" : "s"} already {confirmDisable.allocated === 1 ? "has" : "have"} this add-on. Their charges won't change.
+                </p>
+              ) : (
+                <p>No active bookings use this add-on right now.</p>
+              )}
+              <p className="text-slate-600">
+                New guests won't see it in the booking picker until it's enabled again.
+              </p>
+            </div>
+          ) : null
+        }
+        confirmLabel="Disable"
+        cancelLabel="Keep active"
+        onConfirm={() => {
+          const item = confirmDisable;
+          setConfirmDisable(null);
+          if (item) toggle(item);
+        }}
+        onCancel={() => setConfirmDisable(null)}
+      />
+
+      {/* Hard block — room-attached fixture. Disabling here has NO effect
+          on the per-room package auto-attach (handled by owner's room
+          editor + the room_addons pivot), so we route admin there instead
+          of pretending the toggle did something. */}
+      <ConfirmDialog
+        open={!!fixtureBlocked}
+        variant="info"
+        title="Can't disable from here"
+        message={
+          fixtureBlocked ? (
+            <div className="space-y-2">
+              <p>
+                <strong className="text-slate-900">{fixtureBlocked.name}</strong> is bundled with{" "}
+                <strong className="text-slate-900">{fixtureBlocked.rooms_count}</strong> room{fixtureBlocked.rooms_count === 1 ? "" : "s"} as a fixture.
+              </p>
+              <p className="text-slate-600">
+                Disabling it here won't stop those rooms from auto-attaching it to new bookings. Ask the owner to remove it from each carrying room first.
+              </p>
+            </div>
+          ) : null
+        }
+        confirmLabel="Got it"
+        cancelLabel="Close"
+        onConfirm={() => setFixtureBlocked(null)}
+        onCancel={() => setFixtureBlocked(null)}
+      />
     </div>
   );
 }
