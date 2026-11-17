@@ -110,6 +110,12 @@ export const getPromoCodes         = ()         => api.get('/api/admin/promo-cod
 export const createPromoCode       = (data)     => api.post('/api/admin/promo-codes', data);
 export const updatePromoCode       = (id, data) => api.patch(`/api/admin/promo-codes/${id}`, data);
 export const deletePromoCode       = (id)       => api.delete(`/api/admin/promo-codes/${id}`);
+// Narrow toggle for admin role — strategic CRUD (create/edit/delete) is
+// owner-only. Owner can still call updatePromoCode with { is_active } to
+// flip + change other fields in one request; this endpoint exists so the
+// admin_or_owner middleware can expose status flipping without opening
+// the whole PATCH surface.
+export const togglePromoActive     = (id)       => api.patch(`/api/admin/promo-codes/${id}/toggle-active`);
 export const validatePromo         = (code, subtotal) => api.post('/api/validate-promo', { code, subtotal });
 
 // ── Newsletter (owner only) ───────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import { getAdminAddons, createAdminAddon, updateAdminAddon, deleteAdminAddon } 
 import { addonAvailabilityForSlot } from "../../lib/frontdeskApi";
 import { isLowStock as isLowStockFn, findLowStock } from "../../lib/addonStock";
 import useDebounce from "../../hooks/useDebounce.js";
+import useToggleConfirm from "../../hooks/useToggleConfirm.jsx";
 
 const BLANK = {
   name: "", icon: "fa-tag", description: "", price: 0, max_qty: 1, per_booking: false, is_active: true,
@@ -271,6 +272,35 @@ export default function AdminAddons() {
     } catch {
       showToast("Failed to update status.", "error");
     }
+  }
+
+  const { request: requestToggle, dialog: toggleDialog } = useToggleConfirm();
+
+  // Guard the "off" direction. Show live allocated count so owner can see
+  // how many in-flight bookings currently carry this add-on (unchanged by
+  // the flip — snapshotted at booking time).
+  function requestToggleActive(item) {
+    const allocated = Number(stockMap[item.id]?.allocated ?? 0);
+    requestToggle({
+      shouldConfirm: item.is_active,
+      perform: () => toggleActive(item),
+      title: `Deactivate "${item.name}"?`,
+      message: (
+        <div className="space-y-2">
+          {allocated > 0 ? (
+            <p>
+              <strong className="text-slate-900">{allocated}</strong>{" "}
+              active booking{allocated === 1 ? "" : "s"} already {allocated === 1 ? "has" : "have"} this add-on — their charges won't change.
+            </p>
+          ) : (
+            <p>No active bookings use this add-on right now.</p>
+          )}
+          <p className="text-slate-600">New guests won't see it in the booking picker until reactivated.</p>
+        </div>
+      ),
+      confirmLabel: "Deactivate",
+      variant: "warning",
+    });
   }
 
   /* ── #9 single delete with undo ── */
@@ -743,7 +773,7 @@ export default function AdminAddons() {
                             <i className="fas fa-copy text-sm" aria-hidden="true"></i>
                           </button>
                           <button type="button"
-                            onClick={() => toggleActive(item)} title={item.is_active ? `Deactivate ${item.name}` : `Activate ${item.name}`} aria-label={item.is_active ? `Deactivate ${item.name}` : `Activate ${item.name}`}
+                            onClick={() => requestToggleActive(item)} title={item.is_active ? `Deactivate ${item.name}` : `Activate ${item.name}`} aria-label={item.is_active ? `Deactivate ${item.name}` : `Activate ${item.name}`}
                             className={`h-11 w-11 rounded-lg flex items-center justify-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${item.is_active
                               ? "hover:bg-amber-50 text-amber-600 hover:text-amber-800 focus-visible:ring-amber-500"
                               : "hover:bg-emerald-50 text-emerald-600 hover:text-emerald-800 focus-visible:ring-emerald-500"}`}
@@ -862,7 +892,7 @@ export default function AdminAddons() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => toggleActive(item)}
+                          onClick={() => requestToggleActive(item)}
                           aria-label={item.is_active ? `Deactivate ${item.name || 'add-on'}` : `Activate ${item.name || 'add-on'}`}
                           className={`h-11 w-11 rounded-lg flex items-center justify-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${item.is_active
                             ? 'hover:bg-amber-50 text-amber-600 hover:text-amber-800 focus-visible:ring-amber-500'
@@ -1314,6 +1344,7 @@ export default function AdminAddons() {
         </form>
       </Modal>
 
+      {toggleDialog}
     </div>
   );
 }

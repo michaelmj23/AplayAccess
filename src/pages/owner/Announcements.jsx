@@ -12,6 +12,7 @@ import {
 import { isVideoUrl } from "../../lib/uploadApi.js";
 import MediaPicker from "../../components/ui/MediaPicker.jsx";
 import useDebounce from "../../hooks/useDebounce.js";
+import useToggleConfirm from "../../hooks/useToggleConfirm.jsx";
 
 // <input type="datetime-local"> expects a local wall-clock string (YYYY-MM-DDTHH:mm).
 // toISOString() returns UTC, so using its slice silently shifts times by the
@@ -337,6 +338,19 @@ export default function AdminAnnouncements() {
     } catch {
       showToast("Failed to update status.", "error");
     }
+  }
+
+  const { request: requestToggle, dialog: toggleDialog } = useToggleConfirm();
+
+  function requestToggleActive(item) {
+    requestToggle({
+      shouldConfirm: item.is_active,
+      perform: () => toggleActive(item),
+      title: `Deactivate "${item.title}"?`,
+      message: <>Guests will stop seeing this announcement on the public site. You can reactivate anytime.</>,
+      confirmLabel: "Deactivate",
+      variant: "warning",
+    });
   }
 
   /* ── bulk ── */
@@ -692,7 +706,7 @@ export default function AdminAnnouncements() {
                       {/* Active */}
                       <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                         <button
-                          onClick={() => toggleActive(item)}
+                          onClick={() => requestToggleActive(item)}
                           title={item.is_active ? "Deactivate" : "Activate"}
                           className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full transition ${
                             item.is_active
@@ -794,7 +808,7 @@ export default function AdminAnnouncements() {
                         </p>
                         <div className="flex items-center gap-1">
                           <button
-                            onClick={() => toggleActive(item)}
+                            onClick={() => requestToggleActive(item)}
                             aria-label={item.is_active ? `Deactivate ${item.title}` : `Activate ${item.title}`}
                             className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition mr-1 ${
                               item.is_active
@@ -1181,6 +1195,8 @@ export default function AdminAnnouncements() {
           </form>
         )}
       </Modal>
+
+      {toggleDialog}
     </div>
   );
 }

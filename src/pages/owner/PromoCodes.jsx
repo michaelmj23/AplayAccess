@@ -3,9 +3,11 @@ import { Helmet } from "react-helmet-async";
 import Modal from "../../components/modals/Modal.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import Toast, { useToast } from "../../components/ui/Toast";
-import { getPromoCodes, createPromoCode, updatePromoCode, deletePromoCode } from "../../lib/adminApi.js";
+import { getPromoCodes, createPromoCode, updatePromoCode, deletePromoCode, togglePromoActive } from "../../lib/adminApi.js";
 import { localDateStr } from "../../lib/format";
 import useDebounce from "../../hooks/useDebounce.js";
+import useToggleConfirm from "../../hooks/useToggleConfirm.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
 
 const EMPTY_FORM = { code: "", type: "percentage", value: "", max_uses: "", expires_at: "" };
 const PAGE_SIZE = 10;
@@ -55,6 +57,13 @@ function getPageNumbers(current, total) {
 
 export default function PromoCodes() {
   const [toast, showToast, clearToast, toastType, toastAction] = useToast();
+  const { request: requestToggle, dialog: toggleDialog } = useToggleConfirm();
+  // Admin can enable/disable existing codes but can't create / edit the
+  // value/cap/expiry / duplicate / delete. Owner has full CRUD. Backend
+  // rejects admin's attempts regardless, but hiding the controls avoids
+  // the dead-click.
+  const { user } = useAuth();
+  const isAdminView = user?.role === "admin";
 
   /* ── data ── */
   const [codes, setCodes] = useState([]);
@@ -124,8 +133,9 @@ export default function PromoCodes() {
     };
   }, []);
 
-  /* ── keyboard shortcut Ctrl+N ── */
+  /* ── keyboard shortcut Ctrl+N (owner only) ── */
   useEffect(() => {
+    if (isAdminView) return;
     function handleKeyDown(e) {
       if ((e.ctrlKey || e.metaKey) && e.key === "n") {
         e.preventDefault();
@@ -134,7 +144,7 @@ export default function PromoCodes() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAdminView]);
 
   /* ── filter + sort + paginate ── */
   const filtered = codes.filter((c) => {
@@ -293,13 +303,37 @@ export default function PromoCodes() {
 
   async function toggleActive(code) {
     try {
-      await updatePromoCode(code.id, { is_active: !code.is_active });
+      // Admin uses the narrow toggle endpoint (admin_or_owner middleware).
+      // Owner continues to use the full update endpoint since they may
+      // pair the flip with field edits elsewhere in the same flow.
+      if (isAdminView) {
+        await togglePromoActive(code.id);
+      } else {
+        await updatePromoCode(code.id, { is_active: !code.is_active });
+      }
       setCodes((prev) => prev.map((c) => (c.id === code.id ? { ...c, is_active: !c.is_active } : c)));
       if (viewItem?.id === code.id) setViewItem((v) => ({ ...v, is_active: !v.is_active }));
       showToast(code.is_active ? "Promo code deactivated." : "Promo code activated.", "success");
     } catch {
       showToast("Failed to update status.", "error");
     }
+  }
+
+  // Guard the "off" direction only — flipping a live code to inactive
+  // yanks guest discounts at checkout. Reactivating is safe.
+  function requestToggleActive(code) {
+    requestToggle({
+      shouldConfirm: code.is_active,
+      perform: () => toggleActive(code),
+      title: `Deactivate "${code.code}"?`,
+      message: (
+        <>
+          Guests won't be able to redeem this promo at checkout. Existing bookings that already applied it are unaffected. You can reactivate anytime.
+        </>
+      ),
+      confirmLabel: "Deactivate",
+      variant: "warning",
+    });
   }
 
   function handleDelete(item) {
@@ -418,8 +452,9 @@ export default function PromoCodes() {
             </span>
             Promo Codes
           </h2>
-          <p className="text-sm text-slate-500 mt-1 ml-[46px]">Create and manage discount codes for guests.</p>
+          <p className="text-sm text-slate-500 mt-1 ml-[46px]">{isAdminView ? "Enable or disable existing discount codes. Only owner can create new codes." : "Create and manage discount codes for guests."}</p>
         </div>
+        {!isAdminView && (
         <button onClick={openCreate}
           className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 transition">
           <i className="fas fa-plus text-xs" aria-hidden="true"></i>
@@ -428,6 +463,7 @@ export default function PromoCodes() {
             Ctrl+N
           </kbd>
         </button>
+        )}
       </div>
 
       {/* Load error banner */}
@@ -477,8 +513,9 @@ export default function PromoCodes() {
         </div>
       </div>
 
-      {/* Bulk action bar */}
-      {selected.size > 0 && (
+      {/* Bulk action bar — owner-only. Admin can only toggle one code at
+          a time; bulk delete + bulk activate/deactivate is strategic. */}
+      {!isAdminView && selected.size > 0 && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-3 flex items-center justify-between animate-hero-fade-in opacity-0">
           <span className="text-sm font-medium text-indigo-800">
             <i className="fas fa-check-circle mr-2" aria-hidden="true"></i>{selected.size} selected
@@ -595,11 +632,13 @@ export default function PromoCodes() {
               <table className="hidden md:table w-full text-sm text-slate-700">
                 <thead className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide border-b border-slate-200">
                   <tr>
+                    {!isAdminView && (
                     <th className="px-5 py-3 w-10">
                       <input type="checkbox" checked={paginated.every((c) => selected.has(c.id)) && paginated.length > 0}
                         onChange={toggleSelectAll}
                         className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400" />
                     </th>
+                    )}
                     {[["Code","Code"],["Discount","Discount"],["Expires","Expires"],["Uses","Uses"],["Status","Status"]].map(([label,key]) => (
                       <th key={key} className="px-5 py-3 text-left">
                         <button onClick={() => handleSort(key)}
@@ -624,11 +663,13 @@ export default function PromoCodes() {
                       onClick={() => setViewItem(code)}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewItem(code); } }}
                       className={`cursor-pointer transition-all hover:bg-indigo-50/40 hover:shadow-sm ${idx % 2 === 1 ? "bg-slate-50/50" : ""} ${!code.is_active ? "opacity-60" : ""}`}>
+                      {!isAdminView && (
                       <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={selected.has(code.id)}
                           onChange={() => toggleSelect(code.id)}
                           className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400" />
                       </td>
+                      )}
                       <td className="px-5 py-3">
                         <span className="inline-flex items-center gap-2">
                           <span className="font-mono font-semibold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-md text-xs tracking-wide">
@@ -669,6 +710,7 @@ export default function PromoCodes() {
                             className="h-11 w-11 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 hover:text-slate-800 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2">
                             <i className="fas fa-copy text-sm" aria-hidden="true"></i>
                           </button>
+                          {!isAdminView && (<>
                           <button type="button" onClick={() => openEdit(code)} title={`Edit ${code.code}`} aria-label={`Edit ${code.code}`}
                             className="h-11 w-11 rounded-lg hover:bg-sky-50 flex items-center justify-center text-sky-700 hover:text-sky-800 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2">
                             <i className="fas fa-pen text-sm" aria-hidden="true"></i>
@@ -677,16 +719,19 @@ export default function PromoCodes() {
                             className="h-11 w-11 rounded-lg hover:bg-violet-50 flex items-center justify-center text-violet-600 hover:text-violet-800 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2">
                             <i className="fas fa-clone text-sm" aria-hidden="true"></i>
                           </button>
-                          <button type="button" onClick={() => toggleActive(code)} title={code.is_active ? `Deactivate ${code.code}` : `Activate ${code.code}`} aria-label={code.is_active ? `Deactivate ${code.code}` : `Activate ${code.code}`}
+                          </>)}
+                          <button type="button" onClick={() => requestToggleActive(code)} title={code.is_active ? `Deactivate ${code.code}` : `Activate ${code.code}`} aria-label={code.is_active ? `Deactivate ${code.code}` : `Activate ${code.code}`}
                             className={`h-11 w-11 rounded-lg flex items-center justify-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${code.is_active
                               ? "hover:bg-amber-50 text-amber-600 hover:text-amber-800 focus-visible:ring-amber-500"
                               : "hover:bg-emerald-50 text-emerald-600 hover:text-emerald-800 focus-visible:ring-emerald-500"}`}>
                             <i className={`fas ${code.is_active ? "fa-toggle-off" : "fa-toggle-on"} text-sm`} aria-hidden="true"></i>
                           </button>
+                          {!isAdminView && (
                           <button type="button" onClick={() => setDeleteTarget(code)} title={`Delete ${code.code}`} aria-label={`Delete ${code.code}`}
                             className="h-11 w-11 rounded-lg hover:bg-rose-50 flex items-center justify-center text-rose-600 hover:text-rose-800 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2">
                             <i className="fas fa-trash text-sm" aria-hidden="true"></i>
                           </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -717,8 +762,9 @@ export default function PromoCodes() {
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewItem(code); } }}
                         className={`rounded-xl border border-slate-200 bg-white shadow-sm p-4 cursor-pointer hover:bg-indigo-50/40 transition focus:outline-none focus:ring-2 focus:ring-indigo-400 ${accent} ${!code.is_active ? 'opacity-70' : ''}`}
                       >
-                        {/* Top — checkbox + code + status pill */}
+                        {/* Top — checkbox (owner only) + code + status pill */}
                         <div className="flex items-start gap-3">
+                          {!isAdminView && (
                           <input
                             type="checkbox"
                             checked={selected.has(code.id)}
@@ -727,6 +773,7 @@ export default function PromoCodes() {
                             aria-label={`Select ${code.code}`}
                             className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400 shrink-0"
                           />
+                          )}
                           <div className="flex-1 min-w-0">
                             <span className="font-mono font-semibold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-md text-xs tracking-wide">
                               {code.code}
@@ -770,6 +817,7 @@ export default function PromoCodes() {
                             className="h-10 w-10 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition">
                             <i className="fas fa-copy text-xs" aria-hidden="true"></i>
                           </button>
+                          {!isAdminView && (<>
                           <button onClick={() => openEdit(code)} aria-label={`Edit ${code.code}`}
                             className="h-10 w-10 rounded-lg hover:bg-sky-50 flex items-center justify-center text-sky-600 hover:text-sky-800 transition">
                             <i className="fas fa-pen text-xs" aria-hidden="true"></i>
@@ -778,16 +826,19 @@ export default function PromoCodes() {
                             className="h-10 w-10 rounded-lg hover:bg-violet-50 flex items-center justify-center text-violet-500 hover:text-violet-700 transition">
                             <i className="fas fa-clone text-xs" aria-hidden="true"></i>
                           </button>
-                          <button onClick={() => toggleActive(code)} aria-label={code.is_active ? `Deactivate ${code.code}` : `Activate ${code.code}`}
+                          </>)}
+                          <button onClick={() => requestToggleActive(code)} aria-label={code.is_active ? `Deactivate ${code.code}` : `Activate ${code.code}`}
                             className={`h-10 w-10 rounded-lg flex items-center justify-center transition ${code.is_active
                               ? 'hover:bg-amber-50 text-amber-500 hover:text-amber-700'
                               : 'hover:bg-emerald-50 text-emerald-500 hover:text-emerald-700'}`}>
                             <i className={`fas ${code.is_active ? 'fa-toggle-off' : 'fa-toggle-on'} text-xs`} aria-hidden="true"></i>
                           </button>
+                          {!isAdminView && (
                           <button onClick={() => setDeleteTarget(code)} aria-label={`Delete ${code.code}`}
                             className="h-10 w-10 rounded-lg hover:bg-rose-50 flex items-center justify-center text-rose-400 hover:text-rose-600 transition">
                             <i className="fas fa-trash text-xs" aria-hidden="true"></i>
                           </button>
+                          )}
                         </div>
                       </div>
                     </li>
@@ -922,6 +973,7 @@ export default function PromoCodes() {
                   className="px-4 py-2 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-sm font-medium transition">
                   <i className="fas fa-copy mr-1.5 text-xs" aria-hidden="true"></i>Copy
                 </button>
+                {!isAdminView && (<>
                 <button onClick={() => openDuplicate(viewItem)}
                   className="px-4 py-2 border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-700 rounded-xl text-sm font-medium transition">
                   <i className="fas fa-clone mr-1.5 text-xs" aria-hidden="true"></i>Duplicate
@@ -930,6 +982,7 @@ export default function PromoCodes() {
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition">
                   <i className="fas fa-pen mr-1.5 text-xs" aria-hidden="true"></i>Edit
                 </button>
+                </>)}
               </div>
             </div>
           );
@@ -1245,6 +1298,8 @@ export default function PromoCodes() {
         }}
         onCancel={() => setDiscardConfirm(null)}
       />
+
+      {toggleDialog}
     </div>
   );
 }

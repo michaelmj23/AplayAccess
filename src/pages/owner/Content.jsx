@@ -9,6 +9,8 @@ import MediaPicker from "../../components/ui/MediaPicker.jsx";
 import { isVideoUrl, uploadFile } from "../../lib/uploadApi.js";
 import Modal from "../../components/modals/Modal.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
+import useToggleConfirm from "../../hooks/useToggleConfirm.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
 import Toast, { useToast } from "../../components/ui/Toast";
 import useDebounce from "../../hooks/useDebounce.js";
 import OwnerAnnouncements from "./Announcements.jsx";
@@ -244,6 +246,10 @@ function SectionCard({ icon, title, badge, children, onEdit, editing, onSave, on
   // wiring its own dialog. See pages-wide policy on mutating
   // actions (the CLAUDE.md note).
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
+  // Guard the "Hide" direction only. Showing a previously-hidden section
+  // is safe (it restores content guests were already seeing); hiding
+  // removes a whole block from the public page, worth a one-click check.
+  const { request: requestToggleVisible, dialog: toggleVisibleDialog } = useToggleConfirm();
 
   return (
     <div className={`bg-white rounded-lg shadow border ${editing ? "border-brand" : visible === false ? "border-slate-200 opacity-60" : "border-slate-200"} overflow-hidden`}>
@@ -265,7 +271,14 @@ function SectionCard({ icon, title, badge, children, onEdit, editing, onSave, on
         <div className="flex items-center gap-2">
           {hideable && !editing && (
             <button
-              onClick={onToggleVisible}
+              onClick={() => requestToggleVisible({
+                shouldConfirm: visible,
+                perform: onToggleVisible,
+                title: `Hide "${title}" from the public site?`,
+                message: <>This section will stop appearing for guests until you show it again. No content is deleted.</>,
+                confirmLabel: "Hide section",
+                variant: "warning",
+              })}
               title={visible ? "Hide section" : "Show section"}
               className={`text-xs px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
                 visible
@@ -313,6 +326,8 @@ function SectionCard({ icon, title, badge, children, onEdit, editing, onSave, on
         onConfirm={() => { setSaveConfirmOpen(false); onSave?.(); }}
         onCancel={() => setSaveConfirmOpen(false)}
       />
+
+      {toggleVisibleDialog}
     </div>
   );
 }
@@ -2160,6 +2175,12 @@ function formatDate(iso) {
 
 // ─── Gallery Tab ──────────────────────────────────────────────────────────────
 function GalleryTab({ imageCount, setImageCount }) {
+  // Admin can upload, feature, rename category, toggle visibility, PATCH
+  // metadata. Permanent image DELETE stays owner-only (destroys Cloudinary
+  // assets). Backend rejects admin DELETE regardless; hiding the buttons
+  // avoids the dead-click.
+  const { user } = useAuth();
+  const isAdminView = user?.role === "admin";
   const [images,      setImages]      = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -2554,11 +2575,13 @@ function GalleryTab({ imageCount, setImageCount }) {
                     title="Rename category">
                     <i className="fas fa-pen" aria-hidden="true" />
                   </button>
+                  {!isAdminView && (
                   <button onClick={(e) => { e.stopPropagation(); setDeleteCat(cat); }}
                     className="w-5 h-5 rounded-full bg-rose-500 text-white text-[8px] flex items-center justify-center hover:bg-rose-700"
                     title="Delete category">
                     <i className="fas fa-trash" aria-hidden="true" />
                   </button>
+                  )}
                 </div>
               </div>
             );
@@ -2769,6 +2792,7 @@ function GalleryTab({ imageCount, setImageCount }) {
                     >
                       <i className="fas fa-arrows-alt text-xs" aria-hidden="true"></i>
                     </button>
+                    {!isAdminView && (
                     <button
                       onClick={e => { e.stopPropagation(); setDeleteId(img.id); }}
                       className="bg-red-500 hover:bg-red-600 text-white w-7 h-7 rounded-full flex items-center justify-center shadow"
@@ -2776,6 +2800,7 @@ function GalleryTab({ imageCount, setImageCount }) {
                     >
                       <i className="fas fa-trash text-xs" aria-hidden="true"></i>
                     </button>
+                    )}
                   </div>
                 </div>
 
@@ -2892,10 +2917,12 @@ function GalleryTab({ imageCount, setImageCount }) {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">
                   <i className="fas fa-arrows-alt text-[10px]" aria-hidden="true" /> Move
                 </button>
+                {!isAdminView && (
                 <button onClick={() => { setDeleteId(previewImg.id); setPreviewImg(null); }}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-100 text-rose-600 hover:bg-rose-200">
                   <i className="fas fa-trash text-[10px]" aria-hidden="true" /> Delete
                 </button>
+                )}
               </div>
             </div>
           </div>
@@ -3242,6 +3269,12 @@ function ReviewsTab({ content, onSave, reviewCount, setReviewCount }) {
   const [toast, showToast, clearToast, toastType] = useToast();
   const [saving,   setSaving]   = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const { request: requestToggle, dialog: toggleDialog } = useToggleConfirm();
+  // Admin can moderate (approve/reject/feature/unfeature) but can't
+  // permanently delete guest reviews — owner only. Backend rejects
+  // admin DELETE regardless; hiding the button avoids the dead-click.
+  const { user } = useAuth();
+  const isAdminView = user?.role === "admin";
 
   // Section settings editing
   const [editing,  setEditing]  = useState(false);
@@ -3473,14 +3506,28 @@ function ReviewsTab({ content, onSave, reviewCount, setReviewCount }) {
                           className="text-xs px-3 py-1.5 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded-lg font-medium">
                           Approve
                         </button>
-                        <button onClick={() => patch(r.id, { status: "Rejected" })}
+                        <button onClick={() => requestToggle({
+                            shouldConfirm: true,
+                            perform: () => patch(r.id, { status: "Rejected" }),
+                            title: "Reject this review?",
+                            message: <>The guest's review won't be published and won't appear on the resort page. You can change this later by re-approving.</>,
+                            confirmLabel: "Reject review",
+                            variant: "warning",
+                          })}
                           className="text-xs px-3 py-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-lg font-medium">
                           Reject
                         </button>
                       </>
                     )}
                     {r.status === "Approved" && (
-                      <button onClick={() => patch(r.id, { featured: !r.featured })}
+                      <button onClick={() => requestToggle({
+                          shouldConfirm: r.featured,
+                          perform: () => patch(r.id, { featured: !r.featured }),
+                          title: "Remove from featured reviews?",
+                          message: <>This review will stop appearing in the resort page's featured carousel. It remains approved and readable on the reviews list.</>,
+                          confirmLabel: "Unfeature",
+                          variant: "warning",
+                        })}
                         className={`text-xs px-3 py-1.5 rounded-lg font-medium ${
                           r.featured
                             ? "bg-rose-50 text-rose-700 hover:bg-rose-100"
@@ -3489,10 +3536,12 @@ function ReviewsTab({ content, onSave, reviewCount, setReviewCount }) {
                         {r.featured ? "Unfeature" : "Feature"}
                       </button>
                     )}
+                    {!isAdminView && (
                     <button onClick={() => setDeleteConfirm(r.id)}
                       className="text-xs px-3 py-1.5 bg-slate-50 text-slate-500 hover:bg-red-50 hover:text-red-600 rounded-lg font-medium">
                       Delete
                     </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -3540,6 +3589,8 @@ function ReviewsTab({ content, onSave, reviewCount, setReviewCount }) {
           </div>
         </div>
       </Modal>
+
+      {toggleDialog}
     </div>
   );
 }

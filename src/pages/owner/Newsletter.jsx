@@ -4,6 +4,7 @@ import { getNewsletterSubscribers, sendNewsletterCampaign, deleteNewsletterSubsc
 import useFocusTrap from "../../hooks/useFocusTrap.js";
 import { usePagination, PaginationBar } from "../../lib/pagination.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
 
 const TEMPLATES = [
   {
@@ -158,14 +159,19 @@ function formatDate(iso) {
 }
 
 export default function OwnerNewsletter() {
+  // Admin can send campaigns but can't delete subscribers (owner only).
+  // Backend rejects admin DELETE regardless; hiding the button avoids
+  // the dead-click.
+  const { user } = useAuth();
+  const isAdminView = user?.role === "admin";
   const [subscribers, setSubscribers] = useState([]);
   const [total,       setTotal]       = useState(0);
   const [loading,     setLoading]     = useState(true);
   const [search,      setSearch]      = useState("");
 
-  // Per-row delete — admin + owner only. Safety net for the "customer
-  // emailed us asking to be removed" case; primary unsubscribe path is
-  // still the HMAC-verified link in each campaign email.
+  // Per-row delete — owner only. Safety net for the "customer emailed us
+  // asking to be removed" case; primary unsubscribe path is still the
+  // HMAC-verified link in each campaign email.
   const [deleteTarget, setDeleteTarget] = useState(null); // { id, email } | null
   const [deleting,     setDeleting]     = useState(false);
 
@@ -378,7 +384,7 @@ export default function OwnerNewsletter() {
                 <th className="px-6 py-3 text-left">#</th>
                 <th className="px-6 py-3 text-left">Email</th>
                 <th className="px-6 py-3 text-left">Subscribed</th>
-                <th className="px-6 py-3 text-right w-24">Actions</th>
+                {!isAdminView && <th className="px-6 py-3 text-right w-24">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -400,6 +406,7 @@ export default function OwnerNewsletter() {
                   <td className="px-6 py-3 text-slate-400 text-xs">{(safePage - 1) * 25 + i + 1}</td>
                   <td className="px-6 py-3 font-medium text-slate-800">{s.email}</td>
                   <td className="px-6 py-3 text-slate-400 text-xs">{formatDate(s.created_at)}</td>
+                  {!isAdminView && (
                   <td className="px-6 py-3 text-right">
                     <button
                       type="button"
@@ -411,6 +418,7 @@ export default function OwnerNewsletter() {
                       <i className="fas fa-trash text-sm" aria-hidden="true"></i>
                     </button>
                   </td>
+                  )}
                 </tr>
               ))}
             </tbody>
