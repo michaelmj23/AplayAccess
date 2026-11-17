@@ -38,7 +38,13 @@ export default function LowStockAlert({ portal = "owner" }) {
     ? { bar: "bg-rose-50 border-rose-200", icon: "bg-rose-100 text-rose-600", title: "text-rose-900", body: "text-rose-800", chip: "bg-rose-100 text-rose-800" }
     : { bar: "bg-amber-50 border-amber-200", icon: "bg-amber-100 text-amber-700", title: "text-amber-900", body: "text-amber-800", chip: "bg-amber-100 text-amber-800" };
 
-  const href = `/${portal === "admin" ? "admin" : "owner"}/addons?filter=low`;
+  // Admin's add-ons live under the Catalog page (no low-stock filter there,
+  // but at least this lands them on the right tab). Owner's live inside
+  // /owner/rooms under the Add-ons sub-tab, which DOES honor ?filter=low
+  // via OwnerAddons' own searchParams reader.
+  const href = portal === "admin"
+    ? "/admin/catalog?tab=addons"
+    : "/owner/rooms?tab=addons&filter=low";
 
   return (
     <div className={`rounded-xl border p-4 ${tone.bar} flex items-start gap-3`}>
