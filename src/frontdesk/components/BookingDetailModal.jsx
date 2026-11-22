@@ -1449,13 +1449,28 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                   payment first (which moves the booking to Confirmed), then
                   check in. The backend enforces this too; this hides the
                   button so staff don't try the disallowed path. */}
-              {booking.status === 'Confirmed' && !isExpiredPending(booking) && (
-                <button type="button" onClick={() => setPendingAction({ type: 'checkin' })}
-                  disabled={actionLoading}
-                  className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-violet-600 text-white rounded text-sm font-medium hover:bg-violet-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2">
-                  <i className="fas fa-door-open mr-1" aria-hidden="true"></i>Check In
-                </button>
-              )}
+              {booking.status === 'Confirmed' && !isExpiredPending(booking) && (() => {
+                // Same-day guard that mirrors Admin\BookingController::checkIn —
+                // backend rejects future-dated check-ins with 422. We keep the
+                // button visible but disabled (with a scheduled-date tooltip)
+                // so staff see the control and know WHY they can't use it yet.
+                const ci = new Date(String(booking.checkIn || '').replace(' ', 'T'));
+                const ciDay = new Date(ci.getFullYear(), ci.getMonth(), ci.getDate()).getTime();
+                const t = new Date();
+                const todayDay = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+                const futureDated = booking.checkIn && ciDay > todayDay;
+                const ciLabel = futureDated
+                  ? ci.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+                  : '';
+                return (
+                  <button type="button" onClick={() => setPendingAction({ type: 'checkin' })}
+                    disabled={actionLoading || futureDated}
+                    title={futureDated ? `Scheduled for ${ciLabel} — check in on that day` : undefined}
+                    className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-violet-600 text-white rounded text-sm font-medium hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2">
+                    <i className="fas fa-door-open mr-1" aria-hidden="true"></i>Check In
+                  </button>
+                );
+              })()}
               {/* No-Show for Day/Night Confirmed bookings whose slot has
                   started. Backend enforces the same guards (status +
                   booking_type + slot started); the frontend gate hides

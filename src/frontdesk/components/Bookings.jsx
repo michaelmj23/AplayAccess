@@ -58,6 +58,20 @@ function isOverdueCheckout(b) {
   return new Date(String(b.checkOut).replace(' ', 'T')) < new Date();
 }
 
+// Can this booking be manually checked in today? Mirrors the backend
+// guard in Admin\BookingController::checkIn, which rejects when the
+// scheduled check_in date is strictly after today. Same-day early
+// check-in is allowed (slot start hour may still be in the future).
+// No checkIn → treat as checkable (shouldn't happen in practice).
+function canCheckInToday(checkIn) {
+  if (!checkIn) return true;
+  const ci = new Date(String(checkIn).replace(' ', 'T'));
+  const ciDay = new Date(ci.getFullYear(), ci.getMonth(), ci.getDate()).getTime();
+  const today = new Date();
+  const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return ciDay <= todayDay;
+}
+
 function StatusBadge({ status, booking }) {
   if (status === 'Pending' && booking && isExpiredPending(booking)) {
     return (
@@ -142,7 +156,7 @@ export default function Bookings({ embedded = false }) {
   // It's the default landing view because staff spend their day on bookings
   // that still need action; resolved rows flood the list otherwise and bury
   // today's arrivals/overdues/pending.
-  const VALID_STATUSES = ['Active','Pending','Confirmed','Checked In','Completed','Cancelled','Overdue','No-Show'];
+  const VALID_STATUSES = ['Active','Scheduled','Pending','Confirmed','Checked In','Completed','Cancelled','Overdue','No-Show'];
   const VALID_SOURCES  = ['all','online','walkin'];
   const [filterStatus, setFilterStatus]   = useState(() => {
     const s = searchParams.get('status');
@@ -271,7 +285,24 @@ export default function Bookings({ embedded = false }) {
 
     // Status filter
     if (filterStatus === 'Overdue') list = list.filter(isOverdueCheckout);
-    else if (filterStatus === 'Active') list = list.filter(b => b.status !== 'Completed' && b.status !== 'Cancelled' && b.status !== 'No-Show');
+    else if (filterStatus === 'Scheduled') list = list.filter(b => {
+      // Upcoming walk-in / online bookings whose check_in date is still
+      // in the future. Pending and Confirmed only — Checked In can't be
+      // "scheduled," and resolved statuses are terminal.
+      if (!['Pending', 'Confirmed'].includes(b.status)) return false;
+      return !canCheckInToday(b.checkIn);
+    });
+    else if (filterStatus === 'Active') list = list.filter(b => {
+      // Resolved statuses are never active.
+      if (['Completed', 'Cancelled', 'No-Show'].includes(b.status)) return false;
+      // Already Checked In counts as active regardless of the nominal
+      // check_in date (guest is on-site right now).
+      if (b.status === 'Checked In') return true;
+      // Confirmed / Pending with a future check_in date are scheduled,
+      // not active — filter them out until the day arrives. Still
+      // visible under the "All" and per-status filters.
+      return canCheckInToday(b.checkIn);
+    });
     else if (filterStatus !== 'All') list = list.filter(b => b.status === filterStatus);
 
     const term = searchTerm.trim().toLowerCase();
@@ -362,8 +393,12 @@ export default function Bookings({ embedded = false }) {
       // can show its own candidate pool.
       if (filterStatus === 'Overdue') {
         if (!isOverdueCheckout(b)) continue;
+      } else if (filterStatus === 'Scheduled') {
+        if (!['Pending', 'Confirmed'].includes(b.status)) continue;
+        if (canCheckInToday(b.checkIn)) continue;
       } else if (filterStatus === 'Active') {
         if (b.status === 'Completed' || b.status === 'Cancelled' || b.status === 'No-Show') continue;
+        if (b.status !== 'Checked In' && !canCheckInToday(b.checkIn)) continue;
       } else if (filterStatus !== 'All' && b.status !== filterStatus) {
         continue;
       }
@@ -730,6 +765,7 @@ export default function Bookings({ embedded = false }) {
               aria-label="Filter by status"
               className="border rounded px-3 py-2 text-sm">
               <option value="Active">Active (hide resolved)</option>
+              <option value="Scheduled">Scheduled (future dates)</option>
               <option value="All">All Statuses</option>
               <option>Pending</option>
               <option>Confirmed</option>
@@ -933,7 +969,7 @@ export default function Bookings({ embedded = false }) {
                                 <i className="fas fa-check" aria-hidden="true"></i>
                               </button>
                             )}
-                            {b.status === 'Confirmed' && (
+                            {b.status === 'Confirmed' && canCheckInToday(b.checkIn) && (
                               <button onClick={() => setConfirmState({ bookingId: b.bookingId, action: 'checkin', booking: b })}
                                 disabled={actionLoading === b.bookingId}
                                 title="Check In" aria-label={`Check in guest for ${b.id}`}
