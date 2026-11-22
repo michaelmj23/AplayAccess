@@ -745,11 +745,22 @@ export default function OwnerShell() {
       <ConfirmDialog
         open={confirmRemoveAvatar}
         title="Remove profile photo?"
-        message="Your avatar will fall back to your initials until you upload a new photo. You still need to click Save Changes to make this permanent."
+        message="Your avatar will fall back to your initials. This takes effect immediately."
         confirmLabel="Remove"
         cancelLabel="Keep"
         variant="warning"
-        onConfirm={() => { setEditProfile((p) => ({ ...p, avatar: "" })); setConfirmRemoveAvatar(false); }}
+        onConfirm={async () => {
+          setConfirmRemoveAvatar(false);
+          try {
+            const { user: updated } = await updateProfile({ avatar: null });
+            setEditProfile((p) => ({ ...p, avatar: "" }));
+            if (setUser) setUser(updated);
+            showToast("Profile photo removed.", "success");
+          } catch (err) {
+            const msg = err?.response?.data?.message || "Could not remove photo.";
+            showToast(msg, "error");
+          }
+        }}
         onCancel={() => setConfirmRemoveAvatar(false)}
       />
 
