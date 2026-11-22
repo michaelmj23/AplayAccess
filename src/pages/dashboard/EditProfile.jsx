@@ -150,7 +150,10 @@ export default function EditProfile() {
         name:   `${form.firstName} ${form.lastName}`.trim(),
         email:  form.email,
         phone:  form.phone,
-        avatar: form.avatar || undefined,
+        // Empty string = user clicked Remove photo. Send null so backend
+        // clears the column (regex validation rejects empty strings; only
+        // null or a valid aplaya/avatars/ URL passes).
+        avatar: form.avatar || null,
       };
       if (isEmailChanging) {
         payload.current_password = emailChangePassword;
@@ -316,6 +319,21 @@ export default function EditProfile() {
                 >
                   {uploading ? <i className="fas fa-spinner fa-spin text-sm"></i> : <i className="fas fa-camera text-sm"></i>}
                 </button>
+                {/* Remove photo — clears local state; the preview falls
+                    back to the default placeholder. Guest still has to
+                    click Save to persist the change. */}
+                {form.avatar && (
+                  <button
+                    type="button"
+                    onClick={() => setField("avatar", "")}
+                    disabled={uploading}
+                    className="absolute top-0 right-0 bg-rose-600 text-white rounded-full w-8 h-8 flex items-center justify-center border-2 border-white hover:bg-rose-700 disabled:opacity-60"
+                    title="Remove photo"
+                    aria-label="Remove profile photo"
+                  >
+                    <i className="fas fa-times text-xs" aria-hidden="true"></i>
+                  </button>
+                )}
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onImageChange} />
               </div>
               <p className="text-xs text-slate-600 text-center mt-3">

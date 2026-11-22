@@ -230,7 +230,10 @@ export default function OwnerShell() {
         name:  editProfile.name,
         email: editProfile.email,
         phone: editProfile.phone,
-        avatar: editProfile.avatar || undefined,
+        // Empty string = owner clicked Remove photo. Send null so backend
+        // clears the column (regex validation rejects empty strings; only
+        // null or a valid aplaya/avatars/ URL passes).
+        avatar: editProfile.avatar || null,
       });
       if (setUser) setUser(updated);
       if (passwordData.current && passwordData.new) {
@@ -542,6 +545,22 @@ export default function OwnerShell() {
                           ? <i className="fas fa-spinner fa-spin text-xs" aria-hidden="true"></i>
                           : <i className="fas fa-camera text-xs" aria-hidden="true"></i>}
                       </button>
+                      {/* Remove photo — only renders when there's a photo
+                          to remove. Clears local state; the Avatar falls
+                          back to initials automatically when src is empty.
+                          Owner still has to click Save Changes to persist. */}
+                      {editProfile.avatar && (
+                        <button
+                          type="button"
+                          onClick={() => setEditProfile((p) => ({ ...p, avatar: "" }))}
+                          disabled={uploadingAvatar}
+                          aria-label="Remove profile photo"
+                          className="absolute -top-1 -right-1 bg-rose-600 text-white rounded-full h-7 w-7 flex items-center justify-center border-2 border-white hover:bg-rose-700 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
+                          title="Remove photo"
+                        >
+                          <i className="fas fa-times text-[10px]" aria-hidden="true"></i>
+                        </button>
+                      )}
                       <input
                         ref={avatarFileRef}
                         type="file"

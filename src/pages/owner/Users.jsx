@@ -1182,6 +1182,20 @@ export default function OwnerUsers() {
                           ? <i className="fas fa-spinner fa-spin text-[11px]" aria-hidden="true"></i>
                           : <i className="fas fa-camera text-[11px]" aria-hidden="true"></i>}
                       </button>
+                      {/* Remove photo — falls back to initials. Owner
+                          still has to click Save to persist. */}
+                      {editing.avatar && (
+                        <button
+                          type="button"
+                          onClick={() => setField("avatar", "")}
+                          disabled={uploadingAvatar}
+                          className="absolute -top-1 -right-1 bg-rose-600 text-white rounded-full w-6 h-6 flex items-center justify-center border-2 border-white hover:bg-rose-700 disabled:opacity-60"
+                          title="Remove photo"
+                          aria-label="Remove profile photo"
+                        >
+                          <i className="fas fa-times text-[9px]" aria-hidden="true"></i>
+                        </button>
+                      )}
                       <input
                         ref={avatarFileRef}
                         type="file"
