@@ -8,6 +8,7 @@ import { uploadFile } from "../../lib/uploadApi.js";
 import { localDateStr } from "../../lib/format";
 import Toast, { useToast } from "../../components/ui/Toast";
 import Modal from "../../components/modals/Modal.jsx";
+import AvatarCropModal from "../../components/ui/AvatarCropModal.jsx";
 import { Helmet } from "react-helmet-async";
 
 /* ── input class helpers ── */
@@ -103,18 +104,30 @@ export default function EditProfile() {
     fileRef.current?.click();
   }
 
-  async function onImageChange(e) {
+  // File picker → crop modal → upload. The crop step lets the guest
+  // pick exactly which square of their photo becomes the avatar.
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [cropOpen, setCropOpen] = useState(false);
+
+  function onImageChange(e) {
     const f = e.target.files?.[0];
     if (!f) return;
+    setAvatarFile(f);
+    setCropOpen(true);
+    e.target.value = '';
+  }
+
+  async function onImageCropped(blob) {
     setUploading(true);
     try {
-      const url = await uploadFile(f, 'avatars');
+      const url = await uploadFile(blob, 'avatars');
       setField("avatar", url);
+      setCropOpen(false);
+      setAvatarFile(null);
     } catch {
       setSaveError("Failed to upload image. Please try again.");
     } finally {
       setUploading(false);
-      e.target.value = '';
     }
   }
 
@@ -725,6 +738,13 @@ export default function EditProfile() {
           </div>
         </form>
       </Modal>
+
+      <AvatarCropModal
+        open={cropOpen}
+        file={avatarFile}
+        onClose={() => { setCropOpen(false); setAvatarFile(null); }}
+        onCropped={onImageCropped}
+      />
     </div>
   );
 }

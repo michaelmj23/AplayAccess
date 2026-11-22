@@ -10,6 +10,7 @@ import useDebounce from "../../hooks/useDebounce.js";
 import OwnerGuests from "./Guests.jsx";
 import PasswordRequirements, { checkPasswordStrength } from "../../components/ui/PasswordRequirements.jsx";
 import { uploadFile } from "../../lib/uploadApi.js";
+import AvatarCropModal from "../../components/ui/AvatarCropModal.jsx";
 
 // Shared tab-bar pill used at the top of merged owner pages. Lives here
 // because its styling stays consistent across Users↔Guests,
@@ -223,18 +224,30 @@ export default function OwnerUsers() {
     avatarFileRef.current?.click();
   }
 
-  async function onAvatarChange(e) {
+  // File picker → crop modal → upload. Owner can adjust the crop of a
+  // staff member's avatar when creating / editing their account.
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [cropOpen, setCropOpen] = useState(false);
+
+  function onAvatarChange(e) {
     const f = e.target.files?.[0];
     if (!f) return;
+    setAvatarFile(f);
+    setCropOpen(true);
+    e.target.value = '';
+  }
+
+  async function onAvatarCropped(blob) {
     setUploadingAvatar(true);
     try {
-      const url = await uploadFile(f, 'avatars');
+      const url = await uploadFile(blob, 'avatars');
       setField("avatar", url);
+      setCropOpen(false);
+      setAvatarFile(null);
     } catch {
       showToast("Failed to upload image. Please try again.", "error");
     } finally {
       setUploadingAvatar(false);
-      e.target.value = '';
     }
   }
 
@@ -1294,6 +1307,13 @@ export default function OwnerUsers() {
           </form>
         )}
       </Modal>
+
+      <AvatarCropModal
+        open={cropOpen}
+        file={avatarFile}
+        onClose={() => { setCropOpen(false); setAvatarFile(null); }}
+        onCropped={onAvatarCropped}
+      />
     </div>
     </>
   );

@@ -13,6 +13,7 @@ import useLockBodyScroll from "../../hooks/useLockBodyScroll.js";
 import useFocusTrap from "../../hooks/useFocusTrap.js";
 import ConfirmDialog from "../ui/ConfirmDialog.jsx";
 import Modal from "../modals/Modal.jsx";
+import AvatarCropModal from "../ui/AvatarCropModal.jsx";
 import StaffChatWidget from "../StaffChatWidget.jsx";
 import { Helmet } from "react-helmet-async";
 
@@ -184,18 +185,32 @@ export default function OwnerShell() {
     avatarFileRef.current?.click();
   }
 
-  async function onAvatarChange(e) {
+  // File picker → crop modal → uploadFile on crop save. The crop step
+  // sits between so the owner sees exactly which square of their photo
+  // becomes the avatar instead of getting whatever auto-crop Cloudinary
+  // would do.
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [cropOpen, setCropOpen] = useState(false);
+
+  function onAvatarChange(e) {
     const f = e.target.files?.[0];
     if (!f) return;
+    setAvatarFile(f);
+    setCropOpen(true);
+    e.target.value = '';
+  }
+
+  async function onAvatarCropped(blob) {
     setUploadingAvatar(true);
     try {
-      const url = await uploadFile(f, 'avatars');
+      const url = await uploadFile(blob, 'avatars');
       setEditProfile((p) => ({ ...p, avatar: url }));
+      setCropOpen(false);
+      setAvatarFile(null);
     } catch {
       showToast("Failed to upload image. Please try again.", "error");
     } finally {
       setUploadingAvatar(false);
-      e.target.value = '';
     }
   }
 
@@ -699,6 +714,13 @@ export default function OwnerShell() {
         variant="warning"
         onConfirm={doLogout}
         onCancel={() => setConfirmLogout(false)}
+      />
+
+      <AvatarCropModal
+        open={cropOpen}
+        file={avatarFile}
+        onClose={() => { setCropOpen(false); setAvatarFile(null); }}
+        onCropped={onAvatarCropped}
       />
 
       {/* Staff quick-reply widget — floating bubble that lets the
