@@ -12,6 +12,10 @@ export default function Modal({ open, onClose, maxWidth = "max-w-lg", labelledBy
   const accessibleName = labelledBy ? undefined : (label ?? title);
   const dialogRef = useRef(null);
   const previousFocusRef = useRef(null);
+  // Tracks whether the mousedown that started the most recent click
+  // happened on the backdrop. Prevents drag-release-on-backdrop from
+  // dismissing the modal — see the onMouseDown / onClick handlers below.
+  const mouseDownOnBackdropRef = useRef(false);
 
   // Keep a ref to the latest onClose so the focus/keyboard effect below can
   // read it without listing onClose in its dep array. Without this, parents
@@ -71,7 +75,21 @@ export default function Modal({ open, onClose, maxWidth = "max-w-lg", labelledBy
     // stopPropagation to keep clicks inside it from bubbling out.
     <div
       className="fixed inset-0 z-[9999] overflow-y-auto bg-black/60"
-      onClick={onClose}
+      // Close ONLY when the mousedown AND the click both landed on the
+      // backdrop itself, never when a drag started inside the dialog
+      // and ended on the backdrop. The latter is what broke the avatar
+      // crop modal — users dragging to pan the image would release on
+      // the backdrop and the click handler would dismiss the modal.
+      // Tracking mousedown target on the same element prevents that.
+      onMouseDown={(e) => {
+        mouseDownOnBackdropRef.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && mouseDownOnBackdropRef.current) {
+          onClose?.();
+        }
+        mouseDownOnBackdropRef.current = false;
+      }}
     >
       <div className="min-h-screen flex items-center justify-center px-4 py-10">
         <div
