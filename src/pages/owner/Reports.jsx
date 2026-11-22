@@ -327,6 +327,18 @@ export default function OwnerReports() {
       {/* ── Analytics Tab ───────────────────────────────────────────────── */}
       {tab === "analytics" && (
         <div className="space-y-6">
+          {/* Accounting-basis note — Reports uses cash collected
+              (paid_at), Dashboard uses stay date (check_in). Panel
+              and user asked this be visible so the two pages never
+              confuse the reader when numbers diverge. */}
+          <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-900 flex items-start gap-2">
+            <i className="fas fa-circle-info mt-0.5 text-sky-600" aria-hidden="true"></i>
+            <p>
+              <strong>Revenue here is cash actually collected this month</strong> (keyed on payment date).
+              A walk-in paid today for a future stay counts toward <strong>today's</strong> figures here.
+              For revenue bucketed by stay date, see the <strong>Dashboard</strong>.
+            </p>
+          </div>
           {/* Summary cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[

@@ -420,7 +420,14 @@ export default function OwnerDashboard() {
         <div className="bg-white rounded-xl shadow p-5 hover:shadow-md transition">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-slate-500 text-sm">Monthly Revenue</p>
+              <p className="text-slate-500 text-sm flex items-center gap-1.5">
+                Monthly Revenue
+                <i
+                  className="fas fa-circle-info text-slate-400 cursor-help text-xs"
+                  title="Bucketed by stay date (check-in). A walk-in paid today for a future stay shows up on the stay's month, not today's. For cash actually collected this month, see Reports."
+                  aria-label="Monthly Revenue is bucketed by stay date"
+                ></i>
+              </p>
               <h3 className="text-2xl font-bold mt-1">{fmt(revThisMonth)}</h3>
               <p className={`text-xs mt-1 ${revMoM >= 0 ? "text-success-fg" : "text-danger-fg"}`}>
                 <i className={`fas fa-arrow-${revMoM >= 0 ? "up" : "down"} mr-1`} aria-hidden="true"></i>
