@@ -123,11 +123,18 @@ export default function EditProfile() {
     setUploading(true);
     try {
       const url = await uploadFile(blob, 'avatars');
+      // Persist to the user row immediately so the new photo survives
+      // a refresh without requiring a separate Save Changes click.
+      // Keeps symmetry with Remove, which also commits on confirm.
+      const data = await updateProfile({ avatar: url });
       setField("avatar", url);
+      login(data.user || { ...(user || {}), avatar: url });
       setCropOpen(false);
       setAvatarFile(null);
-    } catch {
-      setSaveError("Failed to upload image. Please try again.");
+      showToast("Profile photo updated.", "success");
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Failed to upload image. Please try again.";
+      setSaveError(msg);
     } finally {
       setUploading(false);
     }

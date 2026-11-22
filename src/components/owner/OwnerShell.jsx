@@ -204,11 +204,17 @@ export default function OwnerShell() {
     setUploadingAvatar(true);
     try {
       const url = await uploadFile(blob, 'avatars');
+      // Persist immediately so the new photo survives a refresh without
+      // needing a separate Save Changes click. Keeps symmetry with Remove.
+      const { user: updated } = await updateProfile({ avatar: url });
       setEditProfile((p) => ({ ...p, avatar: url }));
+      if (setUser) setUser(updated);
       setCropOpen(false);
       setAvatarFile(null);
-    } catch {
-      showToast("Failed to upload image. Please try again.", "error");
+      showToast("Profile photo updated.", "success");
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Failed to upload image. Please try again.";
+      showToast(msg, "error");
     } finally {
       setUploadingAvatar(false);
     }
