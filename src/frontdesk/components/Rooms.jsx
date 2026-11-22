@@ -116,7 +116,7 @@ function getSlotStatus(roomName, bookings, slot) {
   // room as VACANT and staff would walk in another guest on top.
   const matching = bookings.filter(b => {
     if (b.roomType !== roomName) return false;
-    if (b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'Pending') return false;
+    if (b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'Pending' || b.status === 'No-Show') return false;
     if (b.status === 'Checked In') return true;
     return overlapsWindow(b, ws, we);
   });
@@ -170,7 +170,7 @@ function getMultiSlotStatus(roomName, quantity, bookings, slot) {
   // overstates capacity and staff hand out an already-occupied unit).
   bookings.filter(b => {
     if (b.roomType !== roomName) return false;
-    if (b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'Pending') return false;
+    if (b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'Pending' || b.status === 'No-Show') return false;
     if (b.status === 'Checked In') return true;
     return overlapsWindow(b, ws, we);
   }).forEach(b => {
@@ -372,7 +372,7 @@ function MultiUnitModal({ room, info, bookings, slot, onClose, onWalkIn, onOpenB
   bookings
     .filter(b => {
       if (b.roomType !== room.name) return false;
-      if (b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'Pending') return false;
+      if (b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'Pending' || b.status === 'No-Show') return false;
       if (b.status === 'Checked In') return true;
       return overlapsWindow(b, ws, we);
     })
@@ -648,7 +648,7 @@ export default function FDRooms({ embedded = false }) {
     const now = new Date();
     return bookings
       .filter(b => {
-        if (['Cancelled', 'Completed', 'Checked In', 'Pending'].includes(b.status)) return false;
+        if (['Cancelled', 'Completed', 'Checked In', 'Pending', 'No-Show'].includes(b.status)) return false;
         return new Date(b.checkIn.replace(' ', 'T')) >= now;
       })
       .sort((a, b) => new Date(a.checkIn.replace(' ', 'T')) - new Date(b.checkIn.replace(' ', 'T')));

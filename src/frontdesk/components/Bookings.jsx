@@ -253,7 +253,7 @@ export default function Bookings({ embedded = false }) {
 
     // Status filter
     if (filterStatus === 'Overdue') list = list.filter(isOverdueCheckout);
-    else if (filterStatus === 'Active') list = list.filter(b => b.status !== 'Completed' && b.status !== 'Cancelled');
+    else if (filterStatus === 'Active') list = list.filter(b => b.status !== 'Completed' && b.status !== 'Cancelled' && b.status !== 'No-Show');
     else if (filterStatus !== 'All') list = list.filter(b => b.status === filterStatus);
 
     const term = searchTerm.trim().toLowerCase();
@@ -488,7 +488,7 @@ export default function Bookings({ embedded = false }) {
         const overlapCounts = new Map();
         for (const b of bookings) {
           if (b.bookingId === transferBooking.bookingId) continue;
-          if (['Cancelled', 'Completed'].includes(b.status)) continue;
+          if (['Cancelled', 'Completed', 'No-Show'].includes(b.status)) continue;
           const s = parseDT(b.checkIn);
           const e = parseDT(b.checkOut);
           if (isNaN(s.getTime()) || isNaN(e.getTime())) continue;
@@ -797,7 +797,7 @@ export default function Bookings({ embedded = false }) {
                     // fade to 60% opacity so resolved work recedes and the
                     // live rows at the top stand out naturally; the
                     // urgency-default sort already floats them up there.
-                    const isResolved = b.status === 'Cancelled' || b.status === 'Completed';
+                    const isResolved = b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'No-Show';
                     const rowCls = [
                       overdue
                         ? 'bg-rose-50 hover:bg-rose-100 border-l-4 border-rose-500'
@@ -961,7 +961,7 @@ export default function Bookings({ embedded = false }) {
                   const wi          = parseWalkIn(b);
                   const isWalkIn    = b.source === 'walk-in';
                   const overdue     = isOverdueCheckout(b);
-                  const isResolved  = b.status === 'Cancelled' || b.status === 'Completed';
+                  const isResolved  = b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'No-Show';
                   const showSourcePill = filterSource === 'all';
                   const guestLabel  = wi ? wi.name : (b.guest || 'Guest');
                   // Same accent-color logic as the desktop row — overdue

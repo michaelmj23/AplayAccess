@@ -1110,7 +1110,7 @@ export default function Billing({ embedded = false }) {
             <ul className="md:hidden space-y-3">
               {paginated.map(b => {
                 const guestLabel = walkInName(b);
-                const isResolved = b.status === 'Cancelled' || b.status === 'Completed';
+                const isResolved = b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'No-Show';
                 const cardCls = [
                   'rounded-xl border bg-white shadow-sm transition cursor-pointer',
                   b.status === 'Confirmed' && !b.fullyPaid

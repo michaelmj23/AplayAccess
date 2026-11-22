@@ -1267,7 +1267,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                 const overlapCounts = new Map();
                 for (const b of allBookings) {
                   if (b.bookingId === booking.bookingId) continue;
-                  if (['Cancelled', 'Completed'].includes(b.status)) continue;
+                  if (['Cancelled', 'Completed', 'No-Show'].includes(b.status)) continue;
                   const s = parseDT(b.checkIn);
                   const e = parseDT(b.checkOut);
                   if (isNaN(s.getTime()) || isNaN(e.getTime())) continue;
