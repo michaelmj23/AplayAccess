@@ -519,21 +519,26 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // + package add-ons + picked optional add-ons.
   const discountedTotal    = discountedRoom + packageTotal + optionalTotal;
   // Per-slot reservation fee percentage — owner sets each slot from
-  // /owner/settings. If this slot is set to 100, reservationFee = full
-  // discountedTotal (backend re-syncs reservation_fee to booking.total
-  // after addons are attached when pct >= 100), so the guest pays in
-  // full at booking.
+  // /owner/settings. Full-payment-at-booking is triggered by EITHER:
+  //   (a) the slot pct being set to 100, or
+  //   (b) a promo code being applied (anti-double-dip).
+  // Backend applies the same rule when creating the booking (re-syncs
+  // reservation_fee to booking.total after addons attach).
   const slotPct            = reservationPctForSlot(pricing, bookingType);
-  const isSlotFullPay      = slotPct >= 100;
-  const reservationFee     = isSlotFullPay
+  const hasPromo           = Boolean(promoResult?.valid);
+  const requiresFullPay    = slotPct >= 100 || hasPromo;
+  const reservationFee     = requiresFullPay
     ? discountedTotal
     : Math.round(discountedRoom * (slotPct / 100));
-  // When the slot is set to 100%, force paymentOption to "full" so the
-  // backend's confirm-payment payload reports fully_paid=true (reservation_fee
-  // is already the full total). Picker UI hides the toggle in this case.
-  const effectivePaymentOption = isSlotFullPay ? "full" : paymentOption;
+  // When full payment is required, force paymentOption to "full" so the
+  // backend's confirm-payment payload reports fully_paid=true. Picker UI
+  // hides the Reserve/Full toggle in this case.
+  const effectivePaymentOption = requiresFullPay ? "full" : paymentOption;
   const amountDue          = effectivePaymentOption === "full" ? discountedTotal : reservationFee;
   const balanceDue         = discountedTotal - amountDue;
+  // Legacy alias — many downstream UI blocks still reference isSlotFullPay.
+  // Keep for render compatibility during the transition.
+  const isSlotFullPay      = requiresFullPay;
   // Gate entrance fee — BookingModal doesn't collect guest count, so the
   // estimate assumes 1 pax (backend default). Real amount is computed at
   // check-in from actual arrivals. Surfacing it here prevents the
@@ -1590,6 +1595,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   </div>
                 )}
                 {promoError && <p role="alert" className="mt-1 text-xs text-red-700"><i className="fas fa-times-circle mr-1" aria-hidden="true"></i>{promoError}</p>}
+                {!promoResult && !promoError && (
+                  <p className="mt-1.5 text-[11px] text-gray-500">
+                    <i className="fas fa-info-circle mr-1" aria-hidden="true"></i>
+                    Promos apply to the room rate only. Discounted bookings require payment in full at checkout.
+                  </p>
+                )}
               </div>
 
               {/* Payment option selector — exposed as a radiogroup
@@ -1601,20 +1612,26 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   "₱0 balance · fully paid", which conflicted with
                   the entrance-fee-at-gate rule documented in the
                   later summary. New copy makes the split explicit. */}
-              {/* Payment option chooser — hidden for 100% slots (both
-                  options compute to the same amount). Shown as an
-                  informational banner instead so the guest understands
-                  why there's no choice. */}
-              {isSlotFullPay ? (
+              {/* Payment option chooser — hidden when full payment is
+                  required (either the slot is set to 100% or a promo was
+                  applied). Banner explains why there's no choice. */}
+              {requiresFullPay ? (
                 <div className="border-2 border-emerald-500 bg-emerald-50 rounded-xl p-4 flex items-start gap-3">
                   <i className="fas fa-check-circle text-emerald-600 text-xl mt-0.5" aria-hidden="true"></i>
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-emerald-800 uppercase tracking-wide">
-                      {bookingType === 'day' ? 'Day' : bookingType === 'night' ? 'Night' : '24-Hour'} bookings require full payment
+                      {hasPromo
+                        ? 'Promo code applied — full payment required'
+                        : `${bookingType === 'day' ? 'Day' : bookingType === 'night' ? 'Night' : '24-Hour'} bookings require full payment`}
                     </p>
                     <p className="text-sm text-emerald-700 mt-1">
-                      ₱{formatPHP(discountedTotal).replace('₱', '')} will be charged via GCash now. No room balance due at check-in — only the gate entrance fee remains.
+                      {formatPHP(discountedTotal)} will be charged via GCash now. No room balance due at check-in — only the gate entrance fee remains.
                     </p>
+                    {hasPromo && (
+                      <p className="text-xs text-emerald-700/80 mt-1 italic">
+                        Promos discount the room rate; discounted bookings are paid in full at checkout.
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (
