@@ -32,11 +32,33 @@ const PRICING_FIELDS = [
     suffix:      "/ head",
     step:        1,
   },
+  // Per-slot reservation fee percentages. Owner can set any slot to 100
+  // to require payment in full at booking (no balance due at check-in).
+  // Entrance fees are NEVER included in the upfront amount — they stay
+  // per-pax at the gate regardless of these percentages.
   {
-    key:         "reservation_fee_pct",
-    label:       "Online Reservation Fee",
-    description: "Percentage of total amount collected as non-refundable down-payment for online bookings.",
-    icon:        "fa-percentage",
+    key:         "reservation_fee_pct_day",
+    label:       "Online Reservation Fee — Day",
+    description: "Percentage charged online when the guest books a Day slot. Set to 100 to require full payment at booking.",
+    icon:        "fa-sun",
+    prefix:      "",
+    suffix:      "%",
+    step:        1,
+  },
+  {
+    key:         "reservation_fee_pct_night",
+    label:       "Online Reservation Fee — Night",
+    description: "Percentage charged online when the guest books a Night slot. Set to 100 to require full payment at booking.",
+    icon:        "fa-moon",
+    prefix:      "",
+    suffix:      "%",
+    step:        1,
+  },
+  {
+    key:         "reservation_fee_pct_24hr",
+    label:       "Online Reservation Fee — 24 Hours",
+    description: "Percentage charged online when the guest books a 24-hour slot. Set to 100 to require full payment at booking.",
+    icon:        "fa-clock",
     prefix:      "",
     suffix:      "%",
     step:        1,
@@ -112,8 +134,11 @@ export default function OwnerSettings() {
         showToast(`"${f.label}" must be a non-negative number.`, "error");
         return;
       }
-      if (f.key === "reservation_fee_pct" && (v < 0 || v > 100)) {
-        showToast(`"${f.label}" must be between 0 and 100.`, "error");
+      // Per-slot reservation percentages must be 1-100. 0 would mean
+      // "book for free" — not supported. Entrance fees skip this check
+      // (they're just non-negative numbers).
+      if (/^reservation_fee_pct/.test(f.key) && (v < 1 || v > 100)) {
+        showToast(`"${f.label}" must be between 1 and 100.`, "error");
         return;
       }
     }
@@ -159,10 +184,26 @@ export default function OwnerSettings() {
   }
 
   /* ---------- preview helpers ---------- */
-  const feeDay   = Number(draft.entrance_fee_day ?? 0);
-  const resPct   = Number(draft.reservation_fee_pct ?? 0);
-  const adultCount   = 4;
-  const adultTotal   = adultCount * feeDay;
+  // Walks the owner through each slot's upfront/balance split using a
+  // sample room rate so they can see the impact of changing a % live.
+  const SAMPLE_ROOM_RATE = 1500;
+  const PREVIEW_PAX = 4;
+  const feeDay    = Number(draft.entrance_fee_day   ?? 0);
+  const feeNight  = Number(draft.entrance_fee_night ?? 0);
+  const fee24hr   = Number(draft.entrance_fee_24hr  ?? 0);
+  const pctDay    = Number(draft.reservation_fee_pct_day   ?? 0);
+  const pctNight  = Number(draft.reservation_fee_pct_night ?? 0);
+  const pct24hr   = Number(draft.reservation_fee_pct_24hr  ?? 0);
+
+  function slotPreview(roomRate, pct, entranceFee) {
+    const upfront = Math.round(roomRate * (pct / 100));
+    const balance = Math.max(0, roomRate - upfront);
+    const entranceAtGate = entranceFee * PREVIEW_PAX;
+    return { upfront, balance, entranceAtGate, fullyPaid: pct >= 100 };
+  }
+  const prevDay   = slotPreview(SAMPLE_ROOM_RATE, pctDay,   feeDay);
+  const prevNight = slotPreview(SAMPLE_ROOM_RATE, pctNight, feeNight);
+  const prev24hr  = slotPreview(SAMPLE_ROOM_RATE, pct24hr,  fee24hr);
 
   /* ---------- render ---------- */
   return (
@@ -279,26 +320,53 @@ export default function OwnerSettings() {
             </div>
           </div>
 
-          {/* Preview */}
+          {/* Preview — per-slot upfront/balance split. Updates live as the
+              owner types new percentages so they see the impact before
+              saving. Sample uses a ₱1,500 room × 4 pax. */}
           <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
-              <h2 className="font-semibold text-slate-800 text-sm">Booking Summary Preview</h2>
-              <p className="text-xs text-slate-400">Example day visit with {adultCount} guests</p>
+              <h2 className="font-semibold text-slate-800 text-sm">Per-Slot Payment Preview</h2>
+              <p className="text-xs text-slate-400">
+                Sample: ₱{SAMPLE_ROOM_RATE.toLocaleString()} room, {PREVIEW_PAX} guests. Entrance always charged per-pax at the gate.
+              </p>
             </div>
-            <div className="px-6 py-5 text-sm space-y-2 text-slate-700">
-              <PreviewRow
-                label={`Entrance fee (${adultCount} × ₱${feeDay.toLocaleString()})`}
-                value={`₱${adultTotal.toLocaleString()}`}
-              />
-              <PreviewRow
-                label="Room rate (base)"
-                value="₱—"
-                note="set per room"
-              />
-              <div className="border-t border-slate-100 pt-2 flex justify-between font-semibold">
-                <span>Reservation fee</span>
-                <span className="text-violet-600">{resPct}% of total</span>
-              </div>
+            <div className="divide-y divide-slate-100 text-sm">
+              {[
+                { label: 'Day slot',       icon: 'fa-sun',   pct: pctDay,   preview: prevDay   },
+                { label: 'Night slot',     icon: 'fa-moon',  pct: pctNight, preview: prevNight },
+                { label: '24-hour slot',   icon: 'fa-clock', pct: pct24hr,  preview: prev24hr  },
+              ].map(({ label, icon, pct, preview }) => (
+                <div key={label} className="px-6 py-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-semibold text-slate-800">
+                      <i className={`fas ${icon} text-violet-500`} aria-hidden="true"></i>
+                      {label}
+                    </div>
+                    {preview.fullyPaid && (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        <i className="fas fa-check-circle text-[10px]" aria-hidden="true"></i>
+                        Pay in full at booking
+                      </span>
+                    )}
+                  </div>
+                  <div className="ml-6 space-y-1 text-slate-600">
+                    <div className="flex justify-between">
+                      <span>Upfront ({pct}%)</span>
+                      <span className="font-semibold text-slate-900">₱{preview.upfront.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Balance at check-in</span>
+                      <span className={preview.balance > 0 ? "text-slate-700" : "text-emerald-600"}>
+                        ₱{preview.balance.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-400">
+                      <span>Entrance at gate ({PREVIEW_PAX} × ₱{Number(preview.entranceAtGate / PREVIEW_PAX).toLocaleString()})</span>
+                      <span>₱{preview.entranceAtGate.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

@@ -26,7 +26,14 @@ const DEFAULTS = {
   day_rate:            1500,
   overnight_rate:      1500,
   rate_24hr:           2000,
-  reservation_fee_pct: 20,   // % of room rate charged as online reservation fee
+  // Per-slot online reservation fee percentages. Owner controls each
+  // from /owner/settings. 100 = pay in full at booking. These defaults
+  // are only used before /api/pricing responds. reservation_fee_pct is
+  // kept as a last-resort fallback for the per-slot resolver below.
+  reservation_fee_pct:       20,
+  reservation_fee_pct_day:   20,
+  reservation_fee_pct_night: 20,
+  reservation_fee_pct_24hr:  20,
   // Gate entrance fees per pax. Pre-check-in these are ESTIMATES — the
   // actual amount is computed at check-in from the real arrival count.
   // Shown in the review + confirmation steps so guests aren't surprised
@@ -35,6 +42,24 @@ const DEFAULTS = {
   entrance_fee_night: 80,
   entrance_fee_24hr:  100,
 };
+
+// Resolve the per-slot reservation fee percentage. Falls back to the
+// legacy single key, then to DEFAULTS.reservation_fee_pct, so stale
+// backends and offline initial renders still produce a usable number.
+function reservationPctForSlot(pricing, bookingType) {
+  const legacy = Number(pricing?.reservation_fee_pct ?? DEFAULTS.reservation_fee_pct);
+  switch (bookingType) {
+    case 'day':
+      return Number(pricing?.reservation_fee_pct_day ?? legacy);
+    case 'night':
+      return Number(pricing?.reservation_fee_pct_night ?? legacy);
+    case '24hr':
+    case '24hr-pm':
+      return Number(pricing?.reservation_fee_pct_24hr ?? legacy);
+    default:
+      return legacy;
+  }
+}
 
 function formatPHP(n) {
   return `₱${Number(n || 0).toLocaleString("en-PH", {
@@ -169,7 +194,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       day_rate:            Number(r.day_rate        ?? DEFAULTS.day_rate),
       overnight_rate:      Number(r.overnight_rate  ?? DEFAULTS.overnight_rate),
       rate_24hr:           Number(r.rate_24hr       ?? DEFAULTS.rate_24hr),
-      reservation_fee_pct: Number(rawPricing?.reservation_fee_pct ?? DEFAULTS.reservation_fee_pct),
+      reservation_fee_pct:       Number(rawPricing?.reservation_fee_pct       ?? DEFAULTS.reservation_fee_pct),
+      reservation_fee_pct_day:   Number(rawPricing?.reservation_fee_pct_day   ?? rawPricing?.reservation_fee_pct ?? DEFAULTS.reservation_fee_pct_day),
+      reservation_fee_pct_night: Number(rawPricing?.reservation_fee_pct_night ?? rawPricing?.reservation_fee_pct ?? DEFAULTS.reservation_fee_pct_night),
+      reservation_fee_pct_24hr:  Number(rawPricing?.reservation_fee_pct_24hr  ?? rawPricing?.reservation_fee_pct ?? DEFAULTS.reservation_fee_pct_24hr),
       entrance_fee_day:    Number(rawPricing?.entrance_fee_day   ?? DEFAULTS.entrance_fee_day),
       entrance_fee_night:  Number(rawPricing?.entrance_fee_night ?? DEFAULTS.entrance_fee_night),
       entrance_fee_24hr:   Number(rawPricing?.entrance_fee_24hr  ?? DEFAULTS.entrance_fee_24hr),
@@ -488,11 +516,23 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // math which is `pct × (roomRate - discount)`, excluding package.
   const discountedRoom     = Math.max(baseRate - discount, 0);
   // What the guest actually pays for room + bundle: discounted room
-  // + package add-ons + picked optional add-ons. The reservation fee
-  // below stays based on discountedRoom only to match backend behavior.
+  // + package add-ons + picked optional add-ons.
   const discountedTotal    = discountedRoom + packageTotal + optionalTotal;
-  const reservationFee     = Math.round(discountedRoom * (pricing.reservation_fee_pct / 100));
-  const amountDue          = paymentOption === "full" ? discountedTotal : reservationFee;
+  // Per-slot reservation fee percentage — owner sets each slot from
+  // /owner/settings. If this slot is set to 100, reservationFee = full
+  // discountedTotal (backend re-syncs reservation_fee to booking.total
+  // after addons are attached when pct >= 100), so the guest pays in
+  // full at booking.
+  const slotPct            = reservationPctForSlot(pricing, bookingType);
+  const isSlotFullPay      = slotPct >= 100;
+  const reservationFee     = isSlotFullPay
+    ? discountedTotal
+    : Math.round(discountedRoom * (slotPct / 100));
+  // When the slot is set to 100%, force paymentOption to "full" so the
+  // backend's confirm-payment payload reports fully_paid=true (reservation_fee
+  // is already the full total). Picker UI hides the toggle in this case.
+  const effectivePaymentOption = isSlotFullPay ? "full" : paymentOption;
+  const amountDue          = effectivePaymentOption === "full" ? discountedTotal : reservationFee;
   const balanceDue         = discountedTotal - amountDue;
   // Gate entrance fee — BookingModal doesn't collect guest count, so the
   // estimate assumes 1 pax (backend default). Real amount is computed at
@@ -715,8 +755,8 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       const guestToken = result.guest_token;
       const bookingId = guestMode ? guestToken : raw.id;
       const { checkout_url } = guestMode
-        ? await createGuestPaymentLink(guestToken, paymentOption === "full")
-        : await createPaymentLink(raw.id, paymentOption === "full");
+        ? await createGuestPaymentLink(guestToken, effectivePaymentOption === "full")
+        : await createPaymentLink(raw.id, effectivePaymentOption === "full");
 
       // Open PayMongo in a small centered popup so the main page stays visible
       const pw = 600, ph = 700;
@@ -737,7 +777,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         resId:      raw.res_id ?? null,
         roomName:   raw.room?.name ?? null,
         guestToken: guestMode ? guestToken : null,
-        payFull:    paymentOption === 'full',
+        payFull:    effectivePaymentOption === 'full',
         // 15-min TTL matches the backend's stale-Pending sweep window.
         expiresAt:  new Date(Date.now() + PAYMENT_WINDOW_SECONDS * 1000).toISOString(),
       });
@@ -1561,6 +1601,23 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   "₱0 balance · fully paid", which conflicted with
                   the entrance-fee-at-gate rule documented in the
                   later summary. New copy makes the split explicit. */}
+              {/* Payment option chooser — hidden for 100% slots (both
+                  options compute to the same amount). Shown as an
+                  informational banner instead so the guest understands
+                  why there's no choice. */}
+              {isSlotFullPay ? (
+                <div className="border-2 border-emerald-500 bg-emerald-50 rounded-xl p-4 flex items-start gap-3">
+                  <i className="fas fa-check-circle text-emerald-600 text-xl mt-0.5" aria-hidden="true"></i>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-emerald-800 uppercase tracking-wide">
+                      {bookingType === 'day' ? 'Day' : bookingType === 'night' ? 'Night' : '24-Hour'} bookings require full payment
+                    </p>
+                    <p className="text-sm text-emerald-700 mt-1">
+                      ₱{formatPHP(discountedTotal).replace('₱', '')} will be charged via GCash now. No room balance due at check-in — only the gate entrance fee remains.
+                    </p>
+                  </div>
+                </div>
+              ) : (
               <div>
                 <p id="bm-payment-option-label" className="block text-sm font-medium text-gray-700 mb-2">
                   <i className="fas fa-wallet mr-1 text-blue-500" aria-hidden="true"></i>Payment Option
@@ -1612,6 +1669,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   </button>
                 </div>
               </div>
+              )}
 
               {/* Payment summary */}
               <div className="bg-blue-50 p-4 rounded-md">
@@ -1686,7 +1744,11 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Payment Schedule</p>
                   <div className="flex justify-between items-baseline">
                     <span className="text-sm text-gray-700 font-medium">
-                      {paymentOption === "full" ? "Pay Online Now (full room)" : `Pay Online Now (${pricing.reservation_fee_pct}% reservation)`}
+                      {isSlotFullPay
+                        ? "Pay Online Now (full amount)"
+                        : paymentOption === "full"
+                          ? "Pay Online Now (full room)"
+                          : `Pay Online Now (${slotPct}% reservation)`}
                     </span>
                     <span className="text-lg font-extrabold tabular-nums text-blue-700">{formatPHP(amountDue)}</span>
                   </div>
@@ -1707,11 +1769,16 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 </div>
               </div>
 
-              {/* Cancellation policy (smaller) */}
+              {/* Cancellation policy (smaller) — wording swaps to reflect
+                  whether this slot requires full payment at booking. For
+                  100% slots, there's no "reservation fee" to isolate —
+                  the full amount is forfeited on cancel/no-show. */}
               <div className="bg-yellow-50 border-l-4 border-yellow-400 px-3 py-2">
                 <p className="text-xs text-yellow-800">
-                  <span className="font-medium">Cancellation Policy:</span> Cancellations or no-shows will result in the
-                  forfeiture of the {pricing.reservation_fee_pct}% reservation fee ({formatPHP(reservationFee)}).
+                  <span className="font-medium">Cancellation Policy:</span>{" "}
+                  {isSlotFullPay
+                    ? <>Cancellations or no-shows will result in the forfeiture of the full payment ({formatPHP(reservationFee)}).</>
+                    : <>Cancellations or no-shows will result in the forfeiture of the {slotPct}% reservation fee ({formatPHP(reservationFee)}).</>}
                 </p>
               </div>
 
