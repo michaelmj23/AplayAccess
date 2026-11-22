@@ -115,7 +115,6 @@ export default function OwnerShell() {
 
   const userName  = user?.name  || "Owner";
   const userEmail = user?.email || "";
-  const initials  = userName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
   const pageTitle = PAGE_TITLES[location.pathname] ?? "Owner Portal";
 
   const [editProfile,   setEditProfile]   = useState({ name: userName, email: userEmail, phone: user?.phone || "", avatar: user?.avatar || "" });
@@ -191,6 +190,7 @@ export default function OwnerShell() {
   // would do.
   const [avatarFile, setAvatarFile] = useState(null);
   const [cropOpen, setCropOpen] = useState(false);
+  const [confirmRemoveAvatar, setConfirmRemoveAvatar] = useState(false);
 
   function onAvatarChange(e) {
     const f = e.target.files?.[0];
@@ -552,7 +552,7 @@ export default function OwnerShell() {
                       {editProfile.avatar && (
                         <button
                           type="button"
-                          onClick={() => setEditProfile((p) => ({ ...p, avatar: "" }))}
+                          onClick={() => setConfirmRemoveAvatar(true)}
                           disabled={uploadingAvatar}
                           aria-label="Remove profile photo"
                           className="absolute -top-1 -right-1 bg-rose-600 text-white rounded-full h-7 w-7 flex items-center justify-center border-2 border-white hover:bg-rose-700 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
@@ -740,6 +740,17 @@ export default function OwnerShell() {
         file={avatarFile}
         onClose={() => { setCropOpen(false); setAvatarFile(null); }}
         onCropped={onAvatarCropped}
+      />
+
+      <ConfirmDialog
+        open={confirmRemoveAvatar}
+        title="Remove profile photo?"
+        message="Your avatar will fall back to your initials until you upload a new photo. You still need to click Save Changes to make this permanent."
+        confirmLabel="Remove"
+        cancelLabel="Keep"
+        variant="warning"
+        onConfirm={() => { setEditProfile((p) => ({ ...p, avatar: "" })); setConfirmRemoveAvatar(false); }}
+        onCancel={() => setConfirmRemoveAvatar(false)}
       />
 
       {/* Staff quick-reply widget — floating bubble that lets the

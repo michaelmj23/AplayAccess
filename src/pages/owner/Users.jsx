@@ -228,6 +228,7 @@ export default function OwnerUsers() {
   // staff member's avatar when creating / editing their account.
   const [avatarFile, setAvatarFile] = useState(null);
   const [cropOpen, setCropOpen] = useState(false);
+  const [confirmRemoveAvatar, setConfirmRemoveAvatar] = useState(false);
 
   function onAvatarChange(e) {
     const f = e.target.files?.[0];
@@ -1187,7 +1188,7 @@ export default function OwnerUsers() {
                       {editing.avatar && (
                         <button
                           type="button"
-                          onClick={() => setField("avatar", "")}
+                          onClick={() => setConfirmRemoveAvatar(true)}
                           disabled={uploadingAvatar}
                           className="absolute -top-1 -right-1 bg-rose-600 text-white rounded-full w-6 h-6 flex items-center justify-center border-2 border-white hover:bg-rose-700 disabled:opacity-60"
                           title="Remove photo"
@@ -1327,6 +1328,20 @@ export default function OwnerUsers() {
         file={avatarFile}
         onClose={() => { setCropOpen(false); setAvatarFile(null); }}
         onCropped={onAvatarCropped}
+      />
+
+      <ConfirmDialog
+        open={confirmRemoveAvatar}
+        title="Remove profile photo?"
+        message="The staff member's avatar will fall back to their initials until a new photo is uploaded. You still need to click Save to make this permanent."
+        confirmLabel="Remove"
+        cancelLabel="Keep"
+        variant="warning"
+        onCancel={() => setConfirmRemoveAvatar(false)}
+        onConfirm={() => {
+          setField("avatar", "");
+          setConfirmRemoveAvatar(false);
+        }}
       />
     </div>
     </>

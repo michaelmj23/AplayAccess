@@ -9,6 +9,7 @@ import { localDateStr } from "../../lib/format";
 import Toast, { useToast } from "../../components/ui/Toast";
 import Modal from "../../components/modals/Modal.jsx";
 import AvatarCropModal from "../../components/ui/AvatarCropModal.jsx";
+import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import { Helmet } from "react-helmet-async";
 
 /* ── input class helpers ── */
@@ -108,6 +109,7 @@ export default function EditProfile() {
   // pick exactly which square of their photo becomes the avatar.
   const [avatarFile, setAvatarFile] = useState(null);
   const [cropOpen, setCropOpen] = useState(false);
+  const [confirmRemoveAvatar, setConfirmRemoveAvatar] = useState(false);
 
   function onImageChange(e) {
     const f = e.target.files?.[0];
@@ -319,13 +321,14 @@ export default function EditProfile() {
                 >
                   {uploading ? <i className="fas fa-spinner fa-spin text-sm"></i> : <i className="fas fa-camera text-sm"></i>}
                 </button>
-                {/* Remove photo — clears local state; the preview falls
-                    back to the default placeholder. Guest still has to
-                    click Save to persist the change. */}
+                {/* Remove photo — opens a confirm first so a stray click
+                    can't wipe the avatar. Clearing itself just resets
+                    local state (falls back to placeholder); user still
+                    clicks Save to persist. */}
                 {form.avatar && (
                   <button
                     type="button"
-                    onClick={() => setField("avatar", "")}
+                    onClick={() => setConfirmRemoveAvatar(true)}
                     disabled={uploading}
                     className="absolute top-0 right-0 bg-rose-600 text-white rounded-full w-8 h-8 flex items-center justify-center border-2 border-white hover:bg-rose-700 disabled:opacity-60"
                     title="Remove photo"
@@ -762,6 +765,17 @@ export default function EditProfile() {
         file={avatarFile}
         onClose={() => { setCropOpen(false); setAvatarFile(null); }}
         onCropped={onImageCropped}
+      />
+
+      <ConfirmDialog
+        open={confirmRemoveAvatar}
+        title="Remove profile photo?"
+        message="Your avatar will fall back to your initials until you upload a new photo. You still need to click Save Changes to make this permanent."
+        confirmLabel="Remove"
+        cancelLabel="Keep"
+        variant="warning"
+        onConfirm={() => { setField("avatar", ""); setConfirmRemoveAvatar(false); }}
+        onCancel={() => setConfirmRemoveAvatar(false)}
       />
     </div>
   );
