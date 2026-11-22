@@ -328,14 +328,40 @@ export default function Bookings({ embedded = false }) {
   const { setPage, paginated, totalPages, safePage, info } = usePagination(filtered, 25);
   useEffect(() => { setPage(1); }, [filterStatus, filterSource, searchTerm, sortBy, sortDir, setPage]);
 
-  // Source-count badges for the segmented toggle
+  // Source-count badges for the segmented toggle.
+  //
+  // The counts reflect what the staff would see if they clicked the
+  // corresponding chip, so the status filter + search are applied first
+  // and only the source dimension is left open. Previously these numbers
+  // ignored every other filter, which read as misleading when staff were
+  // on 'Active' with 0 matches but the chip still said 'All 116'.
   const sourceCounts = useMemo(() => {
-    let online = 0, walkin = 0;
+    const term = searchTerm.trim().toLowerCase();
+    let all = 0, online = 0, walkin = 0;
     for (const b of bookings) {
+      // Apply status filter (same logic as the main filter in the sort
+      // block above). Intentionally ignores filterSource so each chip
+      // can show its own candidate pool.
+      if (filterStatus === 'Overdue') {
+        if (!isOverdueCheckout(b)) continue;
+      } else if (filterStatus === 'Active') {
+        if (b.status === 'Completed' || b.status === 'Cancelled' || b.status === 'No-Show') continue;
+      } else if (filterStatus !== 'All' && b.status !== filterStatus) {
+        continue;
+      }
+      // Apply search term if present.
+      if (term) {
+        const hay = [
+          b.guest || '', b.id || '', b.roomType || '',
+          b.guestEmail || '', b.guestPhone || '',
+        ].join(' ').toLowerCase();
+        if (!hay.includes(term)) continue;
+      }
+      all++;
       if (b.source === 'walk-in') walkin++; else online++;
     }
-    return { all: bookings.length, online, walkin };
-  }, [bookings]);
+    return { all, online, walkin };
+  }, [bookings, filterStatus, searchTerm]);
 
   // Urgency tiles above the filters — each number answers one staff
   // question at a glance ("what's waiting for me right now?") and routes
@@ -579,7 +605,14 @@ export default function Bookings({ embedded = false }) {
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold text-slate-800">Bookings</h1>
               <span className="text-sm text-slate-500">
-                {filtered.length} of {bookings.length} shown
+                {/* Reads differently based on whether any filter is
+                    narrowing the view. When no filter is active, show the
+                    plain total — no distracting "X of X". When a filter
+                    is active, show both so staff see how much the filters
+                    hid. */}
+                {(filterStatus === 'All' && filterSource === 'all' && !searchTerm.trim())
+                  ? `${bookings.length} total`
+                  : `Showing ${filtered.length} of ${bookings.length}`}
               </span>
             </div>
             <button
