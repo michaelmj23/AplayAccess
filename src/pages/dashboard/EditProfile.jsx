@@ -9,6 +9,7 @@ import { localDateStr } from "../../lib/format";
 import Toast, { useToast } from "../../components/ui/Toast";
 import Modal from "../../components/modals/Modal.jsx";
 import AvatarCropModal from "../../components/ui/AvatarCropModal.jsx";
+import Avatar from "../../components/ui/Avatar.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import { Helmet } from "react-helmet-async";
 
@@ -312,12 +313,15 @@ export default function EditProfile() {
           <div className="lg:col-span-1">
             <div className="flex flex-col items-center">
               <div className="relative">
-                <img
-                  src={form.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent((form.firstName + " " + form.lastName).trim() || "Guest")}&background=0ea5e9&color=fff&size=128`}
-                  alt="Profile"
-                  className="w-28 h-28 rounded-full object-cover border-4 border-slate-200"
-                  loading="lazy"
-                  decoding="async"
+                {/* Shared <Avatar> — image when form.avatar is set,
+                    otherwise initials from user.name using the same
+                    algorithm as the sidebar, so the two circles can
+                    never disagree on the letters. */}
+                <Avatar
+                  src={form.avatar}
+                  name={user?.name || `${form.firstName} ${form.lastName}`.trim()}
+                  className="w-28 h-28 border-4 border-slate-200"
+                  fallbackClassName="bg-sky-500 text-white text-3xl font-semibold"
                 />
                 <button
                   type="button"
