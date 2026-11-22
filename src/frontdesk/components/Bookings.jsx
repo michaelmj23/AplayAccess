@@ -686,6 +686,7 @@ export default function Bookings({ embedded = false }) {
               <option>Overdue</option>
               <option>Completed</option>
               <option>Cancelled</option>
+              <option>No-Show</option>
             </select>
             <button onClick={load} className="flex items-center gap-2 text-sky-600 hover:text-sky-800 text-sm ml-auto">
               <i className="fas fa-sync-alt" aria-hidden="true"></i> Refresh
