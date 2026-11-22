@@ -153,12 +153,18 @@ export default function Bookings({ embedded = false }) {
     return VALID_SOURCES.includes(s) ? s : 'all';
   });
 
-  // Re-sync filters when URL params change (e.g. clicking a notification while already on this page)
+  // Re-sync filters when the URL CHANGES — e.g. clicking a notification
+  // ('/frontdesk/bookings?status=Overdue') while already on this page.
+  // Non-destructive: only touch a filter when the URL carries an
+  // explicit value for it. Before this guard, the effect reset status
+  // to 'Active' whenever the URL omitted a status param — which
+  // happened every time staff clicked a source chip, bulldozing any
+  // local status choice they'd made via the dropdown.
   useEffect(() => {
     const s = searchParams.get('status');
-    setFilterStatus(VALID_STATUSES.includes(s) ? s : 'Active');
+    if (s && VALID_STATUSES.includes(s)) setFilterStatus(s);
     const src = searchParams.get('source');
-    setFilterSource(VALID_SOURCES.includes(src) ? src : 'all');
+    if (src && VALID_SOURCES.includes(src)) setFilterSource(src);
   }, [searchParams]);
 
   const [viewBooking, setViewBooking]     = useState(null);
