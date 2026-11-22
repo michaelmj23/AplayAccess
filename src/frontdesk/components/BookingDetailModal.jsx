@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from '../../components/modals/Modal.jsx';
 import {
-  updateBookingStatus, checkInBooking, checkOutBooking,
+  updateBookingStatus, checkInBooking, checkOutBooking, markBookingNoShow,
   addAmenity, updateAmenity, removeAmenity, downloadStaffReceipt, updateBookingGuests,
   getFdRooms, getFdBookings, transferRoom,
   addonAvailabilityForBooking,
@@ -129,6 +129,13 @@ const ACTION_CONFIG = {
     heading: 'Cancel this booking?',
     desc:    'This cannot be undone. The reservation fee is non-refundable.',
   },
+  'no-show': {
+    label:   'Mark as No-Show',
+    icon:    'fa-user-slash',
+    color:   'slate',
+    heading: 'Mark guest as no-show?',
+    desc:    'Guest will be recorded as not arriving. Reservation fee stays as forfeited revenue. You can reverse this later by manually checking the guest in.',
+  },
   'remove-amenity': {
     label:   'Remove Add-on',
     icon:    'fa-times',
@@ -143,6 +150,7 @@ const COLOR = {
   violet:  { btn: 'bg-violet-600 hover:bg-violet-700',   banner: 'bg-violet-50 border-violet-200 text-violet-800', ring: 'focus-visible:ring-violet-500' },
   emerald: { btn: 'bg-emerald-600 hover:bg-emerald-700', banner: 'bg-emerald-50 border-emerald-200 text-emerald-800', ring: 'focus-visible:ring-emerald-500' },
   rose:    { btn: 'bg-rose-600 hover:bg-rose-700',       banner: 'bg-rose-50 border-rose-200 text-rose-800',       ring: 'focus-visible:ring-rose-500' },
+  slate:   { btn: 'bg-slate-600 hover:bg-slate-700',     banner: 'bg-slate-50 border-slate-200 text-slate-800',   ring: 'focus-visible:ring-slate-500' },
 };
 
 /**
@@ -315,6 +323,13 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       } else if (type === 'cancel') {
         await updateBookingStatus(booking.bookingId, 'Cancelled');
         applyUpdate({ status: 'Cancelled' });
+        refreshNotifications?.();
+      } else if (type === 'no-show') {
+        const res = await markBookingNoShow(booking.bookingId);
+        // Backend returns the full formatted booking; use it so noShowAt
+        // and any backend-side derivations (eg. promo usage release) are
+        // reflected without a stale spread.
+        applyUpdate(res.data ?? { status: 'No-Show' });
         refreshNotifications?.();
       } else if (type === 'remove-amenity') {
         const res = await removeAmenity(booking.bookingId, amenityId);
@@ -1439,6 +1454,32 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                   disabled={actionLoading}
                   className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-violet-600 text-white rounded text-sm font-medium hover:bg-violet-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2">
                   <i className="fas fa-door-open mr-1" aria-hidden="true"></i>Check In
+                </button>
+              )}
+              {/* No-Show for Day/Night Confirmed bookings whose slot has
+                  started. Backend enforces the same guards (status +
+                  booking_type + slot started); the frontend gate hides
+                  the button when it would 422. 24hr is excluded because
+                  it auto-checkins at slot start — see the plan docs. */}
+              {booking.status === 'Confirmed'
+                && !isExpiredPending(booking)
+                && ['day', 'night'].includes(booking.bookingType)
+                && booking.checkIn
+                && new Date(String(booking.checkIn).replace(' ', 'T')) <= new Date() && (
+                <button type="button" onClick={() => setPendingAction({ type: 'no-show' })}
+                  disabled={actionLoading}
+                  className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-slate-600 text-white rounded text-sm font-medium hover:bg-slate-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2">
+                  <i className="fas fa-user-slash mr-1" aria-hidden="true"></i>No-Show
+                </button>
+              )}
+              {/* Reversibility — a No-Show booking can be checked in
+                  manually if the guest arrives late. Backend accepts
+                  No-Show as a valid source status for checkIn. */}
+              {booking.status === 'No-Show' && (
+                <button type="button" onClick={() => setPendingAction({ type: 'checkin' })}
+                  disabled={actionLoading}
+                  className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-violet-600 text-white rounded text-sm font-medium hover:bg-violet-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2">
+                  <i className="fas fa-undo mr-1" aria-hidden="true"></i>Reverse No-Show
                 </button>
               )}
               {/* Transfer hidden once a Checked In booking has gone

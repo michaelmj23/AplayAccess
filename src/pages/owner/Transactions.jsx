@@ -36,11 +36,14 @@ function printTransactions(rows) {
   const now = new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' });
   const fmtN = v => Number(v||0).toLocaleString('en-PH');
   const statusBadge = (s) => {
-    const map = { Completed:'#1e40af:#dbeafe', Confirmed:'#065f46:#d1fae5', Pending:'#92400e:#fef3c7', Cancelled:'#991b1b:#fee2e2', 'Checked In':'#0f766e:#ccfbf1' };
+    const map = { Completed:'#1e40af:#dbeafe', Confirmed:'#065f46:#d1fae5', Pending:'#92400e:#fef3c7', Cancelled:'#991b1b:#fee2e2', 'Checked In':'#0f766e:#ccfbf1', 'No-Show':'#334155:#e2e8f0' };
     const [fg, bg] = (map[s] || '#374151:#f3f4f6').split(':');
     return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:8pt;font-weight:bold;color:${fg};background:${bg}">${s}</span>`;
   };
-  const active = rows.filter(b => b.status !== 'Cancelled');
+  // Treat Cancelled + No-Show as forfeited/resolved — both are terminal
+  // states where paidAmount is kept but no service was rendered.
+  const isForfeited = (b) => b.status === 'Cancelled' || b.status === 'No-Show';
+  const active = rows.filter(b => !isForfeited(b));
   // Column sums for the table footer (what the visible columns add up to)
   const total = active.reduce((s, b) => s + Number(b.total||0) + Number(b.entranceFee||0), 0);
   const efTotal = active.reduce((s, b) => s + Number(b.entranceFee||0), 0);
@@ -50,7 +53,7 @@ function printTransactions(rows) {
   const statusCount = (s) => rows.filter(b => b.status === s).length;
   const tableRows = rows.map(b => {
     const collected = collectedAmt(b);
-    const dim = b.status === 'Cancelled' ? ' style="color:#94a3b8"' : '';
+    const dim = isForfeited(b) ? ' style="color:#94a3b8"' : '';
     // Collected column is the money ACTUALLY received (paid_amount),
     // shown in emerald when > 0 so the reader can trace the Revenue
     // Collected KPI back to specific rows. Forfeited cancellation fees
@@ -68,7 +71,7 @@ function printTransactions(rows) {
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Transaction Records</title><style>${css}</style></head><body>
 <div class="hdr"><div><div class="co">AplayAccess</div><div class="cosub">Aplaya Beach Resort · Booking Management System</div></div><div class="rt"><h2>Transaction Records</h2><small>Generated: ${now}</small></div></div>
 <div class="cards"><div class="card"><div class="lbl">Total Records</div><div class="val">${rows.length}</div></div><div class="card"><div class="lbl">Active Bookings</div><div class="val">${active.length}</div></div><div class="card"><div class="lbl">Total Discounts</div><div class="val">₱${fmtN(discTotal)}</div></div><div class="card"><div class="lbl">Revenue Collected</div><div class="val">₱${fmtN(revenueCollected)}</div></div></div>
-<div class="sech">Status Breakdown</div><div class="srow">${['Confirmed','Checked In','Completed','Cancelled'].map(s=>`<div class="sbox"><div class="n">${statusCount(s)}</div><div class="s">${s}</div></div>`).join('')}</div>
+<div class="sech">Status Breakdown</div><div class="srow">${['Confirmed','Checked In','Completed','Cancelled','No-Show'].map(s=>`<div class="sbox"><div class="n">${statusCount(s)}</div><div class="s">${s}</div></div>`).join('')}</div>
 <div class="sech">All Transactions</div>
 <table><thead><tr><th>Booking ID</th><th>Check-in</th><th>Guest</th><th>Room</th><th style="text-align:right">Discount</th><th style="text-align:right">Room Total</th><th style="text-align:right">Entrance Fee</th><th style="text-align:right">Collected</th><th>Status</th><th>Payment</th></tr></thead><tbody>${tableRows}</tbody><tfoot><tr><td colspan="4">Totals</td><td style="text-align:right">₱${fmtN(discTotal)}</td><td style="text-align:right">₱${fmtN(total - efTotal)}<div style="font-size:7.5pt;opacity:0.75;font-weight:normal">excl. cancelled</div></td><td style="text-align:right">₱${fmtN(efTotal)}<div style="font-size:7.5pt;opacity:0.75;font-weight:normal">excl. cancelled</div></td><td style="text-align:right;color:#6ee7b7">₱${fmtN(revenueCollected)}<div style="font-size:7.5pt;opacity:0.75;font-weight:normal">all rows</div></td><td colspan="2"></td></tr></tfoot></table>
 <div class="ftr"><span>AplayAccess · Aplaya Beach Resort</span><span>Confidential — Internal use only</span><span>Generated: ${now}</span></div>
@@ -91,7 +94,7 @@ const BAR_COLORS = [
 
 const ITEMS_PER_PAGE = 5;
 
-const STATUS_PRIORITY = { Pending: 0, "Checked In": 1, Confirmed: 2, Cancelled: 3, Completed: 4 };
+const STATUS_PRIORITY = { Pending: 0, "Checked In": 1, Confirmed: 2, "No-Show": 3, Cancelled: 4, Completed: 5 };
 
 const STATUS_CLASSES = {
   Confirmed:   "bg-success-bg text-success-fg",
@@ -99,6 +102,7 @@ const STATUS_CLASSES = {
   Pending:     "bg-yellow-100 text-yellow-800",
   Cancelled:   "bg-red-100 text-red-800",
   "Checked In":"bg-teal-100 text-teal-800",
+  "No-Show":   "bg-slate-200 text-slate-700",
 };
 
 
@@ -179,7 +183,13 @@ export default function OwnerTransactions() {
     [filtered]
   );
 
-  const nonCancelled = useMemo(() => allBookings.filter((b) => b.status !== "Cancelled"), [allBookings]);
+  // "Non-cancelled" = active service pipeline. Excludes BOTH Cancelled and
+  // No-Show because both are terminal states where no stay occurred — they
+  // belong with Cancelled in the Collected/Forfeited revenue bucket math.
+  const nonCancelled = useMemo(
+    () => allBookings.filter((b) => b.status !== "Cancelled" && b.status !== "No-Show"),
+    [allBookings]
+  );
   const totalRevenue = useMemo(() =>
     allBookings.reduce((s, b) => s + collectedAmt(b), 0),
     [allBookings]
@@ -362,6 +372,7 @@ export default function OwnerTransactions() {
               <option value="Checked In">Checked In</option>
               <option value="Completed">Completed</option>
               <option value="Cancelled">Cancelled</option>
+              <option value="No-Show">No-Show</option>
             </select>
           </div>
           <div>

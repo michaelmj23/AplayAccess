@@ -72,7 +72,15 @@ function StatusBadge({ status, booking }) {
     Completed:    'bg-emerald-100 text-emerald-800',
     Cancelled:    'bg-rose-100 text-rose-800',
     Pending:      'bg-amber-100 text-amber-800',
+    'No-Show':    'bg-slate-200 text-slate-700',
   };
+  if (status === 'No-Show') {
+    return (
+      <span className="px-2 py-1 rounded text-xs font-medium bg-slate-200 text-slate-700 inline-flex items-center gap-1">
+        <i className="fas fa-user-slash text-[10px]" aria-hidden="true"></i>No-Show
+      </span>
+    );
+  }
   return (
     <span className={`px-2 py-1 rounded text-xs font-medium ${cls[status] ?? 'bg-slate-100 text-slate-800'}`}>
       {status}
@@ -134,7 +142,7 @@ export default function Bookings({ embedded = false }) {
   // It's the default landing view because staff spend their day on bookings
   // that still need action; resolved rows flood the list otherwise and bury
   // today's arrivals/overdues/pending.
-  const VALID_STATUSES = ['Active','Pending','Confirmed','Checked In','Completed','Cancelled','Overdue'];
+  const VALID_STATUSES = ['Active','Pending','Confirmed','Checked In','Completed','Cancelled','Overdue','No-Show'];
   const VALID_SOURCES  = ['all','online','walkin'];
   const [filterStatus, setFilterStatus]   = useState(() => {
     const s = searchParams.get('status');
@@ -263,7 +271,7 @@ export default function Bookings({ embedded = false }) {
     // Pre-compute the sort key per row in a single O(n) pass so the
     // comparator stays O(1) — previously toLowerCase() ran twice per
     // compare × N log N compares, which is wasteful on long lists.
-    const STATUS_ORDER = { Pending: 0, 'Checked In': 1, Confirmed: 2, Cancelled: 3, Completed: 4 };
+    const STATUS_ORDER = { Pending: 0, 'Checked In': 1, Confirmed: 2, 'No-Show': 3, Cancelled: 4, Completed: 5 };
     // Urgency bucket: 0 = most urgent (top of list), 6 = least.
     // Tiebreaker within a bucket is check-in time ascending — we
     // compose bucket+timestamp into one string key so the existing
@@ -279,8 +287,9 @@ export default function Bookings({ embedded = false }) {
       if (b.status === 'Pending')                  return 3;                        // awaiting action
       if (b.status === 'Confirmed')                return 4;                        // future
       if (b.status === 'Completed')                return 5;                        // resolved (dimmed)
-      if (b.status === 'Cancelled')                return 6;                        // resolved (dimmed)
-      return 7;
+      if (b.status === 'No-Show')                  return 6;                        // resolved (dimmed) — slate
+      if (b.status === 'Cancelled')                return 7;                        // resolved (dimmed)
+      return 8;
     };
     const keyed = list.map(b => {
       let key;

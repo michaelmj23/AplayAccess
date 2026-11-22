@@ -32,6 +32,15 @@ export async function checkInBooking(bookingId, entranceFee) {
   return res.data;
 }
 
+// PATCH /api/admin/bookings/{id}/no-show
+// Front desk marks a Confirmed Day/Night booking as No-Show when the
+// guest never arrives. Backend enforces: status=Confirmed, booking_type
+// in ('day','night'), check_in in the past. Reversible via checkInBooking().
+export async function markBookingNoShow(bookingId) {
+  const res = await api.patch(`/api/admin/bookings/${bookingId}/no-show`);
+  return res.data;
+}
+
 // POST /api/admin/bookings/{id}/collect-payment
 export async function collectPayment(bookingId, paymentMethod, entranceFee) {
   const body = { payment_method: paymentMethod };

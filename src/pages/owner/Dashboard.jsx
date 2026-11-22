@@ -204,6 +204,16 @@ export default function OwnerDashboard() {
     const onlineBookings  = bookings.length - walkinBookings;
     const onlinePct       = bookings.length > 0 ? Math.round((onlineBookings / bookings.length) * 100) : 0;
 
+    // No-shows this month — counted via no_show_at falling inside the window.
+    // This captures front-desk-marked no-shows regardless of the booking's
+    // original check_in date (a booking from last week that FD didn't mark
+    // until today still counts for today's month).
+    const noShowsThisMonth = bookings.filter(b => {
+      if (b.status !== 'No-Show') return false;
+      const nsAt = b.noShowAt ? new Date(String(b.noShowAt).replace(' ', 'T')) : null;
+      return nsAt && nsAt >= monthStart && nsAt < nextMonthStart;
+    }).length;
+
     // Peak day of week (from last 30 days bookings)
     const dayOfWeekCounts = [0, 0, 0, 0, 0, 0, 0];
     const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -222,6 +232,7 @@ export default function OwnerDashboard() {
       activeBookings, revThisMonth, revMoM, txThisMonth, txMoM,
       avgBookingValue, topRoomName, topRoomCount, topRoomRevenue, newCustomersThisMonth,
       walkinBookings, onlineBookings, onlinePct, peakDay, peakDayIdx,
+      noShowsThisMonth,
       dayOfWeekCounts, days30ago, today,
     };
   }, [bookings, entranceRates]);
@@ -230,6 +241,7 @@ export default function OwnerDashboard() {
     activeBookings, revThisMonth, revMoM, txThisMonth, txMoM,
     avgBookingValue, topRoomName, topRoomCount, topRoomRevenue, newCustomersThisMonth,
     walkinBookings, onlineBookings, onlinePct, peakDay, peakDayIdx,
+    noShowsThisMonth,
     dayOfWeekCounts, days30ago, today,
   } = derivedKpis;
 
@@ -503,6 +515,27 @@ export default function OwnerDashboard() {
             </div>
             <div className="p-3 rounded-xl bg-teal-100 text-teal-600">
               <i className="fas fa-user-plus text-xl" aria-hidden="true"></i>
+            </div>
+          </div>
+        </div>
+
+        {/* No-Shows (MTD) — counts bookings marked as No-Show by front
+            desk this calendar month, keyed on no_show_at (the moment FD
+            flipped the status) rather than check_in. Lets owner track
+            the no-show rate independently of when the slot was scheduled. */}
+        <div className="bg-white rounded-xl shadow p-5 hover:shadow-md transition">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-slate-500 text-sm">No-Shows (MTD)</p>
+              <h3 className="text-2xl font-bold mt-1">{noShowsThisMonth}</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                {noShowsThisMonth === 0
+                  ? 'No guests marked as no-show'
+                  : `${noShowsThisMonth === 1 ? 'guest' : 'guests'} didn't arrive this month`}
+              </p>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-200 text-slate-600">
+              <i className="fas fa-user-slash text-xl" aria-hidden="true"></i>
             </div>
           </div>
         </div>
