@@ -379,7 +379,6 @@ export default function AdminRooms() {
   const countPavilion = rooms.filter(r => getRoomCategory(r) === "pavilion").length;
 
   // #13 — bulk selection helpers
-  const allPageIds   = new Set(paginated.map(r => r.id));
   const allSelected  = paginated.length > 0 && paginated.every(r => selected.has(r.id));
   const someSelected = paginated.some(r => selected.has(r.id));
 
