@@ -85,9 +85,15 @@ const TABS = [
 export default function AdminCatalog() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") === "addons" ? "addons" : "rooms";
+  // Preserve other URL params (notably ?filter=low from the dashboard
+  // LowStockAlert deep-link) when switching tabs. Previous setSearchParams({})
+  // wiped everything; using a cloned URLSearchParams keeps unrelated
+  // params intact.
   const setActiveTab = (key) => {
-    if (key === "rooms") setSearchParams({});
-    else setSearchParams({ tab: key });
+    const next = new URLSearchParams(searchParams);
+    if (key === "rooms") next.delete("tab");
+    else                 next.set("tab", key);
+    setSearchParams(next, { replace: true });
   };
 
   return (

@@ -3689,9 +3689,13 @@ export default function AdminContent() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   const outerTab = tabParam === 'announcements' ? 'announcements' : 'pages';
+  // Preserve other URL params (notably ?filter=low or deep-link
+  // identifiers) when switching between Pages and Announcements.
   const setOuterTab = (key) => {
-    if (key === 'pages') setSearchParams({});
-    else setSearchParams({ tab: key });
+    const next = new URLSearchParams(searchParams);
+    if (key === 'pages') next.delete('tab');
+    else                 next.set('tab', key);
+    setSearchParams(next, { replace: true });
   };
 
   // Derive inner tab index from the URL so direct links work, then
@@ -3704,8 +3708,10 @@ export default function AdminContent() {
   const setInnerTab = (i) => {
     setActiveTab(i);
     const key = INNER_TAB_KEYS[i];
-    if (key === 'pages') setSearchParams({});
-    else setSearchParams({ tab: key });
+    const next = new URLSearchParams(searchParams);
+    if (key === 'pages') next.delete('tab');
+    else                 next.set('tab', key);
+    setSearchParams(next, { replace: true });
   };
   const [content,     setContent]     = useState(loadContent);
   const [previewOpen, setPreviewOpen] = useState(false);

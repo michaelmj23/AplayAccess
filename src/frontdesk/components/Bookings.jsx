@@ -233,13 +233,25 @@ export default function Bookings({ embedded = false }) {
     else { setSortBy(field); setSortDir('asc'); }
   }
 
-  // Write the source filter back to the URL so deep-links stick and the
-  // notification redirects (?status=Pending&source=online) work predictably.
+  // Write filter changes back to the URL so (a) deep-links stick, (b)
+  // notification redirects (?status=Pending&source=online) work, and
+  // (c) the URL re-sync useEffect above doesn't reset the OTHER filter
+  // when one changes. Previously only source wrote back — switching
+  // source then triggered the re-sync, which read 'no status in URL' and
+  // reset status to 'Active', wiping any local choice. Writing both keeps
+  // them in sync so the useEffect is idempotent.
   function changeSource(src) {
     setFilterSource(src);
     const next = new URLSearchParams(searchParams);
     if (src === 'all') next.delete('source');
     else                next.set('source', src);
+    setSearchParams(next, { replace: true });
+  }
+  function changeStatus(status) {
+    setFilterStatus(status);
+    const next = new URLSearchParams(searchParams);
+    if (status === 'Active') next.delete('status');
+    else                     next.set('status', status);
     setSearchParams(next, { replace: true });
   }
 
@@ -643,7 +655,7 @@ export default function Bookings({ embedded = false }) {
                 <button
                   key={t.key}
                   type="button"
-                  onClick={() => setFilterStatus(t.target)}
+                  onClick={() => changeStatus(t.target)}
                   disabled={empty && !active}
                   aria-pressed={active}
                   className={`relative text-left rounded-xl p-3 transition min-h-[72px] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-sky-500 ${
@@ -708,7 +720,7 @@ export default function Bookings({ embedded = false }) {
             <input type="text" aria-label="Search bookings" placeholder="Search name, ID, room…"
               value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
               className="border rounded px-3 py-2 text-sm flex-1 min-w-[160px]" />
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+            <select value={filterStatus} onChange={e => changeStatus(e.target.value)}
               aria-label="Filter by status"
               className="border rounded px-3 py-2 text-sm">
               <option value="Active">Active (hide resolved)</option>

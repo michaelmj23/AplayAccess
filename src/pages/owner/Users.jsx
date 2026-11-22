@@ -86,11 +86,15 @@ export default function OwnerUsers() {
   const [toast, showToast, clearToast, toastType, toastAction] = useToast();
   // Tab state synced to the URL so deep-links (/owner/users?tab=guests)
   // and the legacy /owner/guests redirect both land on the right tab.
+  // Clones the existing URLSearchParams so unrelated params survive a
+  // tab switch (prevents the filter-reset bug).
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') === 'guests' ? 'guests' : 'staff';
   const setActiveTab = (key) => {
-    if (key === 'staff') setSearchParams({});
-    else setSearchParams({ tab: key });
+    const next = new URLSearchParams(searchParams);
+    if (key === 'staff') next.delete('tab');
+    else                 next.set('tab', key);
+    setSearchParams(next, { replace: true });
   };
 
   /* ── data ── */

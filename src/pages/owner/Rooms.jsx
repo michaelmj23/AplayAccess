@@ -147,12 +147,16 @@ function RoomPreview({ room }) {
 // ══════════════════════════════════════════════════════════════════════════
 export default function AdminRooms() {
   // URL-synced tab state so /owner/rooms?tab=addons lands on Add-ons and
-  // the legacy /owner/addons redirect works cleanly.
+  // the legacy /owner/addons redirect works cleanly. Clones the existing
+  // URLSearchParams so unrelated params (notably ?filter=low from the
+  // LowStockAlert banner) survive a tab switch.
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') === 'addons' ? 'addons' : 'rooms';
   const setActiveTab = (key) => {
-    if (key === 'rooms') setSearchParams({});
-    else setSearchParams({ tab: key });
+    const next = new URLSearchParams(searchParams);
+    if (key === 'rooms') next.delete('tab');
+    else                 next.set('tab', key);
+    setSearchParams(next, { replace: true });
   };
 
   const [rooms,        setRooms]        = useState([]);
