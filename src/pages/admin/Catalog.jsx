@@ -215,12 +215,21 @@ function RoomsTab() {
 
       {/* Category filters — these toggle a single table view, not
           separate panels, so role="group" + aria-pressed is the
-          correct pattern (was: role="tablist" which promises tabpanels). */}
+          correct pattern (was: role="tablist" which promises tabpanels).
+          Each chip's count reflects what you'd see if you clicked it —
+          the other filters (search, availability) are applied first and
+          only category stays open. Matches the Bookings page pattern. */}
       <div className="flex flex-wrap gap-2" role="group" aria-label="Filter rooms by category">
         {CATEGORY_TABS.map((tab) => {
+          const q = debouncedSearch?.toLowerCase() ?? "";
+          const pool = rooms.filter((r) => {
+            if (filterAvail && (r.availability_status || "available") !== filterAvail) return false;
+            if (q && !(r.name || "").toLowerCase().includes(q)) return false;
+            return true;
+          });
           const count = tab.key === ""
-            ? rooms.length
-            : rooms.filter((r) => getRoomCategory(r) === tab.key).length;
+            ? pool.length
+            : pool.filter((r) => getRoomCategory(r) === tab.key).length;
           const active = filterCategory === tab.key;
           return (
             <button key={tab.key} type="button" onClick={() => setFilterCategory(tab.key)}

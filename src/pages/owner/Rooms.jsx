@@ -774,12 +774,21 @@ export default function AdminRooms() {
         </div>
       )}
 
-      {/* Category tabs */}
+      {/* Category tabs — each chip's count reflects what you'd see if
+          you clicked it. The search box and availability filter are
+          applied first, only the category stays open. Matches the
+          Bookings page pattern. */}
       <div className="flex flex-wrap gap-2">
         {ADMIN_CATEGORY_TABS.map(tab => {
+          const q = debouncedSearch.toLowerCase();
+          const pool = rooms.filter(r => {
+            if (filterAvail && r.availability_status !== filterAvail) return false;
+            if (q && !r.name.toLowerCase().includes(q)) return false;
+            return true;
+          });
           const count = tab.key === ""
-            ? rooms.length
-            : rooms.filter(r => getRoomCategory(r) === tab.key).length;
+            ? pool.length
+            : pool.filter(r => getRoomCategory(r) === tab.key).length;
           return (
             <button key={tab.key}
               onClick={() => setFilterCategory(tab.key)}
