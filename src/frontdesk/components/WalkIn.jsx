@@ -501,7 +501,6 @@ export default function WalkIn({ embedded = false }) {
     if (!form.fullName.trim()) {
       setFormError('Guest name is required.'); return;
     }
-    if (!form.phone.trim()) { setFormError('Phone number is required.'); return; }
     if (allowedTypes && !allowedTypes.includes(form.bookingType)) {
       setFormError(`This room only supports: ${allowedTypes.join(', ')}.`); return;
     }
@@ -1006,10 +1005,10 @@ export default function WalkIn({ embedded = false }) {
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" required />
                   </div>
                   <div>
-                    <label htmlFor="wi-phone" className="block text-xs font-medium text-slate-700 mb-1">Phone *</label>
+                    <label htmlFor="wi-phone" className="block text-xs font-medium text-slate-700 mb-1">Phone <span className="text-slate-400 font-normal">(optional)</span></label>
                     <input id="wi-phone" type="tel" value={form.phone}
                       onChange={e => { setField('phone', e.target.value); if (selectedReturningGuest) clearReturningGuest(); }}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="+639XXXXXXXXX" required />
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="+639XXXXXXXXX" />
                   </div>
                   <div>
                     <label htmlFor="wi-email" className="block text-xs font-medium text-slate-700 mb-1">Email</label>
@@ -1488,7 +1487,6 @@ export default function WalkIn({ embedded = false }) {
                   onClick={() => {
                     setFormError('');
                     if (!form.fullName.trim()) { setFormError('Guest name is required.'); return; }
-                    if (!form.phone.trim()) { setFormError('Phone number is required.'); return; }
                     if (!form.roomId) { setFormError('Please select a room.'); return; }
                     setWiStep(2);
                     document.getElementById('walkin-scroll')?.scrollTo(0, 0);
