@@ -11,6 +11,7 @@ import {
   checkOutReservation,
   cancelReservation,
   revertNoShowReservation,
+  markNoShowReservation,
 } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import { applyPromoToBooking } from '../../lib/adminApi';
@@ -444,6 +445,32 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       showToast?.(msg);
     } finally {
       setGroupCheckOutLoading(false);
+    }
+  }
+
+  // Reservation-level bulk mark-as-no-show. Mirrors the per-row
+  // markNoShow guards (Confirmed + Day|Night + slot started). 24hr
+  // siblings and future-slot siblings are blocked by the backend;
+  // the toast enumerates skips. Two-step confirm because it
+  // releases promo counts and flips multiple rows to a terminal-
+  // adjacent state.
+  const [groupMarkNoShowLoading, setGroupMarkNoShowLoading] = useState(false);
+  const [groupMarkNoShowConfirm, setGroupMarkNoShowConfirm] = useState(false);
+  async function handleGroupMarkNoShow() {
+    if (!booking.reservationId) return;
+    setGroupMarkNoShowLoading(true);
+    try {
+      const res = await markNoShowReservation(booking.reservationId);
+      showToast?.(res.message || `Group no-show: ${res.summary?.marked ?? 0} room(s) marked.`);
+      onReload?.();
+      refreshNotifications?.();
+      setGroupMarkNoShowConfirm(false);
+      onClose?.();
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Group no-show failed.';
+      showToast?.(msg);
+    } finally {
+      setGroupMarkNoShowLoading(false);
     }
   }
 
@@ -930,6 +957,55 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                         </>
                       )}
                     </button>
+                  )}
+                  {/* Reservation-level bulk mark-as-no-show. Visible
+                      when at least one sibling is Confirmed and
+                      Day/Night (24hr siblings are excluded by the
+                      per-row markNoShow guard). Two-step confirm —
+                      marking no-show releases promo counts and flips
+                      multiple rows to a terminal-adjacent state. */}
+                  {booking.groupSiblings.some(s =>
+                    s.status === 'Confirmed'
+                    && (s.bookingType === 'day' || s.bookingType === 'night')
+                  ) && (
+                    groupMarkNoShowConfirm ? (
+                      <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-2">
+                        <p className="text-[11px] text-amber-900 mb-2">
+                          Mark all eligible Day/Night rooms as no-show? Promo credit (if any) is released. Use the reversal action to undo.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={handleGroupMarkNoShow}
+                            disabled={groupMarkNoShowLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded"
+                          >
+                            {groupMarkNoShowLoading ? (
+                              <><i className="fas fa-spinner fa-spin text-[10px]"></i>Marking…</>
+                            ) : (
+                              <><i className="fas fa-check text-[10px]"></i>Yes, mark no-show</>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setGroupMarkNoShowConfirm(false)}
+                            disabled={groupMarkNoShowLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-[11px] font-semibold py-1.5 px-2 rounded"
+                          >
+                            Keep bookings
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setGroupMarkNoShowConfirm(true)}
+                        className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-white border border-amber-400 hover:bg-amber-50 text-amber-800 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
+                      >
+                        <i className="fas fa-user-slash text-[10px]" aria-hidden="true"></i>
+                        Mark all eligible rooms as no-show
+                      </button>
+                    )
                   )}
                   {/* Reservation-level bulk no-show reversal.
                       Visible when any sibling is No-Show. Flips

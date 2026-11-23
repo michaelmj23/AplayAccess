@@ -70,6 +70,17 @@ export async function revertNoShowReservation(reservationId) {
   return res.data;
 }
 
+// POST /api/admin/reservations/{id}/mark-no-show
+// Group / reservation-level mark-as-no-show. Flips every Confirmed
+// Day/Night sibling whose slot has started to No-Show. 24hr siblings
+// are excluded (auto-checkin covers them in the normal case).
+// Returns {marked, blocked_not_confirmed[], blocked_future_slot[],
+// blocked_wrong_type[], already_no_show} plus `message`.
+export async function markNoShowReservation(reservationId) {
+  const res = await api.post(`/api/admin/reservations/${reservationId}/mark-no-show`);
+  return res.data;
+}
+
 // POST /api/admin/bookings/{id}/checkin
 export async function checkInBooking(bookingId, entranceFee) {
   const payload = entranceFee != null ? { entrance_fee: entranceFee } : {};
