@@ -624,8 +624,21 @@ export default function Billing({ embedded = false }) {
   const { todayConfirmed, todayCompleted, todayCancelled, revenueToday } = useMemo(() => {
     const outstandingFor = b =>
       Math.max(0, Number(b.total ?? 0) + calcEntrance(b, entranceRates) - Number(b.paidAmount ?? 0));
+    // "Awaiting payment collection" is strictly what the counter can
+    // settle TODAY — a guest paid their online reservation fee for next
+    // week has an outstanding balance, but there's nobody at the desk
+    // to collect from. We require the arrival date to be today or
+    // earlier. Checked-In rows are always billable (guest is here
+    // regardless of their original arrival date). Confirmed rows must
+    // have arrived today or earlier.
+    const billableToday = (b) => {
+      if (b.status === 'Checked In') return true;
+      if (b.status !== 'Confirmed') return false;
+      const arrival = b.checkIn?.slice(0, 10);
+      return arrival && arrival <= today;
+    };
     const todayConfirmed  = todayAll
-      .filter(b => (b.status === 'Confirmed' || b.status === 'Checked In') && outstandingFor(b) > 0)
+      .filter(b => billableToday(b) && outstandingFor(b) > 0)
       .sort((a, b) => {
         const ao = isOverdue(a), bo = isOverdue(b);
         if (ao !== bo) return ao ? -1 : 1;
@@ -636,7 +649,7 @@ export default function Billing({ embedded = false }) {
     // Revenue = paid_amount (backend-maintained single source of truth).
     const revenueToday = todayAll.reduce((s, b) => s + Number(b.paidAmount ?? 0), 0);
     return { todayConfirmed, todayCompleted, todayCancelled, revenueToday };
-  }, [todayAll, entranceRates]);
+  }, [todayAll, entranceRates, today]);
 
   // Click handler on the main Collect button. Validates then opens
   // the confirmation dialog — the actual API call lives in doCollect().
