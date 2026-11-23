@@ -1675,72 +1675,13 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 })()}
               </div>
 
-              {/* Additional-room cards. The checkbox gate lives
-                  above the room picker now; this block renders the
-                  staged sibling cards below the picker once there's
-                  a primary. */}
-              {visitDate && roomId && multiRoomMode && (
-                <div className="md:col-span-2">
-                  {additionalRooms.map((ar, idx) => {
-                    const row = additionalRoomRows[idx];
-                    const effType = row.type;
-                    const effN    = row.nights;
-                    const rate    = row.rate;
-                    const addedIds = new Set([
-                      String(roomId),
-                      ...additionalRooms.map(x => String(x.roomId)).filter((_, i) => i !== idx),
-                    ]);
-                    const isAvailable = r =>
-                      availability === null || availability?.[String(r.id)] === true;
-                    const pickable = rooms.filter(r =>
-                      r.category !== 'tent'
-                      && !addedIds.has(String(r.id))
-                      && isAvailable(r)
-                      && (!r.allowed_booking_types || r.allowed_booking_types.includes(effType))
-                    );
-                    const patchRoom = (patch) =>
-                      setAdditionalRooms(list =>
-                        list.map(x => x.tempId === ar.tempId ? { ...x, ...patch } : x)
-                      );
-                    const roomName = row.room?.name ?? `Additional Room #${idx + 1}`;
-                    return (
-                      <div key={ar.tempId} className="mt-3 rounded-xl border-2 border-blue-200 bg-blue-50/40 p-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-900">
-                            <i className="fas fa-plus-circle text-blue-600"></i>
-                            {roomName}
-                          </div>
-                          <button type="button"
-                            onClick={() =>
-                              setAdditionalRooms(list => list.filter(x => x.tempId !== ar.tempId))
-                            }
-                            className="text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 rounded hover:bg-rose-50"
-                            aria-label={`Remove ${roomName}`}
-                          >
-                            <i className="fas fa-times mr-1"></i>Remove
-                          </button>
-                        </div>
-                        {rate > 0 && (
-                          <p className="mt-1 text-xs text-blue-700">
-                            Subtotal: ₱{(rate * effN).toLocaleString()}
-                            {effN > 1 && (
-                              <span className="text-blue-600 ml-1">
-                                (₱{rate.toLocaleString()} × {effN} nights)
-                              </span>
-                            )}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {additionalRooms.length === 0 && (
-                    <p className="mt-3 text-xs text-blue-700 text-center px-4 py-3 rounded-lg bg-blue-50 border border-dashed border-blue-200">
-                      <i className="fas fa-hand-pointer mr-1" aria-hidden="true"></i>
-                      Tap another room above to add it to this reservation.
-                    </p>
-                  )}
-                </div>
-              )}
+              {/* Staged-sibling card list intentionally hidden —
+                  the "Added ✓" pill on each selected room card is
+                  the live indicator, and the Payment Summary below
+                  itemizes every room. A separate cards block on top
+                  of that was pure duplication. Users remove a
+                  sibling by tapping its (Added) card again — the
+                  onSelect handler toggles it off. */}
 
               {/* Optional add-ons for this room — only renders when the
                   selected room actually has any. Backend verifies the
