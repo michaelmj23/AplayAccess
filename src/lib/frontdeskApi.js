@@ -36,6 +36,17 @@ export async function checkInReservation(reservationId) {
   return res.data;
 }
 
+// POST /api/admin/reservations/{id}/checkout
+// Group / reservation-level bulk check-out. Flips every sibling that
+// is Checked In and fully paid to Completed in one call. Returns a
+// summary {checked_out, blocked_unpaid, blocked_not_in,
+// already_completed, blocked_terminal} plus a human-friendly
+// `message`.
+export async function checkOutReservation(reservationId) {
+  const res = await api.post(`/api/admin/reservations/${reservationId}/checkout`);
+  return res.data;
+}
+
 // POST /api/admin/bookings/{id}/checkin
 export async function checkInBooking(bookingId, entranceFee) {
   const payload = entranceFee != null ? { entrance_fee: entranceFee } : {};

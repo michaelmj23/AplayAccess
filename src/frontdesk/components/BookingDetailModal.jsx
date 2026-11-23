@@ -8,6 +8,7 @@ import {
   getFdRooms, getFdBookings, transferRoom,
   addonAvailabilityForBooking,
   checkInReservation,
+  checkOutReservation,
 } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import { applyPromoToBooking } from '../../lib/adminApi';
@@ -422,6 +423,28 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     }
   }
 
+  // Reservation-level bulk check-out. Blocks per-row on unpaid
+  // balance — staff must collect those via the per-row billing flow
+  // first, then re-run the group check-out. Toast enumerates skips
+  // so staff can see exactly what still needs attention.
+  const [groupCheckOutLoading, setGroupCheckOutLoading] = useState(false);
+  async function handleGroupCheckOut() {
+    if (!booking.reservationId) return;
+    setGroupCheckOutLoading(true);
+    try {
+      const res = await checkOutReservation(booking.reservationId);
+      showToast?.(res.message || `Group check-out: ${res.summary?.checked_out ?? 0} room(s) checked out.`);
+      onReload?.();
+      refreshNotifications?.();
+      onClose?.();
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Group check-out failed.';
+      showToast?.(msg);
+    } finally {
+      setGroupCheckOutLoading(false);
+    }
+  }
+
   async function handleApplyPromo() {
     if (!promoInput.trim()) return;
     setPromoLoading(true);
@@ -833,8 +856,33 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       )}
                     </button>
                   )}
+                  {/* Reservation-level bulk check-out. Enabled when any
+                      sibling is still Checked In. Unpaid siblings get
+                      skipped per-row by the backend; staff collects
+                      balance via the per-row billing flow then
+                      re-runs. */}
+                  {booking.groupSiblings.some(s => s.status === 'Checked In') && (
+                    <button
+                      type="button"
+                      onClick={handleGroupCheckOut}
+                      disabled={groupCheckOutLoading}
+                      className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
+                    >
+                      {groupCheckOutLoading ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>
+                          Checking out group…
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-door-open text-[10px]" aria-hidden="true"></i>
+                          Check out all eligible rooms
+                        </>
+                      )}
+                    </button>
+                  )}
                   <p className="mt-2 text-[11px] text-sky-700/80">
-                    Per-room actions (check-out, transfer, cancel) apply only to this room — open the other rooms from the bookings list to act on them.
+                    Per-room actions (transfer, cancel, collect balance) apply only to this room — open the other rooms from the bookings list to act on them.
                   </p>
                 </div>
               </div>
