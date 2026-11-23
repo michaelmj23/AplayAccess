@@ -92,14 +92,17 @@ function walkInName(b) {
 function BillingDetailDrawer({ booking: b, onClose, onCollect, onDownloadReceipt, downloading, entranceRates }) {
   if (!b) return null;
 
-  // Grand total = current room total + current entrance fee. Paid so far
-  // comes from the backend (paidAmount — maintained across payments + fee
-  // changes). Outstanding is what still needs to be collected at the counter.
-  const entranceNow = calcEntrance(b, entranceRates);
-  const grandTotal  = Number(b.total ?? 0) + entranceNow;
-  const paidSoFar   = Number(b.paidAmount ?? 0);
-  const outstanding = Math.max(0, grandTotal - paidSoFar);
-  const balanceDue  = outstanding; // legacy alias, kept so downstream JSX reads naturally
+  // Grand total = room total + extensions sum + current entrance fee.
+  // extensionsTotal comes from the backend (Booking::extensionsTotal()
+  // — sum of booking_extensions.total for every chained stay extension).
+  // Without it, an extended Day→Night stay reports only the Day portion
+  // and falsely shows "Fully Paid" after the counter settles the Day.
+  const entranceNow    = calcEntrance(b, entranceRates);
+  const extensionsSum  = Number(b.extensionsTotal ?? 0);
+  const grandTotal     = Number(b.total ?? 0) + extensionsSum + entranceNow;
+  const paidSoFar      = Number(b.paidAmount ?? 0);
+  const outstanding    = Math.max(0, grandTotal - paidSoFar);
+  const balanceDue     = outstanding; // legacy alias, kept so downstream JSX reads naturally
 
   return (
     // Slide-in from the right edge — was instant pop-in before, which
@@ -164,6 +167,20 @@ function BillingDetailDrawer({ booking: b, onClose, onCollect, onDownloadReceipt
                       {a.name} × {a.qty}
                     </span>
                     <span>{fmtMoney(a.total ?? (a.unitPrice * a.qty))}</span>
+                  </div>
+                ))}
+
+                {/* Stay extensions — per-row listing so staff can see
+                    what grew the bill (Day guest extended into Night,
+                    etc.). Hidden when the booking was never extended. */}
+                {Array.isArray(b.extensions) && b.extensions.length > 0 && b.extensions.map((e, i) => (
+                  <div key={`ext-${i}`} className="flex justify-between px-4 py-2.5 border-b text-violet-700 bg-violet-50/50">
+                    <span className="flex items-center gap-1.5">
+                      <i className="fas fa-clock-rotate-left text-xs"></i>
+                      Extension — {e.type === 'night' ? 'Night' : e.type === 'day' ? 'Day' : '24hr'}
+                      {Number(e.nights) > 1 ? ` × ${e.nights} nights` : ''}
+                    </span>
+                    <span>+ {fmtMoney(e.total)}</span>
                   </div>
                 ))}
 
@@ -548,7 +565,7 @@ export default function Billing({ embedded = false }) {
       // zero-collect rows, not at the top.
       const outstanding = (x) => {
         if (x.status === 'Completed' || x.status === 'Cancelled' || x.fullyPaid) return 0;
-        return Math.max(0, Number(x.total ?? 0) + calcEntrance(x, entranceRates) - Number(x.paidAmount ?? 0));
+        return Math.max(0, Number(x.total ?? 0) + Number(x.extensionsTotal ?? 0) + calcEntrance(x, entranceRates) - Number(x.paidAmount ?? 0));
       };
       aVal = outstanding(a); bVal = outstanding(b);
     }
@@ -586,11 +603,12 @@ export default function Billing({ embedded = false }) {
       const sorted = [...items].sort((a, b) => a.bookingId - b.bookingId);
       const lead = sorted[0];
       const total       = sorted.reduce((s, x) => s + Number(x.total || 0), 0);
+      const extensionsTotal = sorted.reduce((s, x) => s + Number(x.extensionsTotal || 0), 0);
       const paidAmount  = sorted.reduce((s, x) => s + Number(x.paidAmount || 0), 0);
       // Entrance fee is on the lead row only for multi-room — sum
       // picks up whichever row carries it, which is correct.
       const entranceFee = sorted.reduce((s, x) => s + Number(x.entranceFee || 0), 0);
-      const outstanding = Math.max(0, total + entranceFee - paidAmount);
+      const outstanding = Math.max(0, total + extensionsTotal + entranceFee - paidAmount);
       const fullyPaid   = sorted.every(x => x.fullyPaid);
       const names = sorted.map(x => x.roomType).filter(Boolean);
       const roomDisplay = names.length <= 2
@@ -604,7 +622,7 @@ export default function Billing({ embedded = false }) {
         isGroup: true,
         groupRows: sorted,
         roomType: roomDisplay,
-        total, paidAmount, entranceFee, outstanding, fullyPaid,
+        total, extensionsTotal, paidAmount, entranceFee, outstanding, fullyPaid,
         status: topStatus,
       };
     });
@@ -628,7 +646,7 @@ export default function Billing({ embedded = false }) {
   // as overdue.
   const { todayConfirmed, todayCompleted, todayCancelled, revenueToday } = useMemo(() => {
     const outstandingFor = b =>
-      Math.max(0, Number(b.total ?? 0) + calcEntrance(b, entranceRates) - Number(b.paidAmount ?? 0));
+      Math.max(0, Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + calcEntrance(b, entranceRates) - Number(b.paidAmount ?? 0));
     // "Awaiting payment collection" is strictly what the counter can
     // settle TODAY — a guest paid their online reservation fee for next
     // week has an outstanding balance, but there's nobody at the desk
@@ -664,7 +682,7 @@ export default function Billing({ embedded = false }) {
   // future booking (rare) is still reachable via "Search past".
   const upcomingOutstanding = useMemo(() => {
     const outstandingFor = b =>
-      Math.max(0, Number(b.total ?? 0) + calcEntrance(b, entranceRates) - Number(b.paidAmount ?? 0));
+      Math.max(0, Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + calcEntrance(b, entranceRates) - Number(b.paidAmount ?? 0));
     const horizon = new Date(today);
     horizon.setDate(horizon.getDate() + 14);
     return bookings
@@ -736,7 +754,7 @@ export default function Billing({ embedded = false }) {
                   ...b,
                   fullyPaid:     true,
                   paymentMethod: payMethod,
-                  paidAmount:    Number(b.total ?? 0) + Number(b.entranceFee ?? 0),
+                  paidAmount:    Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + Number(b.entranceFee ?? 0),
                   status:        b.status === 'Confirmed' ? 'Checked In' : b.status,
                 }
               : b)
@@ -762,7 +780,7 @@ export default function Billing({ embedded = false }) {
                   fullyPaid:     true,
                   paymentMethod: payMethod,
                   entranceFee:   ef,
-                  paidAmount:    Number(b.total ?? 0) + ef,
+                  paidAmount:    Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + ef,
                   status:        autoCheckedIn ? 'Checked In' : b.status,
                 }
               : b)
@@ -827,9 +845,10 @@ export default function Billing({ embedded = false }) {
   // Uses backend-maintained paidAmount so it correctly reflects staged
   // collections (reservation fee online, then balance + entrance at the
   // counter, then deltas when fees change post-payment).
-  const billingEntrance   = billing ? calcEntrance(billing, entranceRates) : 0;
-  const billingGrandTotal = billing ? Number(billing.total ?? 0) + billingEntrance : 0;
-  const billingPaidSoFar  = billing ? Number(billing.paidAmount ?? 0) : 0;
+  const billingEntrance    = billing ? calcEntrance(billing, entranceRates) : 0;
+  const billingExtensions  = billing ? Number(billing.extensionsTotal ?? 0) : 0;
+  const billingGrandTotal  = billing ? Number(billing.total ?? 0) + billingExtensions + billingEntrance : 0;
+  const billingPaidSoFar   = billing ? Number(billing.paidAmount ?? 0) : 0;
   const billingOutstanding = Math.max(0, billingGrandTotal - billingPaidSoFar);
 
   // ─── render ───────────────────────────────────────────────────────────────────
@@ -1124,7 +1143,7 @@ export default function Billing({ embedded = false }) {
             <ul className="space-y-3">
               {todayConfirmed.map(b => {
                 const paid       = Number(b.paidAmount ?? 0);
-                const grand      = Number(b.total ?? 0) + calcEntrance(b, entranceRates);
+                const grand      = Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + calcEntrance(b, entranceRates);
                 const toCollect  = Math.max(0, grand - paid);
                 const guestLabel = walkInName(b);
                 const openDetail = () => setSelected(b);
@@ -1234,7 +1253,7 @@ export default function Billing({ embedded = false }) {
               <ul id="upcoming-outstanding-list" className="border-t border-slate-100 divide-y divide-slate-100">
                 {upcomingOutstanding.map(b => {
                   const paid       = Number(b.paidAmount ?? 0);
-                  const grand      = Number(b.total ?? 0) + calcEntrance(b, entranceRates);
+                  const grand      = Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + calcEntrance(b, entranceRates);
                   const toCollect  = Math.max(0, grand - paid);
                   const guestLabel = walkInName(b);
                   const openDetail = () => setSelected(b);
@@ -1728,7 +1747,7 @@ export default function Billing({ embedded = false }) {
                   </p>
                   <ul className="space-y-2">
                     {pastResults.map(b => {
-                      const grand       = Number(b.total ?? 0) + Number(b.entranceFee ?? 0);
+                      const grand       = Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + Number(b.entranceFee ?? 0);
                       const outstanding = Math.max(0, grand - Number(b.paidAmount ?? 0));
                       return (
                         <li key={b.bookingId}
