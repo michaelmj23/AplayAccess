@@ -300,10 +300,14 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         return data.status === "Confirmed" || data.paid === true;
       };
 
-      const success = () => {
+      const success = (resp) => {
         setPaymentPopup(null);
         setTimeLeft(null);
         clearPendingPayment();
+        const ref = resp?.data?.gcash_ref ?? resp?.gcash_ref ?? null;
+        if (ref && bookingResultRef.current) {
+          bookingResultRef.current = { ...bookingResultRef.current, gcashRef: ref };
+        }
         onBooked?.(bookingResultRef.current);
         onClose();
       };
@@ -314,7 +318,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         // No retry loop — a failed/cancelled session shouldn't hold the
         // user in limbo for 20 s pretending to verify.
         confirmFn()
-          .then(resp => { if (treatAsConfirmed(resp)) success(); else markCancelled(); })
+          .then(resp => { if (treatAsConfirmed(resp)) success(resp); else markCancelled(); })
           .catch(() => markCancelled());
         return;
       }
@@ -325,7 +329,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       let attempts = 0;
       const tryConfirm = () => {
         confirmFn()
-          .then(resp => { if (treatAsConfirmed(resp)) success(); else markCancelled(); })
+          .then(resp => { if (treatAsConfirmed(resp)) success(resp); else markCancelled(); })
           .catch(err => {
             const status = err?.response?.status;
             if (status === 410) { markCancelled(); return; }
@@ -368,6 +372,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
           setPaymentPopup(null);
           setTimeLeft(null);
           clearPendingPayment();
+          const ref = status.gcash_ref ?? null;
+          if (ref && bookingResultRef.current) {
+            bookingResultRef.current = { ...bookingResultRef.current, gcashRef: ref };
+          }
           onBooked?.(bookingResultRef.current);
           onClose();
           return;
@@ -871,18 +879,31 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
 
       const raw = result.data?.data ?? result.data;
       const fmtDT = fmtDateTime;
+      // Multi-room: capture every sibling's room name so SuccessModal
+      // can list all rooms, and use the CLIENT-COMPUTED grand totals
+      // (reservationFee / discountedTotal) instead of the lead's share —
+      // the backend returns only the lead booking as `raw`, so raw.total /
+      // raw.reservation_fee are per-row and would under-report the group.
+      const isMulti = additionalRooms.length > 0;
+      const roomNames = isMulti
+        ? [room?.name, ...additionalRoomObjs.map(r => r?.name)].filter(Boolean)
+        : [raw.room?.name].filter(Boolean);
+      const resFee   = isMulti ? reservationFee : (raw.reservation_fee ?? 0);
+      const grandTot = isMulti ? discountedTotal : (raw.total ?? 0);
       bookingResultRef.current = {
-        roomType:      raw.room?.name ?? '',
+        roomType:      roomNames.join(', '),
+        roomNames,
         checkIn:       fmtDT(raw.check_in),
         checkOut:      fmtDT(raw.check_out),
         guests:        raw.guests,
         paymentMethod: raw.payment_method,
         totals: {
-          reservationFee: raw.reservation_fee ?? 0,
-          balanceDue:     Math.max(0, (raw.total ?? 0) - (raw.reservation_fee ?? 0)),
+          reservationFee: resFee,
+          balanceDue:     Math.max(0, grandTot - resFee),
         },
         bookingData: raw,
         guestToken: result.guest_token ?? null,
+        gcashRef:   null,
       };
       // For guest bookings, use the guest_token (UUID) for all subsequent API calls
       // to prevent ID enumeration. For logged-in users, use the numeric booking ID.

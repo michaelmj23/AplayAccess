@@ -74,10 +74,23 @@ export default function SuccessModal({ open, onClose, booking = null, guestMode 
                 <span className="font-bold text-blue-700">{ref}</span>
               </div>
             )}
-            <div className="flex justify-between">
-              <span className="text-gray-600">Room</span>
-              <span className="font-medium text-gray-900">{booking.roomType}</span>
-            </div>
+            {Array.isArray(booking.roomNames) && booking.roomNames.length > 1 ? (
+              <div className="flex justify-between items-start gap-3">
+                <span className="text-gray-600 shrink-0">
+                  Rooms <span className="text-xs text-gray-400">({booking.roomNames.length})</span>
+                </span>
+                <ul className="text-right font-medium text-gray-900 space-y-0.5 min-w-0">
+                  {booking.roomNames.map((n, i) => (
+                    <li key={i} className="truncate">{n}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="flex justify-between">
+                <span className="text-gray-600">Room</span>
+                <span className="font-medium text-gray-900">{booking.roomType}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-gray-600">Check-in</span>
               <span className="font-medium text-gray-900">{booking.checkIn}</span>
@@ -94,6 +107,14 @@ export default function SuccessModal({ open, onClose, booking = null, guestMode 
               <span className="text-gray-600">Payment</span>
               <span className="font-medium text-gray-900">{booking.paymentMethod}</span>
             </div>
+            {booking.gcashRef && (
+              <div className="flex justify-between items-center gap-3">
+                <span className="text-gray-600 shrink-0">GCash Ref</span>
+                <span className="font-mono text-xs font-semibold text-gray-900 tracking-tight break-all text-right">
+                  {booking.gcashRef}
+                </span>
+              </div>
+            )}
             {booking.totals && (
               <>
                 <div className="border-t border-blue-200 pt-2 flex justify-between">
