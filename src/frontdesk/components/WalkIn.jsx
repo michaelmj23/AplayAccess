@@ -53,6 +53,13 @@ const EMPTY_FORM = {
   // those with a 422). Resets to 1 whenever the type changes.
   nights: 1,
   guests: 1,
+  // Phase 3b-walkin: additional rooms in the same reservation. Each
+  // entry is just `{tempId, roomId}` — all rooms share the top-level
+  // bookingType, nights, date, and guests. Optional per-room addons
+  // can be added post-booking via the staff Add Addon flow for now.
+  // Shared-pool addons (pillows, parking) go on the primary room's
+  // picker since the pool is accounted reservation-wide.
+  additionalRooms: [],
 };
 
 // ─── component ────────────────────────────────────────────────────────────────
@@ -373,7 +380,32 @@ export default function WalkIn({ embedded = false }) {
   // room_rate on the booking row stays per-night; `nights` is sent
   // separately and the backend recomputes.
   const effectiveNights = is24hr ? Math.max(1, Math.min(14, Number(form.nights) || 1)) : 1;
-  const roomSubtotal    = baseRate * effectiveNights;
+
+  // Per-room rate helper — matches the backend match() in
+  // Admin\WalkInController::storeMultiRoom. Used both for the primary
+  // room and each additionalRoom entry so the preview total mirrors
+  // what the backend will charge.
+  function rateForRoom(roomRecord) {
+    if (!roomRecord) return 0;
+    if (form.bookingType === 'night') return Number(roomRecord.overnight_rate ?? 1500);
+    if (form.bookingType === '24hr')  return Number(roomRecord.rate_24hr      ?? 2000);
+    return Number(roomRecord.day_rate ?? 1500);
+  }
+
+  // Resolve the full room object for each additionalRooms entry.
+  const additionalRoomObjs = form.additionalRooms
+    .map(ar => rooms.find(r => String(r.id) === String(ar.roomId)))
+    .filter(Boolean);
+
+  // Sum of (per-night rate × nights) across the primary + every
+  // additional room. baseRate already captures the primary; here we
+  // only ADD the additionals.
+  const additionalRoomsSubtotal = additionalRoomObjs
+    .reduce((sum, r) => sum + rateForRoom(r) * effectiveNights, 0);
+
+  // Primary room's own subtotal (room-rate × nights, excludes addons).
+  const primaryRoomSubtotal = baseRate * effectiveNights;
+  const roomSubtotal = primaryRoomSubtotal + additionalRoomsSubtotal;
 
   // Set of addon IDs that are attached to SOME room (as either package
   // or optional). Catalog addons not in this set are resort-wide shared
@@ -527,6 +559,31 @@ export default function WalkIn({ embedded = false }) {
     if (availability !== null && (!selRoom || availability[String(selRoom.id)] !== true)) {
       setFormError('This room is not available for the selected date and booking type.'); return;
     }
+
+    // Validate additional rooms: each must have a selection, no
+    // duplicates with the primary or other additionals, and all must
+    // be available + accept this booking type.
+    const addedIds = new Set([String(form.roomId)]);
+    for (const [idx, ar] of form.additionalRooms.entries()) {
+      if (!ar.roomId) {
+        setFormError(`Additional room #${idx + 1} needs a selection — remove it or pick a room.`); return;
+      }
+      if (addedIds.has(String(ar.roomId))) {
+        setFormError(`Additional room #${idx + 1} duplicates a room already in this reservation.`); return;
+      }
+      addedIds.add(String(ar.roomId));
+      const adRoom = rooms.find(r => String(r.id) === String(ar.roomId));
+      if (!adRoom) {
+        setFormError(`Additional room #${idx + 1} no longer exists — remove it.`); return;
+      }
+      if (adRoom.allowed_booking_types && !adRoom.allowed_booking_types.includes(form.bookingType)) {
+        setFormError(`${adRoom.name} does not support ${form.bookingType}.`); return;
+      }
+      if (availability !== null && availability[String(adRoom.id)] !== true) {
+        setFormError(`${adRoom.name} is not available for the selected date.`); return;
+      }
+    }
+
     setShortStayAck(false);
     setConfirmOpen(true);
   }
@@ -550,23 +607,35 @@ export default function WalkIn({ embedded = false }) {
 
     setSubmitting(true);
     try {
-      const res = await createWalkInBooking({
+      // Phase 3b-walkin: multi-room payload when staff added at least
+      // one extra room. All amenities land on the primary room —
+      // additional rooms don't carry an addon picker in the UI yet
+      // (post-booking add-addon flow covers them). Package addons
+      // auto-attach on the backend per-room regardless.
+      const multiRoom = form.additionalRooms.length > 0;
+      const payload = {
         guest_name:        guestName,
         guest_phone:       form.phone.trim(),
         guest_email:       form.email.trim() || undefined,
-        room_id:           Number(form.roomId),
         check_in:          checkIn,
         guests:            Number(form.guests || 1),
         payment_method:    form.payMethod.toLowerCase(),
         special_requests:  form.notes.trim() || undefined,
         booking_type:      form.bookingType,
-        // Multi-night, 24hr only. Backend enforces nights=1 for Day/Night;
-        // effectiveNights already clamps to 1 for non-24hr here.
         nights:            effectiveNights,
-        amenities,
         promo_code:        promoResult ? promoInput.trim().toUpperCase() : null,
         discount:          promoDiscount,
-      });
+      };
+      if (multiRoom) {
+        payload.rooms = [
+          { room_id: Number(form.roomId), amenities },
+          ...form.additionalRooms.map(ar => ({ room_id: Number(ar.roomId), amenities: [] })),
+        ];
+      } else {
+        payload.room_id  = Number(form.roomId);
+        payload.amenities = amenities;
+      }
+      const res = await createWalkInBooking(payload);
       setFormOpen(false);
       setForm({ ...EMPTY_FORM, date: form.date });
       setAddonQtys(Object.fromEntries(addons.map(a => [a.id, 0])));
@@ -757,15 +826,28 @@ export default function WalkIn({ embedded = false }) {
                   }`}>Payment Breakdown</p>
                   <div className="flex justify-between text-slate-700">
                     <span>
-                      Room rate ({typeLabel})
+                      {form.additionalRooms.length > 0 ? 'Primary room' : `Room rate (${typeLabel})`}
                       {is24hr && effectiveNights > 1 && (
                         <span className="text-xs text-slate-500 ml-1">
                           · {fmtMoney(baseRate)} × {effectiveNights} nights
                         </span>
                       )}
                     </span>
-                    <span>{fmtMoney(roomSubtotal)}</span>
+                    <span>{fmtMoney(primaryRoomSubtotal)}</span>
                   </div>
+                  {additionalRoomObjs.map((r, i) => (
+                    <div key={r.id} className="flex justify-between text-slate-700">
+                      <span>
+                        + {r.name}
+                        {is24hr && effectiveNights > 1 && (
+                          <span className="text-xs text-slate-500 ml-1">
+                            · {fmtMoney(rateForRoom(r))} × {effectiveNights} nights
+                          </span>
+                        )}
+                      </span>
+                      <span>{fmtMoney(rateForRoom(r) * effectiveNights)}</span>
+                    </div>
+                  ))}
                   {amenityTotal > 0 && (
                     <div className="flex justify-between text-slate-700">
                       <span>Add-ons</span>
@@ -1252,6 +1334,94 @@ export default function WalkIn({ embedded = false }) {
                     })()}
                   </div>
 
+                  {/* Additional rooms in the SAME reservation. All share
+                      the same booking type + date + nights + guest count.
+                      Add-ons for additional rooms are added via the
+                      per-booking staff flow post-check-in — shared-pool
+                      items like pillows should be added on the primary
+                      room above since the pool is reservation-wide. */}
+                  <div className="col-span-2">
+                    {form.additionalRooms.map((ar, idx) => {
+                      const selectedAdditional = rooms.find(r => String(r.id) === String(ar.roomId));
+                      const addedIds = new Set([
+                        String(form.roomId),
+                        ...form.additionalRooms.map(x => String(x.roomId)).filter((_, i) => i !== idx),
+                      ]);
+                      const pickableRooms = rooms.filter(r =>
+                        (availability === null || availability?.[String(r.id)] === true)
+                        && !addedIds.has(String(r.id))
+                        && r.category !== 'tent'
+                      );
+                      const rate = rateForRoom(selectedAdditional);
+                      return (
+                        <div key={ar.tempId} className="mt-3 rounded-xl border-2 border-sky-200 bg-sky-50/40 p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-sky-900">
+                              <i className="fas fa-plus-circle text-sky-600"></i>
+                              Additional Room #{idx + 1}
+                            </div>
+                            <button type="button"
+                              onClick={() => setForm(f => ({
+                                ...f,
+                                additionalRooms: f.additionalRooms.filter(x => x.tempId !== ar.tempId),
+                              }))}
+                              className="text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 rounded hover:bg-rose-50"
+                              aria-label={`Remove additional room ${idx + 1}`}
+                            >
+                              <i className="fas fa-times mr-1"></i>Remove
+                            </button>
+                          </div>
+                          <select value={ar.roomId}
+                            onChange={e => setForm(f => ({
+                              ...f,
+                              additionalRooms: f.additionalRooms.map(x =>
+                                x.tempId === ar.tempId ? { ...x, roomId: e.target.value } : x
+                              ),
+                            }))}
+                            disabled={!form.date}
+                            aria-label={`Additional room ${idx + 1} selection`}
+                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 disabled:bg-slate-100">
+                            <option value="">Select additional room</option>
+                            {pickableRooms.map(r => (
+                              <option key={r.id} value={r.id}>
+                                {r.name} — ₱{Number(rateForRoom(r)).toLocaleString()}
+                                {effectiveNights > 1 ? ` × ${effectiveNights} nights` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          {rate > 0 && (
+                            <p className="mt-1 text-xs text-sky-700">
+                              Subtotal: ₱{(rate * effectiveNights).toLocaleString()}
+                              {effectiveNights > 1 && (
+                                <span className="text-sky-600 ml-1">
+                                  (₱{rate.toLocaleString()} × {effectiveNights} nights)
+                                </span>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    <button type="button"
+                      disabled={!form.roomId}
+                      onClick={() => setForm(f => ({
+                        ...f,
+                        additionalRooms: [
+                          ...f.additionalRooms,
+                          { tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, roomId: '' },
+                        ],
+                      }))}
+                      className="mt-3 w-full flex items-center justify-center gap-2 border-2 border-dashed border-sky-300 bg-white hover:bg-sky-50 text-sky-700 font-medium text-sm py-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <i className="fas fa-plus" aria-hidden="true"></i>
+                      Add Another Room
+                      {!form.roomId && (
+                        <span className="text-xs text-slate-500 font-normal">(pick primary room first)</span>
+                      )}
+                    </button>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">
                       No. of Guests *
@@ -1506,15 +1676,28 @@ export default function WalkIn({ embedded = false }) {
                       <div className={`space-y-0.5 ${tc.sub}`}>
                         <div className="flex justify-between">
                           <span>
-                            {rateLabel}
+                            {form.additionalRooms.length > 0 ? `Primary room (${rateLabel})` : rateLabel}
                             {is24hr && effectiveNights > 1 && (
                               <span className="text-xs opacity-70 ml-1">
                                 · {fmtMoney(baseRate)} × {effectiveNights} nights
                               </span>
                             )}
                           </span>
-                          <span>{fmtMoney(roomSubtotal)}</span>
+                          <span>{fmtMoney(primaryRoomSubtotal)}</span>
                         </div>
+                        {additionalRoomObjs.map(r => (
+                          <div key={r.id} className="flex justify-between">
+                            <span>
+                              + {r.name}
+                              {is24hr && effectiveNights > 1 && (
+                                <span className="text-xs opacity-70 ml-1">
+                                  · {fmtMoney(rateForRoom(r))} × {effectiveNights} nights
+                                </span>
+                              )}
+                            </span>
+                            <span>{fmtMoney(rateForRoom(r) * effectiveNights)}</span>
+                          </div>
+                        ))}
                         {visibleAddons.filter(a => Number(addonQtys[a.id] || 0) > 0).map(a => {
                           const qty = Number(addonQtys[a.id]);
                           const subtotal = a.per_booking ? a.price : a.price * qty;
