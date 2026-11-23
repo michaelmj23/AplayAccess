@@ -406,15 +406,12 @@ export default function WalkIn({ embedded = false }) {
     return Number(roomRecord.day_rate ?? 1500);
   }
 
-  // Resolve each additional room with its effective type + nights.
-  // `effectiveType` falls back to the primary's; `effectiveNights`
-  // clamps to 1 for Day/Night.
+  // Resolve each additional room — all siblings inherit the
+  // primary's slot (resort rule: one group, one visit slot).
   const additionalRoomRows = form.additionalRooms.map(ar => {
     const room = rooms.find(r => String(r.id) === String(ar.roomId));
-    const type = ar.bookingType || form.bookingType;
-    const n    = type === '24hr'
-      ? Math.max(1, Math.min(14, Number(ar.nights ?? form.nights) || 1))
-      : 1;
+    const type = form.bookingType;
+    const n    = type === '24hr' ? effectiveNights : 1;
     return { ar, room, type, nights: n, rate: rateForRoom(room, type) };
   });
   const additionalRoomObjs = additionalRoomRows.map(r => r.room).filter(Boolean);
@@ -648,16 +645,13 @@ export default function WalkIn({ embedded = false }) {
         discount:          promoDiscount,
       };
       if (multiRoom) {
+        // All siblings share the primary's slot (top-level booking_type +
+        // nights). No per-row overrides — backend treats missing fields
+        // as "inherit from top-level".
         payload.rooms = [
           { room_id: Number(form.roomId), amenities },
           ...additionalRoomRows.map(r => ({
             room_id: Number(r.ar.roomId),
-            // Per-room type + nights (mixed types). Only send when
-            // they differ from the top-level (keeps the payload tight
-            // and lets the backend's inherit-from-top logic handle
-            // same-type groups without extra fields).
-            ...(r.type && r.type !== form.bookingType ? { booking_type: r.type } : {}),
-            ...(r.type === '24hr' && r.nights !== effectiveNights ? { nights: r.nights } : {}),
             amenities: [],
           })),
         ];
@@ -1439,54 +1433,6 @@ export default function WalkIn({ embedded = false }) {
                               <i className="fas fa-times mr-1"></i>Remove
                             </button>
                           </div>
-                          {/* Per-room booking type picker. Defaults to the
-                              primary's type; staff can override for a
-                              mixed-type group (Day cottage + Night pavilion). */}
-                          <div className="flex gap-1 mb-2" role="group" aria-labelledby={`ar-${idx}-type`}>
-                            {[
-                              { v: 'day',   label: 'Day' },
-                              { v: 'night', label: 'Night' },
-                              { v: '24hr',  label: '24hr' },
-                            ].map(t => {
-                              const active = effType === t.v;
-                              return (
-                                <button key={t.v} type="button"
-                                  aria-pressed={active}
-                                  onClick={() => patchRoom({ bookingType: t.v, nights: t.v === '24hr' ? (ar.nights || 1) : 1 })}
-                                  className={`flex-1 py-1.5 text-[11px] font-medium rounded border transition-colors ${
-                                    active
-                                      ? 'border-sky-500 bg-sky-100 text-sky-700'
-                                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                                  }`}
-                                >{t.label}</button>
-                              );
-                            })}
-                          </div>
-                          {/* Nights stepper for 24hr siblings. */}
-                          {effType === '24hr' && (
-                            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 mb-2">
-                              <span className="text-[11px] text-amber-900">
-                                <i className="fas fa-moon mr-1"></i>Nights
-                              </span>
-                              <div className="flex items-center gap-1.5">
-                                <button type="button"
-                                  disabled={effN <= 1}
-                                  onClick={() => patchRoom({ nights: Math.max(1, effN - 1) })}
-                                  className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
-                                  aria-label="Decrease nights"
-                                ><i className="fas fa-minus"></i></button>
-                                <span className="min-w-[2rem] text-center text-xs font-bold text-amber-900 tabular-nums">
-                                  {effN}
-                                </span>
-                                <button type="button"
-                                  disabled={effN >= 14}
-                                  onClick={() => patchRoom({ nights: Math.min(14, effN + 1) })}
-                                  className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
-                                  aria-label="Increase nights"
-                                ><i className="fas fa-plus"></i></button>
-                              </div>
-                            </div>
-                          )}
                           <select value={ar.roomId}
                             onChange={e => patchRoom({ roomId: e.target.value })}
                             disabled={!form.date}

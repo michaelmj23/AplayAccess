@@ -571,15 +571,15 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     if (t === '24hr' || t === '24hr-pm') return Number(roomRecord.rate_24hr ?? 0);
     return Number(roomRecord.day_rate ?? 0);
   }
-  // Each additional room resolves its effective type + nights (falls
-  // back to the primary's). Mixed types: Day cottage + Night pavilion
-  // in one reservation.
+  // Each additional room resolves its effective type + nights. All
+  // siblings share the PRIMARY's slot by resort rule — a group
+  // visit has one check-in window, same across rooms. (Earlier
+  // builds supported mixed types per sibling; that got dropped in
+  // favor of a simpler UX after user feedback.)
   const additionalRoomRows = additionalRooms.map(ar => {
     const room = rooms.find(r => String(r.id) === String(ar.roomId));
-    const type = ar.bookingType || bookingType;
-    const n    = type === '24hr'
-      ? Math.max(1, Math.min(14, Number(ar.nights ?? nights) || 1))
-      : 1;
+    const type = bookingType;
+    const n    = type === '24hr' ? effectiveNights : 1;
     return { ar, room, type, nights: n, rate: rateForRoom(room, type) };
   });
   const additionalRoomObjs = additionalRoomRows.map(r => r.room).filter(Boolean);
@@ -838,19 +838,15 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         .filter(([, qty]) => Number(qty) > 0)
         .map(([name, qty]) => ({ name, qty: Number(qty) }));
 
-      // When the guest added rooms via "+ Add Another Room", build a
-      // rooms[] array. Primary room carries the amenities picker;
-      // siblings carry no addons (package fixtures still auto-attach
-      // server-side per-room). Mixed types supported — only sends
-      // per-row booking_type/nights when they differ from top-level
-      // (backend's inherit-from-top logic handles the rest).
+      // Multi-room: all siblings share the primary's slot (top-level
+      // booking_type + nights), so we don't send per-row overrides.
+      // Backend treats missing per-row type/nights as "inherit from
+      // top-level" — degenerating exactly to single-type-per-group.
       if (additionalRooms.length > 0) {
         bookingPayload.rooms = [
           { room_id: room.id, amenities: pickedAmenities },
           ...additionalRoomRows.map(r => ({
             room_id: Number(r.ar.roomId),
-            ...(r.type && r.type !== bookingType ? { booking_type: r.type } : {}),
-            ...(r.type === '24hr' && r.nights !== effectiveNights ? { nights: r.nights } : {}),
             amenities: [],
           })),
         ];
@@ -1378,10 +1374,9 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                         {
                           tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
                           roomId: id,
-                          // Default to primary's type + nights; staff can
-                          // override per-sibling for mixed types.
-                          bookingType: bookingType,
-                          nights: bookingType === '24hr' ? nights : 1,
+                          // No per-row type/nights — all siblings inherit
+                          // from the primary (resort rule: one group,
+                          // one visit slot).
                         },
                       ]);
                     }
@@ -1709,7 +1704,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     const roomName = row.room?.name ?? `Additional Room #${idx + 1}`;
                     return (
                       <div key={ar.tempId} className="mt-3 rounded-xl border-2 border-blue-200 bg-blue-50/40 p-3">
-                        <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center justify-between mb-1">
                           <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-900">
                             <i className="fas fa-plus-circle text-blue-600"></i>
                             {roomName}
@@ -1724,70 +1719,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                             <i className="fas fa-times mr-1"></i>Remove
                           </button>
                         </div>
-                        {/* Per-row booking type picker */}
-                        <div className="flex gap-1 mb-2" role="group" aria-label={`Additional room ${idx + 1} type`}>
-                          {[
-                            { v: 'day',   label: 'Day' },
-                            { v: 'night', label: 'Night' },
-                            { v: '24hr',  label: '24hr' },
-                          ].map(t => {
-                            const active = effType === t.v;
-                            return (
-                              <button key={t.v} type="button"
-                                aria-pressed={active}
-                                onClick={() => patchRoom({ bookingType: t.v, nights: t.v === '24hr' ? (ar.nights || 1) : 1 })}
-                                className={`flex-1 py-1.5 text-[11px] font-medium rounded border transition-colors ${
-                                  active
-                                    ? 'border-blue-500 bg-blue-100 text-blue-700'
-                                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                                }`}
-                              >{t.label}</button>
-                            );
-                          })}
-                        </div>
-                        {/* Nights stepper for 24hr siblings */}
-                        {effType === '24hr' && (
-                          <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 mb-2">
-                            <span className="text-[11px] text-amber-900">
-                              <i className="fas fa-moon mr-1"></i>Nights
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              <button type="button"
-                                disabled={effN <= 1}
-                                onClick={() => patchRoom({ nights: Math.max(1, effN - 1) })}
-                                className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
-                                aria-label="Decrease nights"
-                              ><i className="fas fa-minus"></i></button>
-                              <span className="min-w-[2rem] text-center text-xs font-bold text-amber-900 tabular-nums">{effN}</span>
-                              <button type="button"
-                                disabled={effN >= 14}
-                                onClick={() => patchRoom({ nights: Math.min(14, effN + 1) })}
-                                className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
-                                aria-label="Increase nights"
-                              ><i className="fas fa-plus"></i></button>
-                            </div>
-                          </div>
-                        )}
-                        {/* Room is set from the main grid in multi-room
-                            mode — no dropdown here. Fallback dropdown
-                            kept for the rare edge case where an entry
-                            lacks a roomId (shouldn't happen from the
-                            new flow but defensive). */}
-                        {!ar.roomId && (
-                          <select value={ar.roomId}
-                            onChange={e => patchRoom({ roomId: e.target.value })}
-                            aria-label={`Additional room ${idx + 1} selection`}
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">Select a room above (tap a card)</option>
-                            {pickable.map(r => (
-                              <option key={r.id} value={r.id}>
-                                {r.name} — ₱{Number(rateForRoom(r, effType)).toLocaleString()}
-                                {effN > 1 ? ` × ${effN} nights` : ''}
-                              </option>
-                            ))}
-                          </select>
-                        )}
                         {rate > 0 && (
                           <p className="mt-1 text-xs text-blue-700">
                             Subtotal: ₱{(rate * effN).toLocaleString()}
