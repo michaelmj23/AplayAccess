@@ -676,22 +676,25 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     }
     if (!selectedRoomObj?.id) { setError("Could not determine room. Please try again."); return; }
 
-    // Validate additional rooms: each must have a selection, no
-    // duplicates, available for the date, and accepting its own
-    // effective type (mixed types honored).
-    const seen = new Set([String(roomId)]);
+    // Validate additional rooms. Duplicate room_ids ARE allowed
+    // (cottages / pavilions with quantity > 1 can appear up to
+    // their quantity count) — rejection flips to "exceeds the
+    // room's unit count."
+    const roomCounts = { [String(roomId)]: 1 };
     for (const [idx, row] of additionalRoomRows.entries()) {
       const ar = row.ar;
       if (!ar.roomId) {
         setError(`Additional room #${idx + 1} needs a selection — remove it or pick a room.`); return;
       }
-      if (seen.has(String(ar.roomId))) {
-        setError(`Additional room #${idx + 1} duplicates a room already in this reservation.`); return;
-      }
-      seen.add(String(ar.roomId));
       const adRoom = row.room;
       if (!adRoom) {
         setError(`Additional room #${idx + 1} no longer exists — remove it.`); return;
+      }
+      const idStr = String(ar.roomId);
+      roomCounts[idStr] = (roomCounts[idStr] ?? 0) + 1;
+      const maxQty = Math.max(1, Number(adRoom.quantity) || 1);
+      if (roomCounts[idStr] > maxQty) {
+        setError(`${adRoom.name} only has ${maxQty} unit${maxQty === 1 ? '' : 's'} — can't book more than that in one reservation.`); return;
       }
       if (adRoom.allowed_booking_types && !adRoom.allowed_booking_types.includes(row.type)) {
         const tLbl = row.type === 'night' ? 'Night' : row.type === '24hr' ? '24 Hours' : 'Day';
@@ -1363,15 +1366,21 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     setPreviewPos({ top, left });
                   };
 
+                  // Count how many of a room are staged in the
+                  // current reservation. Rooms with quantity > 1
+                  // (cottages, pavilions) can appear up to that many
+                  // times across primary + additionalRooms.
+                  const countOfRoom = (id) => {
+                    const strId = String(id);
+                    const asPrimary = String(roomId) === strId ? 1 : 0;
+                    const asSibling = additionalRooms
+                      .filter(ar => String(ar.roomId) === strId).length;
+                    return asPrimary + asSibling;
+                  };
+
                   const onSelect = (r) => {
                     if (!isAvailable(r)) return;
-                    // Single-room mode: just pick. Multi-room mode:
-                    // toggle. Clicking an unselected card adds it as
-                    // an additional room (primary stays). Clicking a
-                    // sibling card removes it. Clicking the primary
-                    // moves it to a different room instead of
-                    // deselecting — a reservation always needs a
-                    // primary.
+                    // Single-room mode: just pick. No quantity cycling.
                     if (!multiRoomMode) {
                       setRoomId(String(r.id));
                       setPromoResult(null);
@@ -1379,31 +1388,39 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                       return;
                     }
                     const id = String(r.id);
-                    if (!roomId) {
-                      setRoomId(id);
-                      setPromoResult(null);
-                      setPromoInput("");
-                      return;
-                    }
-                    if (id === String(roomId)) {
-                      // Clicking the primary card is a no-op — can't
-                      // drop the primary without replacing it.
-                      return;
-                    }
-                    const already = additionalRooms.find(ar => String(ar.roomId) === id);
-                    if (already) {
-                      setAdditionalRooms(list => list.filter(ar => String(ar.roomId) !== id));
-                    } else {
+                    const max = Math.max(1, Number(r.quantity) || 1);
+                    const current = countOfRoom(id);
+
+                    // Cycle count: 0 → 1 → 2 → … → max → 0.
+                    // Each tap on a selected card adds another
+                    // instance (for rooms with quantity > 1).
+                    // Once the max is reached, a further tap
+                    // deselects all instances.
+                    if (current === 0) {
+                      if (!roomId) {
+                        setRoomId(id);
+                      } else {
+                        setAdditionalRooms(list => [
+                          ...list,
+                          {
+                            tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                            roomId: id,
+                          },
+                        ]);
+                      }
+                    } else if (current < max) {
                       setAdditionalRooms(list => [
                         ...list,
                         {
                           tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
                           roomId: id,
-                          // No per-row type/nights — all siblings inherit
-                          // from the primary (resort rule: one group,
-                          // one visit slot).
                         },
                       ]);
+                    } else {
+                      // At max — wrap to 0. Clear primary (if it
+                      // matched) and drop every sibling of this id.
+                      if (String(roomId) === id) setRoomId("");
+                      setAdditionalRooms(list => list.filter(ar => String(ar.roomId) !== id));
                     }
                     setPromoResult(null);
                     setPromoInput("");
@@ -1437,6 +1454,9 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     const isSibling = multiRoomMode
                       && additionalRooms.some(ar => String(ar.roomId) === String(r.id));
                     const selected = isPrimary || isSibling;
+                    const roomCount = multiRoomMode ? countOfRoom(r.id) : (isPrimary ? 1 : 0);
+                    const roomMaxQty = Math.max(1, Number(r.quantity) || 1);
+                    const atMax = multiRoomMode && roomCount > 0 && roomCount >= roomMaxQty;
                     const price = rateFor(r);
                     const typeWord = bookingType === 'night' ? 'overnight' : (bookingType === '24hr' || bookingType === '24hr-pm') ? '24 hours' : 'day visit';
                     const perWord  = bookingType === 'night' ? 'night' : (bookingType === '24hr' || bookingType === '24hr-pm') ? '24 hrs' : 'day';
@@ -1501,12 +1521,23 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                             {r.name}
                             {multiRoomMode && isPrimary && (
                               <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-semibold align-middle">
-                                Primary
+                                Primary{roomCount > 1 ? ` × ${roomCount}` : ''}
                               </span>
                             )}
-                            {multiRoomMode && isSibling && (
+                            {multiRoomMode && !isPrimary && isSibling && (
                               <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-semibold align-middle">
-                                <i className="fas fa-check text-[9px]"></i>Added
+                                <i className="fas fa-check text-[9px]"></i>
+                                Added{roomCount > 1 ? ` × ${roomCount}` : ''}
+                              </span>
+                            )}
+                            {multiRoomMode && roomMaxQty > 1 && roomCount > 0 && roomCount < roomMaxQty && (
+                              <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[9px] font-medium align-middle" title={`${roomMaxQty - roomCount} more available — tap to add another`}>
+                                Tap again for +1
+                              </span>
+                            )}
+                            {multiRoomMode && atMax && (
+                              <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[9px] font-medium align-middle" title="All units added — tap again to remove">
+                                Max ({roomMaxQty})
                               </span>
                             )}
                           </p>
