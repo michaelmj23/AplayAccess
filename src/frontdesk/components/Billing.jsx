@@ -358,6 +358,11 @@ export default function Billing({ embedded = false }) {
   // Two-step confirm so a misclick on Collect doesn't post a payment
   // to the DB and auto-check-in the guest.
   const [confirmCollectOpen, setConfirmCollectOpen] = useState(false);
+  // Future-dated bookings with outstanding balance are hidden from the
+  // "today's queue" by default (billing isn't actionable until the guest
+  // is here), but staff still needs to find them when a guest arrives
+  // early or asks to pre-settle. Collapsed by default.
+  const [upcomingOpen, setUpcomingOpen] = useState(false);
   const [downloading, setDownloading] = useState(null); // bookingId being downloaded
 
   const [toast, showToast, clearToast, toastType] = useToast();
@@ -650,6 +655,28 @@ export default function Billing({ embedded = false }) {
     const revenueToday = todayAll.reduce((s, b) => s + Number(b.paidAmount ?? 0), 0);
     return { todayConfirmed, todayCompleted, todayCancelled, revenueToday };
   }, [todayAll, entranceRates, today]);
+
+  // Future-arrival bookings that already have an outstanding balance.
+  // Not shown in the primary "Awaiting Collection" queue — those are
+  // what the counter can act on today — but staff needs a way to find
+  // and pre-collect when a guest arrives early or asks to pay ahead.
+  // Scoped to the next 14 days so the list stays useful; an older
+  // future booking (rare) is still reachable via "Search past".
+  const upcomingOutstanding = useMemo(() => {
+    const outstandingFor = b =>
+      Math.max(0, Number(b.total ?? 0) + calcEntrance(b, entranceRates) - Number(b.paidAmount ?? 0));
+    const horizon = new Date(today);
+    horizon.setDate(horizon.getDate() + 14);
+    return bookings
+      .filter(b => {
+        if (b.status !== 'Confirmed') return false;
+        const arrival = b.checkIn?.slice(0, 10);
+        if (!arrival || arrival <= today) return false;
+        if (arrival > horizon.toISOString().slice(0, 10)) return false;
+        return outstandingFor(b) > 0;
+      })
+      .sort((a, b) => (a.checkIn ?? '').localeCompare(b.checkIn ?? ''));
+  }, [bookings, entranceRates, today]);
 
   // Click handler on the main Collect button. Validates then opens
   // the confirmation dialog — the actual API call lives in doCollect().
@@ -1171,6 +1198,89 @@ export default function Billing({ embedded = false }) {
                 );
               })}
             </ul>
+          </div>
+        )}
+
+        {/* Upcoming prepayments — collapsible. Shown when at least one
+            future-arrival booking has an outstanding balance. Collapsed
+            by default so the today-queue view stays uncluttered; one
+            click to expand when a guest shows up early. */}
+        {!loading && upcomingOutstanding.length > 0 && (
+          <div className="bg-white rounded-lg shadow mb-6 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setUpcomingOpen(o => !o)}
+              className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-inset"
+              aria-expanded={upcomingOpen}
+              aria-controls="upcoming-outstanding-list"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <i className="fas fa-calendar-plus text-slate-400" aria-hidden="true"></i>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-slate-700">
+                    Upcoming Prepayments
+                    <span className="ml-2 inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-700 text-xs font-medium px-2 py-0.5">
+                      {upcomingOutstanding.length}
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Future bookings with an outstanding balance. Settle early only if the guest is here.
+                  </p>
+                </div>
+              </div>
+              <i className={`fas ${upcomingOpen ? 'fa-chevron-up' : 'fa-chevron-down'} text-slate-400 shrink-0`} aria-hidden="true"></i>
+            </button>
+            {upcomingOpen && (
+              <ul id="upcoming-outstanding-list" className="border-t border-slate-100 divide-y divide-slate-100">
+                {upcomingOutstanding.map(b => {
+                  const paid       = Number(b.paidAmount ?? 0);
+                  const grand      = Number(b.total ?? 0) + calcEntrance(b, entranceRates);
+                  const toCollect  = Math.max(0, grand - paid);
+                  const guestLabel = walkInName(b);
+                  const openDetail = () => setSelected(b);
+                  return (
+                    <li
+                      key={b.bookingId}
+                      role="button"
+                      tabIndex={0}
+                      onClick={openDetail}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(); } }}
+                      aria-label={`View billing detail for ${b.id}, ${guestLabel}, arriving ${fmtDate(b.checkIn)}`}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-inset"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-slate-800">{guestLabel}</p>
+                          <span className="text-[11px] font-mono text-slate-500">{b.id}</span>
+                        </div>
+                        <p className="text-sm text-slate-600">{b.roomType} · {b.guests} pax</p>
+                        <p className="text-xs text-slate-500">
+                          Arrives {fmtDateTime(b.checkIn)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-500">Outstanding</p>
+                        <p className="font-bold text-slate-700">{fmtMoney(toCollect)}</p>
+                        {paid > 0 && (
+                          <p className="text-[11px] text-slate-500">
+                            ({fmtMoney(paid)} paid)
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); openCollect(b); }}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          aria-label={`Collect ${fmtMoney(toCollect)} for ${b.id}`}
+                          className="mt-2 inline-flex items-center gap-1 min-h-11 px-3 py-1.5 border border-emerald-600 text-emerald-700 bg-white rounded text-sm font-semibold hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
+                        >
+                          <i className="fas fa-hand-holding-usd" aria-hidden="true"></i>Collect Early
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         )}
 
