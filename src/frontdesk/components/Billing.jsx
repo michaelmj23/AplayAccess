@@ -1438,11 +1438,16 @@ export default function Billing({ embedded = false }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {paginated.map(b => {
+                  {paginated.map((b, idx) => {
                     const guestLabel = walkInName(b);
+                    // Zebra striping — alternating rows let staff
+                    // track horizontally without losing the line.
+                    // Odd rows take a very faint slate wash; hover
+                    // still overrides both tiers cleanly.
+                    const zebraCls = idx % 2 === 1 ? 'bg-slate-50/60' : 'bg-white';
                     return (
                       <tr key={b.bookingId}
-                        className="hover:bg-slate-50 cursor-pointer"
+                        className={`${zebraCls} hover:bg-sky-50/40 cursor-pointer transition-colors`}
                         onClick={() => setSelected(b)}
                       >
                         <td className="px-4 py-3 text-xs whitespace-nowrap">
@@ -1537,24 +1542,19 @@ export default function Billing({ embedded = false }) {
                 </tbody>
                 <tfoot className="bg-slate-50 text-sm font-semibold">
                   <tr>
-                    <td colSpan={4} className="px-4 py-3 text-right text-slate-600">
+                    <td colSpan={5} className="px-4 py-3 text-right text-slate-600">
                       <span className="inline-flex items-center gap-1.5">
-                        Billed
+                        Collected today
                         <i
                           className="fas fa-circle-info text-slate-400 text-[11px] cursor-help"
-                          title="Excludes cancelled and pending bookings. Entrance fees are collected at the gate and tracked separately."
-                          aria-label="Excludes cancelled and pending bookings. Entrance fees are collected at the gate and tracked separately."
+                          title="Cash-basis: every peso actually received today across all payments. Owner Reports has the stay-based equivalent for monthly revenue."
+                          aria-label="Cash-basis: every peso actually received today across all payments. Owner Reports has the stay-based equivalent for monthly revenue."
                         ></i>
                         :
                       </span>
                     </td>
-                    {/* Sum just b.total so the footer matches the visible
-                        column cells (which also show b.total). */}
-                    <td className="px-4 py-3">
-                      {fmtMoney(todayAll.filter(b => !['Cancelled', 'Pending'].includes(b.status)).reduce((s, b) => s + Number(b.total || 0), 0))}
-                    </td>
                     <td className="px-4 py-3 text-emerald-700">
-                      {fmtMoney(revenueToday)} earned
+                      {fmtMoney(revenueToday)}
                     </td>
                     <td colSpan={2}></td>
                   </tr>
@@ -1681,27 +1681,20 @@ export default function Billing({ embedded = false }) {
               })}
             </ul>
 
-            {/* Mobile summary — replaces the desktop <tfoot>. Sums the
-                same set: excludes Cancelled + Pending, matching the
-                visible "Booking Total" column. "earned" tracks
-                revenueToday so the two figures stay in sync with
-                desktop. */}
+            {/* Mobile summary — replaces the desktop <tfoot>. Cash-basis
+                single number matching the "Collected today" row at the
+                bottom of the desktop table (what staff actually pulled
+                over the counter today, across cash + GCash + online). */}
             <div className="md:hidden mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-slate-600 inline-flex items-center gap-1.5 font-medium">
-                  Billed
+                  Collected today
                   <i
                     className="fas fa-circle-info text-slate-400 text-[11px]"
-                    title="Excludes cancelled and pending bookings. Entrance fees are collected at the gate and tracked separately."
-                    aria-label="Excludes cancelled and pending bookings. Entrance fees are collected at the gate and tracked separately."
+                    title="Cash-basis: every peso actually received today across all payments. Owner Reports has the stay-based equivalent for monthly revenue."
+                    aria-label="Cash-basis: every peso actually received today across all payments. Owner Reports has the stay-based equivalent for monthly revenue."
                   ></i>
                 </span>
-                <span className="font-semibold text-slate-800">
-                  {fmtMoney(todayAll.filter(b => !['Cancelled', 'Pending'].includes(b.status)).reduce((s, b) => s + Number(b.total || 0), 0))}
-                </span>
-              </div>
-              <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200">
-                <span className="text-slate-600 font-medium">Earned</span>
                 <span className="font-semibold text-emerald-700">{fmtMoney(revenueToday)}</span>
               </div>
             </div>
