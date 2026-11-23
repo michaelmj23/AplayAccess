@@ -53,13 +53,14 @@ const EMPTY_FORM = {
   // those with a 422). Resets to 1 whenever the type changes.
   nights: 1,
   guests: 1,
-  // Phase 3b-walkin: additional rooms in the same reservation. Each
-  // entry is just `{tempId, roomId}` — all rooms share the top-level
-  // bookingType, nights, date, and guests. Optional per-room addons
-  // can be added post-booking via the staff Add Addon flow for now.
-  // Shared-pool addons (pillows, parking) go on the primary room's
-  // picker since the pool is accounted reservation-wide.
-  additionalRooms: [],
+  // Additional rooms in the same reservation. Each entry can carry
+  // its own bookingType and nights (mixed types supported). When
+  // bookingType is null/empty the entry inherits the top-level
+  // bookingType; same for nights. Shared-pool addons (pillows,
+  // parking) go on the primary room's picker since the pool is
+  // accounted reservation-wide. Room-specific optional addons on
+  // siblings can be added post-booking via the staff Add Addon flow.
+  additionalRooms: [], // {tempId, roomId, bookingType?, nights?}
 };
 
 // ─── component ────────────────────────────────────────────────────────────────
@@ -381,27 +382,32 @@ export default function WalkIn({ embedded = false }) {
   // separately and the backend recomputes.
   const effectiveNights = is24hr ? Math.max(1, Math.min(14, Number(form.nights) || 1)) : 1;
 
-  // Per-room rate helper — matches the backend match() in
-  // Admin\WalkInController::storeMultiRoom. Used both for the primary
-  // room and each additionalRoom entry so the preview total mirrors
-  // what the backend will charge.
-  function rateForRoom(roomRecord) {
+  // Per-room rate helper. Honors mixed-type bookings by letting the
+  // caller pass an override type (each additionalRoom may carry its
+  // own). Falls back to the top-level form.bookingType.
+  function rateForRoom(roomRecord, type) {
     if (!roomRecord) return 0;
-    if (form.bookingType === 'night') return Number(roomRecord.overnight_rate ?? 1500);
-    if (form.bookingType === '24hr')  return Number(roomRecord.rate_24hr      ?? 2000);
+    const t = type ?? form.bookingType;
+    if (t === 'night') return Number(roomRecord.overnight_rate ?? 1500);
+    if (t === '24hr')  return Number(roomRecord.rate_24hr      ?? 2000);
     return Number(roomRecord.day_rate ?? 1500);
   }
 
-  // Resolve the full room object for each additionalRooms entry.
-  const additionalRoomObjs = form.additionalRooms
-    .map(ar => rooms.find(r => String(r.id) === String(ar.roomId)))
-    .filter(Boolean);
-
-  // Sum of (per-night rate × nights) across the primary + every
-  // additional room. baseRate already captures the primary; here we
-  // only ADD the additionals.
-  const additionalRoomsSubtotal = additionalRoomObjs
-    .reduce((sum, r) => sum + rateForRoom(r) * effectiveNights, 0);
+  // Resolve each additional room with its effective type + nights.
+  // `effectiveType` falls back to the primary's; `effectiveNights`
+  // clamps to 1 for Day/Night.
+  const additionalRoomRows = form.additionalRooms.map(ar => {
+    const room = rooms.find(r => String(r.id) === String(ar.roomId));
+    const type = ar.bookingType || form.bookingType;
+    const n    = type === '24hr'
+      ? Math.max(1, Math.min(14, Number(ar.nights ?? form.nights) || 1))
+      : 1;
+    return { ar, room, type, nights: n, rate: rateForRoom(room, type) };
+  });
+  const additionalRoomObjs = additionalRoomRows.map(r => r.room).filter(Boolean);
+  const additionalRoomsSubtotal = additionalRoomRows
+    .filter(r => r.room)
+    .reduce((sum, r) => sum + r.rate * r.nights, 0);
 
   // Primary room's own subtotal (room-rate × nights, excludes addons).
   const primaryRoomSubtotal = baseRate * effectiveNights;
@@ -561,10 +567,12 @@ export default function WalkIn({ embedded = false }) {
     }
 
     // Validate additional rooms: each must have a selection, no
-    // duplicates with the primary or other additionals, and all must
-    // be available + accept this booking type.
+    // duplicates with the primary or other additionals, available
+    // for the date, and accepting this room's EFFECTIVE type (mixed
+    // types supported — per-row type overrides are honored).
     const addedIds = new Set([String(form.roomId)]);
-    for (const [idx, ar] of form.additionalRooms.entries()) {
+    for (const [idx, row] of additionalRoomRows.entries()) {
+      const ar = row.ar;
       if (!ar.roomId) {
         setFormError(`Additional room #${idx + 1} needs a selection — remove it or pick a room.`); return;
       }
@@ -572,12 +580,12 @@ export default function WalkIn({ embedded = false }) {
         setFormError(`Additional room #${idx + 1} duplicates a room already in this reservation.`); return;
       }
       addedIds.add(String(ar.roomId));
-      const adRoom = rooms.find(r => String(r.id) === String(ar.roomId));
+      const adRoom = row.room;
       if (!adRoom) {
         setFormError(`Additional room #${idx + 1} no longer exists — remove it.`); return;
       }
-      if (adRoom.allowed_booking_types && !adRoom.allowed_booking_types.includes(form.bookingType)) {
-        setFormError(`${adRoom.name} does not support ${form.bookingType}.`); return;
+      if (adRoom.allowed_booking_types && !adRoom.allowed_booking_types.includes(row.type)) {
+        setFormError(`${adRoom.name} does not support ${row.type}.`); return;
       }
       if (availability !== null && availability[String(adRoom.id)] !== true) {
         setFormError(`${adRoom.name} is not available for the selected date.`); return;
@@ -629,7 +637,16 @@ export default function WalkIn({ embedded = false }) {
       if (multiRoom) {
         payload.rooms = [
           { room_id: Number(form.roomId), amenities },
-          ...form.additionalRooms.map(ar => ({ room_id: Number(ar.roomId), amenities: [] })),
+          ...additionalRoomRows.map(r => ({
+            room_id: Number(r.ar.roomId),
+            // Per-room type + nights (mixed types). Only send when
+            // they differ from the top-level (keeps the payload tight
+            // and lets the backend's inherit-from-top logic handle
+            // same-type groups without extra fields).
+            ...(r.type && r.type !== form.bookingType ? { booking_type: r.type } : {}),
+            ...(r.type === '24hr' && r.nights !== effectiveNights ? { nights: r.nights } : {}),
+            amenities: [],
+          })),
         ];
       } else {
         payload.room_id  = Number(form.roomId);
@@ -835,19 +852,23 @@ export default function WalkIn({ embedded = false }) {
                     </span>
                     <span>{fmtMoney(primaryRoomSubtotal)}</span>
                   </div>
-                  {additionalRoomObjs.map((r, i) => (
-                    <div key={r.id} className="flex justify-between text-slate-700">
-                      <span>
-                        + {r.name}
-                        {is24hr && effectiveNights > 1 && (
+                  {additionalRoomRows.filter(r => r.room).map((r, i) => {
+                    const typeLbl = r.type === 'night' ? 'Night' : r.type === '24hr' ? '24hr' : 'Day';
+                    return (
+                      <div key={r.room.id} className="flex justify-between text-slate-700">
+                        <span>
+                          + {r.room.name}
                           <span className="text-xs text-slate-500 ml-1">
-                            · {fmtMoney(rateForRoom(r))} × {effectiveNights} nights
+                            · {typeLbl}
+                            {r.type === '24hr' && r.nights > 1
+                              ? ` · ${fmtMoney(r.rate)} × ${r.nights} nights`
+                              : ''}
                           </span>
-                        )}
-                      </span>
-                      <span>{fmtMoney(rateForRoom(r) * effectiveNights)}</span>
-                    </div>
-                  ))}
+                        </span>
+                        <span>{fmtMoney(r.rate * r.nights)}</span>
+                      </div>
+                    );
+                  })}
                   {amenityTotal > 0 && (
                     <div className="flex justify-between text-slate-700">
                       <span>Add-ons</span>
@@ -1342,7 +1363,10 @@ export default function WalkIn({ embedded = false }) {
                       room above since the pool is reservation-wide. */}
                   <div className="col-span-2">
                     {form.additionalRooms.map((ar, idx) => {
-                      const selectedAdditional = rooms.find(r => String(r.id) === String(ar.roomId));
+                      const row = additionalRoomRows[idx];
+                      const effType = row.type;
+                      const effN    = row.nights;
+                      const rate    = row.rate;
                       const addedIds = new Set([
                         String(form.roomId),
                         ...form.additionalRooms.map(x => String(x.roomId)).filter((_, i) => i !== idx),
@@ -1351,8 +1375,14 @@ export default function WalkIn({ embedded = false }) {
                         (availability === null || availability?.[String(r.id)] === true)
                         && !addedIds.has(String(r.id))
                         && r.category !== 'tent'
+                        && (!r.allowed_booking_types || r.allowed_booking_types.includes(effType))
                       );
-                      const rate = rateForRoom(selectedAdditional);
+                      const patchRoom = (patch) => setForm(f => ({
+                        ...f,
+                        additionalRooms: f.additionalRooms.map(x =>
+                          x.tempId === ar.tempId ? { ...x, ...patch } : x
+                        ),
+                      }));
                       return (
                         <div key={ar.tempId} className="mt-3 rounded-xl border-2 border-sky-200 bg-sky-50/40 p-3">
                           <div className="flex items-center justify-between mb-2">
@@ -1371,30 +1401,73 @@ export default function WalkIn({ embedded = false }) {
                               <i className="fas fa-times mr-1"></i>Remove
                             </button>
                           </div>
+                          {/* Per-room booking type picker. Defaults to the
+                              primary's type; staff can override for a
+                              mixed-type group (Day cottage + Night pavilion). */}
+                          <div className="flex gap-1 mb-2" role="group" aria-labelledby={`ar-${idx}-type`}>
+                            {[
+                              { v: 'day',   label: 'Day' },
+                              { v: 'night', label: 'Night' },
+                              { v: '24hr',  label: '24hr' },
+                            ].map(t => {
+                              const active = effType === t.v;
+                              return (
+                                <button key={t.v} type="button"
+                                  aria-pressed={active}
+                                  onClick={() => patchRoom({ bookingType: t.v, nights: t.v === '24hr' ? (ar.nights || 1) : 1 })}
+                                  className={`flex-1 py-1.5 text-[11px] font-medium rounded border transition-colors ${
+                                    active
+                                      ? 'border-sky-500 bg-sky-100 text-sky-700'
+                                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                                  }`}
+                                >{t.label}</button>
+                              );
+                            })}
+                          </div>
+                          {/* Nights stepper for 24hr siblings. */}
+                          {effType === '24hr' && (
+                            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 mb-2">
+                              <span className="text-[11px] text-amber-900">
+                                <i className="fas fa-moon mr-1"></i>Nights
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button type="button"
+                                  disabled={effN <= 1}
+                                  onClick={() => patchRoom({ nights: Math.max(1, effN - 1) })}
+                                  className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
+                                  aria-label="Decrease nights"
+                                ><i className="fas fa-minus"></i></button>
+                                <span className="min-w-[2rem] text-center text-xs font-bold text-amber-900 tabular-nums">
+                                  {effN}
+                                </span>
+                                <button type="button"
+                                  disabled={effN >= 14}
+                                  onClick={() => patchRoom({ nights: Math.min(14, effN + 1) })}
+                                  className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
+                                  aria-label="Increase nights"
+                                ><i className="fas fa-plus"></i></button>
+                              </div>
+                            </div>
+                          )}
                           <select value={ar.roomId}
-                            onChange={e => setForm(f => ({
-                              ...f,
-                              additionalRooms: f.additionalRooms.map(x =>
-                                x.tempId === ar.tempId ? { ...x, roomId: e.target.value } : x
-                              ),
-                            }))}
+                            onChange={e => patchRoom({ roomId: e.target.value })}
                             disabled={!form.date}
                             aria-label={`Additional room ${idx + 1} selection`}
                             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 disabled:bg-slate-100">
                             <option value="">Select additional room</option>
                             {pickableRooms.map(r => (
                               <option key={r.id} value={r.id}>
-                                {r.name} — ₱{Number(rateForRoom(r)).toLocaleString()}
-                                {effectiveNights > 1 ? ` × ${effectiveNights} nights` : ''}
+                                {r.name} — ₱{Number(rateForRoom(r, effType)).toLocaleString()}
+                                {effN > 1 ? ` × ${effN} nights` : ''}
                               </option>
                             ))}
                           </select>
                           {rate > 0 && (
                             <p className="mt-1 text-xs text-sky-700">
-                              Subtotal: ₱{(rate * effectiveNights).toLocaleString()}
-                              {effectiveNights > 1 && (
+                              Subtotal: ₱{(rate * effN).toLocaleString()}
+                              {effN > 1 && (
                                 <span className="text-sky-600 ml-1">
-                                  (₱{rate.toLocaleString()} × {effectiveNights} nights)
+                                  (₱{rate.toLocaleString()} × {effN} nights)
                                 </span>
                               )}
                             </p>
@@ -1409,7 +1482,16 @@ export default function WalkIn({ embedded = false }) {
                         ...f,
                         additionalRooms: [
                           ...f.additionalRooms,
-                          { tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, roomId: '' },
+                          {
+                            tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                            roomId: '',
+                            // Default to the primary's type + nights.
+                            // Staff can override to build a mixed-type
+                            // group (Day cottage + Night pavilion in
+                            // the same reservation).
+                            bookingType: f.bookingType,
+                            nights: f.bookingType === '24hr' ? f.nights : 1,
+                          },
                         ],
                       }))}
                       className="mt-3 w-full flex items-center justify-center gap-2 border-2 border-dashed border-sky-300 bg-white hover:bg-sky-50 text-sky-700 font-medium text-sm py-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1685,19 +1767,23 @@ export default function WalkIn({ embedded = false }) {
                           </span>
                           <span>{fmtMoney(primaryRoomSubtotal)}</span>
                         </div>
-                        {additionalRoomObjs.map(r => (
-                          <div key={r.id} className="flex justify-between">
-                            <span>
-                              + {r.name}
-                              {is24hr && effectiveNights > 1 && (
+                        {additionalRoomRows.filter(r => r.room).map((r) => {
+                          const typeLbl = r.type === 'night' ? 'Night' : r.type === '24hr' ? '24hr' : 'Day';
+                          return (
+                            <div key={r.room.id} className="flex justify-between">
+                              <span>
+                                + {r.room.name}
                                 <span className="text-xs opacity-70 ml-1">
-                                  · {fmtMoney(rateForRoom(r))} × {effectiveNights} nights
+                                  · {typeLbl}
+                                  {r.type === '24hr' && r.nights > 1
+                                    ? ` · ${fmtMoney(r.rate)} × ${r.nights} nights`
+                                    : ''}
                                 </span>
-                              )}
-                            </span>
-                            <span>{fmtMoney(rateForRoom(r) * effectiveNights)}</span>
-                          </div>
-                        ))}
+                              </span>
+                              <span>{fmtMoney(r.rate * r.nights)}</span>
+                            </div>
+                          );
+                        })}
                         {visibleAddons.filter(a => Number(addonQtys[a.id] || 0) > 0).map(a => {
                           const qty = Number(addonQtys[a.id]);
                           const subtotal = a.per_booking ? a.price : a.price * qty;

@@ -97,13 +97,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // from 24hr so a stale 3-night selection can't leak into a Day
   // booking.
   const [nights, setNights]           = useState(1);
-  // Phase 3b-guest: additional rooms attached to the same reservation.
-  // All rooms share the primary's booking_type, nights, and visitDate.
-  // Each entry is `{tempId, roomId}` — optional per-room addons aren't
-  // pickable from the guest modal for siblings in this ship (fixture
-  // addons still auto-attach server-side per-room). Add-ons for the
-  // primary room keep the full picker.
-  const [additionalRooms, setAdditionalRooms] = useState([]);
+  // Additional rooms attached to the same reservation. Each entry
+  // can carry its own bookingType and nights (mixed types supported).
+  // Omitted fields inherit the top-level primary values. Optional
+  // per-room addons aren't pickable from the guest modal for siblings
+  // — fixture package addons still auto-attach server-side per-room.
+  const [additionalRooms, setAdditionalRooms] = useState([]); // {tempId, roomId, bookingType?, nights?}
   const [visitDate, setVisitDate]     = useState("");
   // Room selection is tracked by its primary-key id so duplicate names
   // can't collapse availability / metadata / submitted-id onto the wrong
@@ -485,14 +484,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     if (bookingType !== "24hr" && nights !== 1) setNights(1);
   }, [bookingType]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Clear additional rooms when booking type changes — a Night-eligible
-  // room might not be Day-eligible, so wiping the list avoids silent
-  // 422s at submit time. Also clears on primary-room swap when a stale
-  // additional now matches the newly-picked primary (duplicates aren't
-  // allowed in the group).
-  useEffect(() => {
-    if (additionalRooms.length > 0) setAdditionalRooms([]);
-  }, [bookingType]); // eslint-disable-line react-hooks/exhaustive-deps
+  // On primary room swap, drop any sibling that duplicates the new
+  // primary (reservation disallows duplicates). Booking type is
+  // independent per row now (mixed types), so we DO NOT clear
+  // siblings when the primary type changes.
   useEffect(() => {
     if (additionalRooms.some(ar => String(ar.roomId) === String(roomId))) {
       setAdditionalRooms(list => list.filter(ar => String(ar.roomId) !== String(roomId)));
@@ -552,20 +547,30 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // the booking row stays per-night; `nights` is a separate column.
   const effectiveNights    = is24hr ? Math.max(1, Math.min(14, Number(nights) || 1)) : 1;
 
-  // Phase 3b-guest: fold additional rooms into the room subtotal so
-  // promo / reservation-fee / grand-total math handles multi-room
-  // transparently.
-  function rateForRoom(roomRecord) {
+  // Per-room rate helper. Honors mixed-type bookings: an additional
+  // room can override `type` and the rate column switches to match.
+  function rateForRoom(roomRecord, type) {
     if (!roomRecord) return 0;
-    if (bookingType === 'night') return Number(roomRecord.overnight_rate ?? 0);
-    if (bookingType === '24hr' || bookingType === '24hr-pm') return Number(roomRecord.rate_24hr ?? 0);
+    const t = type ?? bookingType;
+    if (t === 'night') return Number(roomRecord.overnight_rate ?? 0);
+    if (t === '24hr' || t === '24hr-pm') return Number(roomRecord.rate_24hr ?? 0);
     return Number(roomRecord.day_rate ?? 0);
   }
-  const additionalRoomObjs = additionalRooms
-    .map(ar => rooms.find(r => String(r.id) === String(ar.roomId)))
-    .filter(Boolean);
-  const additionalRoomsSubtotal = additionalRoomObjs
-    .reduce((sum, r) => sum + rateForRoom(r) * effectiveNights, 0);
+  // Each additional room resolves its effective type + nights (falls
+  // back to the primary's). Mixed types: Day cottage + Night pavilion
+  // in one reservation.
+  const additionalRoomRows = additionalRooms.map(ar => {
+    const room = rooms.find(r => String(r.id) === String(ar.roomId));
+    const type = ar.bookingType || bookingType;
+    const n    = type === '24hr'
+      ? Math.max(1, Math.min(14, Number(ar.nights ?? nights) || 1))
+      : 1;
+    return { ar, room, type, nights: n, rate: rateForRoom(room, type) };
+  });
+  const additionalRoomObjs = additionalRoomRows.map(r => r.room).filter(Boolean);
+  const additionalRoomsSubtotal = additionalRoomRows
+    .filter(r => r.room)
+    .reduce((sum, r) => sum + r.rate * r.nights, 0);
   const primaryRoomSubtotal = baseRate * effectiveNights;
   const roomSubtotal        = primaryRoomSubtotal + additionalRoomsSubtotal;
   // Discounted room-only subtotal — matches backend `reservation_fee`
@@ -656,9 +661,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     }
     if (!selectedRoomObj?.id) { setError("Could not determine room. Please try again."); return; }
 
-    // Phase 3b-guest validations for additional rooms.
+    // Validate additional rooms: each must have a selection, no
+    // duplicates, available for the date, and accepting its own
+    // effective type (mixed types honored).
     const seen = new Set([String(roomId)]);
-    for (const [idx, ar] of additionalRooms.entries()) {
+    for (const [idx, row] of additionalRoomRows.entries()) {
+      const ar = row.ar;
       if (!ar.roomId) {
         setError(`Additional room #${idx + 1} needs a selection — remove it or pick a room.`); return;
       }
@@ -666,12 +674,13 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         setError(`Additional room #${idx + 1} duplicates a room already in this reservation.`); return;
       }
       seen.add(String(ar.roomId));
-      const adRoom = rooms.find(r => String(r.id) === String(ar.roomId));
+      const adRoom = row.room;
       if (!adRoom) {
         setError(`Additional room #${idx + 1} no longer exists — remove it.`); return;
       }
-      if (adRoom.allowed_booking_types && !adRoom.allowed_booking_types.includes(bookingType)) {
-        setError(`${adRoom.name} does not support the ${bookingType === 'night' ? 'Night' : bookingType === '24hr' ? '24 Hours' : 'Day'} booking type.`); return;
+      if (adRoom.allowed_booking_types && !adRoom.allowed_booking_types.includes(row.type)) {
+        const tLbl = row.type === 'night' ? 'Night' : row.type === '24hr' ? '24 Hours' : 'Day';
+        setError(`${adRoom.name} does not support the ${tLbl} booking type.`); return;
       }
       if (availability !== null && availability[String(adRoom.id)] !== true) {
         setError(`${adRoom.name} is not available for the selected date.`); return;
@@ -814,14 +823,21 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         .filter(([, qty]) => Number(qty) > 0)
         .map(([name, qty]) => ({ name, qty: Number(qty) }));
 
-      // Phase 3b-guest: when the guest added rooms via "+ Add Another
-      // Room", build a rooms[] array. Primary room carries the
-      // amenities picker; siblings carry no addons (package fixtures
-      // still auto-attach server-side per-room).
+      // When the guest added rooms via "+ Add Another Room", build a
+      // rooms[] array. Primary room carries the amenities picker;
+      // siblings carry no addons (package fixtures still auto-attach
+      // server-side per-room). Mixed types supported — only sends
+      // per-row booking_type/nights when they differ from top-level
+      // (backend's inherit-from-top logic handles the rest).
       if (additionalRooms.length > 0) {
         bookingPayload.rooms = [
           { room_id: room.id, amenities: pickedAmenities },
-          ...additionalRooms.map(ar => ({ room_id: Number(ar.roomId), amenities: [] })),
+          ...additionalRoomRows.map(r => ({
+            room_id: Number(r.ar.roomId),
+            ...(r.type && r.type !== bookingType ? { booking_type: r.type } : {}),
+            ...(r.type === '24hr' && r.nights !== effectiveNights ? { nights: r.nights } : {}),
+            amenities: [],
+          })),
         ];
       } else {
         bookingPayload.room_id = room.id;
@@ -1571,17 +1587,19 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 })()}
               </div>
 
-              {/* Phase 3b-guest: additional rooms in this reservation.
-                  All inherit the primary's booking type, nights, and
-                  date. Guest can only add after the primary room is
-                  chosen (so the "+ Add" row anchors beneath a committed
-                  selection). Per-room addon pickers for siblings are
-                  deferred to a later ship; package fixtures still
+              {/* Additional rooms in this reservation. Mixed types
+                  supported — each sibling can have its own booking
+                  type + nights. The "+ Add" row anchors beneath a
+                  committed primary. Per-room addon pickers for
+                  siblings are deferred; package fixtures still
                   auto-attach server-side. */}
               {visitDate && roomId && (
                 <div className="md:col-span-2">
                   {additionalRooms.map((ar, idx) => {
-                    const selectedAdditional = rooms.find(r => String(r.id) === String(ar.roomId));
+                    const row = additionalRoomRows[idx];
+                    const effType = row.type;
+                    const effN    = row.nights;
+                    const rate    = row.rate;
                     const addedIds = new Set([
                       String(roomId),
                       ...additionalRooms.map(x => String(x.roomId)).filter((_, i) => i !== idx),
@@ -1592,9 +1610,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                       r.category !== 'tent'
                       && !addedIds.has(String(r.id))
                       && isAvailable(r)
-                      && (!r.allowed_booking_types || r.allowed_booking_types.includes(bookingType))
+                      && (!r.allowed_booking_types || r.allowed_booking_types.includes(effType))
                     );
-                    const rate = rateForRoom(selectedAdditional);
+                    const patchRoom = (patch) =>
+                      setAdditionalRooms(list =>
+                        list.map(x => x.tempId === ar.tempId ? { ...x, ...patch } : x)
+                      );
                     return (
                       <div key={ar.tempId} className="mt-3 rounded-xl border-2 border-blue-200 bg-blue-50/40 p-3">
                         <div className="flex items-center justify-between mb-2">
@@ -1612,29 +1633,69 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                             <i className="fas fa-times mr-1"></i>Remove
                           </button>
                         </div>
+                        {/* Per-row booking type picker */}
+                        <div className="flex gap-1 mb-2" role="group" aria-label={`Additional room ${idx + 1} type`}>
+                          {[
+                            { v: 'day',   label: 'Day' },
+                            { v: 'night', label: 'Night' },
+                            { v: '24hr',  label: '24hr' },
+                          ].map(t => {
+                            const active = effType === t.v;
+                            return (
+                              <button key={t.v} type="button"
+                                aria-pressed={active}
+                                onClick={() => patchRoom({ bookingType: t.v, nights: t.v === '24hr' ? (ar.nights || 1) : 1 })}
+                                className={`flex-1 py-1.5 text-[11px] font-medium rounded border transition-colors ${
+                                  active
+                                    ? 'border-blue-500 bg-blue-100 text-blue-700'
+                                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                                }`}
+                              >{t.label}</button>
+                            );
+                          })}
+                        </div>
+                        {/* Nights stepper for 24hr siblings */}
+                        {effType === '24hr' && (
+                          <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 mb-2">
+                            <span className="text-[11px] text-amber-900">
+                              <i className="fas fa-moon mr-1"></i>Nights
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button type="button"
+                                disabled={effN <= 1}
+                                onClick={() => patchRoom({ nights: Math.max(1, effN - 1) })}
+                                className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
+                                aria-label="Decrease nights"
+                              ><i className="fas fa-minus"></i></button>
+                              <span className="min-w-[2rem] text-center text-xs font-bold text-amber-900 tabular-nums">{effN}</span>
+                              <button type="button"
+                                disabled={effN >= 14}
+                                onClick={() => patchRoom({ nights: Math.min(14, effN + 1) })}
+                                className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
+                                aria-label="Increase nights"
+                              ><i className="fas fa-plus"></i></button>
+                            </div>
+                          </div>
+                        )}
                         <select value={ar.roomId}
-                          onChange={e =>
-                            setAdditionalRooms(list =>
-                              list.map(x => x.tempId === ar.tempId ? { ...x, roomId: e.target.value } : x)
-                            )
-                          }
+                          onChange={e => patchRoom({ roomId: e.target.value })}
                           aria-label={`Additional room ${idx + 1} selection`}
                           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
                           <option value="">Select additional room</option>
                           {pickable.map(r => (
                             <option key={r.id} value={r.id}>
-                              {r.name} — ₱{Number(rateForRoom(r)).toLocaleString()}
-                              {effectiveNights > 1 ? ` × ${effectiveNights} nights` : ''}
+                              {r.name} — ₱{Number(rateForRoom(r, effType)).toLocaleString()}
+                              {effN > 1 ? ` × ${effN} nights` : ''}
                             </option>
                           ))}
                         </select>
                         {rate > 0 && (
                           <p className="mt-1 text-xs text-blue-700">
-                            Subtotal: ₱{(rate * effectiveNights).toLocaleString()}
-                            {effectiveNights > 1 && (
+                            Subtotal: ₱{(rate * effN).toLocaleString()}
+                            {effN > 1 && (
                               <span className="text-blue-600 ml-1">
-                                (₱{rate.toLocaleString()} × {effectiveNights} nights)
+                                (₱{rate.toLocaleString()} × {effN} nights)
                               </span>
                             )}
                           </p>
@@ -1646,7 +1707,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     onClick={() =>
                       setAdditionalRooms(list => [
                         ...list,
-                        { tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, roomId: '' },
+                        {
+                          tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                          roomId: '',
+                          bookingType: bookingType,
+                          nights: bookingType === '24hr' ? nights : 1,
+                        },
                       ])
                     }
                     className="mt-3 w-full flex items-center justify-center gap-2 border-2 border-dashed border-blue-300 bg-white hover:bg-blue-50 text-blue-700 font-medium text-sm py-2.5 rounded-xl transition-colors"
@@ -1924,19 +1990,23 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   </span>
                   <span className={`font-medium tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(primaryRoomSubtotal)}</span>
                 </div>
-                {additionalRoomObjs.map(r => (
-                  <div key={r.id} className="flex justify-between mb-1 text-sm">
-                    <span className="text-gray-600">
-                      + {r.name}
-                      {is24hr && effectiveNights > 1 && (
+                {additionalRoomRows.filter(r => r.room).map(r => {
+                  const typeLbl = r.type === 'night' ? 'Night' : r.type === '24hr' ? '24hr' : 'Day';
+                  return (
+                    <div key={r.room.id} className="flex justify-between mb-1 text-sm">
+                      <span className="text-gray-600">
+                        + {r.room.name}
                         <span className="text-xs text-gray-500 ml-1">
-                          · {formatPHP(rateForRoom(r))} × {effectiveNights} nights
-                        </span>
-                      )}:
-                    </span>
-                    <span className={`font-medium tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(rateForRoom(r) * effectiveNights)}</span>
-                  </div>
-                ))}
+                          · {typeLbl}
+                          {r.type === '24hr' && r.nights > 1
+                            ? ` · ${formatPHP(r.rate)} × ${r.nights} nights`
+                            : ''}
+                        </span>:
+                      </span>
+                      <span className={`font-medium tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(r.rate * r.nights)}</span>
+                    </div>
+                  );
+                })}
                 {discount > 0 && (
                   <>
                     <div className="flex justify-between mb-1 text-sm text-green-700 font-medium">
@@ -2445,19 +2515,23 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     </span>
                     <span className={`tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(primaryRoomSubtotal)}</span>
                   </div>
-                  {additionalRoomObjs.map(r => (
-                    <div key={r.id} className="flex justify-between text-gray-700">
-                      <span>
-                        + {r.name}
-                        {is24hr && effectiveNights > 1 && (
+                  {additionalRoomRows.filter(r => r.room).map(r => {
+                    const typeLbl = r.type === 'night' ? 'Night' : r.type === '24hr' ? '24hr' : 'Day';
+                    return (
+                      <div key={r.room.id} className="flex justify-between text-gray-700">
+                        <span>
+                          + {r.room.name}
                           <span className="text-xs text-gray-500 ml-1">
-                            · {formatPHP(rateForRoom(r))} × {effectiveNights} nights
+                            · {typeLbl}
+                            {r.type === '24hr' && r.nights > 1
+                              ? ` · ${formatPHP(r.rate)} × ${r.nights} nights`
+                              : ''}
                           </span>
-                        )}
-                      </span>
-                      <span className={`tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(rateForRoom(r) * effectiveNights)}</span>
-                    </div>
-                  ))}
+                        </span>
+                        <span className={`tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(r.rate * r.nights)}</span>
+                      </div>
+                    );
+                  })}
                   {discount > 0 && (
                     <>
                       <div className="flex justify-between text-green-700 font-medium">
