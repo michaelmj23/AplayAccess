@@ -48,6 +48,10 @@ const EMPTY_FORM = {
   roomId: '', date: todayStr(),
   payMethod: 'Cash', notes: '',
   bookingType: 'day', // 'day' | 'night' | '24hr'
+  // Multi-night count — only applies when bookingType === '24hr'.
+  // Day and Night stay single-slot (backend rejects nights>1 for
+  // those with a 422). Resets to 1 whenever the type changes.
+  nights: 1,
   guests: 1,
 };
 
@@ -349,6 +353,13 @@ export default function WalkIn({ embedded = false }) {
     if (!allowed.includes(form.bookingType)) setField('bookingType', allowed[0]);
   }, [form.roomId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reset nights to 1 whenever the booking type leaves 24hr. Multi-
+  // night only applies to 24hr; a leftover 3 from a prior 24hr pick
+  // must not survive a switch to Day/Night.
+  useEffect(() => {
+    if (form.bookingType !== '24hr' && form.nights !== 1) setField('nights', 1);
+  }, [form.bookingType]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Pricing preview — room rate only; entrance fees collected at check-in by frontdesk
   const selectedRoom  = rooms.find(r => String(r.id) === String(form.roomId));
   const allowedTypes  = selectedRoom?.allowed_booking_types ?? null;
@@ -358,6 +369,11 @@ export default function WalkIn({ embedded = false }) {
   const rate24        = Number(selectedRoom?.rate_24hr      ?? 2000);
   const is24hr        = form.bookingType === '24hr';
   const baseRate      = form.bookingType === 'night' ? nightRate : is24hr ? rate24 : dayRate;
+  // Multi-night 24hr: per-night rate rolls up for pricing previews.
+  // room_rate on the booking row stays per-night; `nights` is sent
+  // separately and the backend recomputes.
+  const effectiveNights = is24hr ? Math.max(1, Math.min(14, Number(form.nights) || 1)) : 1;
+  const roomSubtotal    = baseRate * effectiveNights;
 
   // Set of addon IDs that are attached to SOME room (as either package
   // or optional). Catalog addons not in this set are resort-wide shared
@@ -462,7 +478,9 @@ export default function WalkIn({ embedded = false }) {
     if (qty <= 0) return sum;
     return sum + (a.per_booking ? a.price : a.price * qty);
   }, 0);
-  const previewSubtotal = baseRate + amenityTotal;
+  // Multi-night 24hr: subtotal rolls the per-night rate up before
+  // amenities fold in. Day/Night still use baseRate × 1 effectively.
+  const previewSubtotal = roomSubtotal + amenityTotal;
   const promoDiscount   = promoResult?.discount_amount ?? 0;
   const previewTotal    = Math.max(previewSubtotal - promoDiscount, 0);
   const entranceFeeRate = entranceRates[form.bookingType] ?? 50;
@@ -542,6 +560,9 @@ export default function WalkIn({ embedded = false }) {
         payment_method:    form.payMethod.toLowerCase(),
         special_requests:  form.notes.trim() || undefined,
         booking_type:      form.bookingType,
+        // Multi-night, 24hr only. Backend enforces nights=1 for Day/Night;
+        // effectiveNights already clamps to 1 for non-24hr here.
+        nights:            effectiveNights,
         amenities,
         promo_code:        promoResult ? promoInput.trim().toUpperCase() : null,
         discount:          promoDiscount,
@@ -735,8 +756,15 @@ export default function WalkIn({ embedded = false }) {
                     is24hr                       ? 'text-purple-900' : 'text-sky-900'
                   }`}>Payment Breakdown</p>
                   <div className="flex justify-between text-slate-700">
-                    <span>Room rate ({typeLabel})</span>
-                    <span>{fmtMoney(baseRate)}</span>
+                    <span>
+                      Room rate ({typeLabel})
+                      {is24hr && effectiveNights > 1 && (
+                        <span className="text-xs text-slate-500 ml-1">
+                          · {fmtMoney(baseRate)} × {effectiveNights} nights
+                        </span>
+                      )}
+                    </span>
+                    <span>{fmtMoney(roomSubtotal)}</span>
                   </div>
                   {amenityTotal > 0 && (
                     <div className="flex justify-between text-slate-700">
@@ -1078,11 +1106,48 @@ export default function WalkIn({ embedded = false }) {
                       </p>
                     )}
 
-                    {/* 24hr: fixed window (7 AM – next day 6 AM); no start-hour picker */}
+                    {/* 24hr: fixed window (7 AM – next day 6 AM); no start-hour picker.
+                        Multi-night stretches the window to 6 AM on the (N+1)th day. */}
                     {is24hr && (
-                      <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
-                        <i className="fas fa-circle-info mr-1.5" aria-hidden="true"></i>
-                        Guest may arrive any time on the selected date. Check-out is 6:00 AM the next morning.
+                      <div className="mt-3 space-y-2">
+                        <div className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
+                          <i className="fas fa-circle-info mr-1.5" aria-hidden="true"></i>
+                          Guest may arrive any time on the selected date. Check-out is 6:00 AM
+                          {form.nights > 1 ? ` on day ${form.nights + 1}.` : ' the next morning.'}
+                        </div>
+
+                        {/* Multi-night stepper. Caps at 14 nights to match
+                            backend validator. Buttons mutate form.nights;
+                            display is tabular so layout doesn't shift. */}
+                        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                          <div className="text-xs text-amber-900">
+                            <i className="fas fa-moon mr-1.5" aria-hidden="true"></i>
+                            Number of nights
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setField('nights', Math.max(1, Number(form.nights) - 1))}
+                              disabled={form.nights <= 1}
+                              className="w-7 h-7 rounded-md bg-white border border-amber-300 text-amber-700 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-100"
+                              aria-label="Decrease nights"
+                            >
+                              <i className="fas fa-minus" aria-hidden="true"></i>
+                            </button>
+                            <span className="min-w-[2.5rem] text-center text-sm font-bold text-amber-900 tabular-nums">
+                              {form.nights} {form.nights === 1 ? 'night' : 'nights'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setField('nights', Math.min(14, Number(form.nights) + 1))}
+                              disabled={form.nights >= 14}
+                              className="w-7 h-7 rounded-md bg-white border border-amber-300 text-amber-700 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-100"
+                              aria-label="Increase nights"
+                            >
+                              <i className="fas fa-plus" aria-hidden="true"></i>
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1433,15 +1498,22 @@ export default function WalkIn({ embedded = false }) {
                                 : form.bookingType === '24hr'  ? 'Any time (from 7 AM)'
                                 : '7:00 AM';
                   const coLabel = form.bookingType === 'night' ? '6:00 AM (next day)'
-                                : form.bookingType === '24hr'  ? '6:00 AM (next day)'
+                                : form.bookingType === '24hr'  ? (effectiveNights > 1 ? `6:00 AM (day ${effectiveNights + 1})` : '6:00 AM (next day)')
                                 : '5:00 PM';
                   const rateLabel = form.bookingType === 'night' ? 'Night rate' : is24hr ? '24 hr rate' : 'Day rate';
                   return (
                     <div className={`p-3 rounded text-sm border ${tc.bg} ${tc.border}`}>
                       <div className={`space-y-0.5 ${tc.sub}`}>
                         <div className="flex justify-between">
-                          <span>{rateLabel}</span>
-                          <span>{fmtMoney(baseRate)}</span>
+                          <span>
+                            {rateLabel}
+                            {is24hr && effectiveNights > 1 && (
+                              <span className="text-xs opacity-70 ml-1">
+                                · {fmtMoney(baseRate)} × {effectiveNights} nights
+                              </span>
+                            )}
+                          </span>
+                          <span>{fmtMoney(roomSubtotal)}</span>
                         </div>
                         {visibleAddons.filter(a => Number(addonQtys[a.id] || 0) > 0).map(a => {
                           const qty = Number(addonQtys[a.id]);

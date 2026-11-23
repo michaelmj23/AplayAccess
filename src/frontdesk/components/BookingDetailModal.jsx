@@ -706,8 +706,21 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
               <p className="text-xs text-slate-500">Guests</p>
               <p>{booking.guests} pax</p>
             </div>
-            <div><p className="text-xs text-slate-500">Check-in</p><p>{fmtDateTime(booking.checkIn)}</p></div>
-            <div><p className="text-xs text-slate-500">Check-out</p><p>{fmtDateTime(booking.checkOut)}</p></div>
+            <div>
+              <p className="text-xs text-slate-500">Check-in</p>
+              <p>{fmtDateTime(booking.checkIn)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Check-out</p>
+              <p>
+                {fmtDateTime(booking.checkOut)}
+                {Number(booking.nights ?? 1) > 1 && (
+                  <span className="ml-1 text-xs text-amber-700 font-medium">
+                    · {booking.nights} nights
+                  </span>
+                )}
+              </p>
+            </div>
             {booking.checkedInAt && (
               <div><p className="text-xs text-slate-500">Actual Check-in</p>
                 <p className="text-violet-700 font-medium">{fmtDateTime(booking.checkedInAt)}</p></div>

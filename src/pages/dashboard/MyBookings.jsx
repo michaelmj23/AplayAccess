@@ -697,6 +697,11 @@ export default function MyBookings() {
                 <p className="text-sm font-medium text-slate-700">{b.roomType}</p>
                 <p className="text-xs text-slate-600 mt-0.5">
                   {fmtDateTime(b.checkIn)} → {fmtDateTime(b.checkOut)}
+                  {Number(b.nights ?? 1) > 1 && (
+                    <span className="ml-1 text-amber-700 font-medium">
+                      · {b.nights} nights
+                    </span>
+                  )}
                 </p>
               </div>
               {/* Bottom: total + actions */}

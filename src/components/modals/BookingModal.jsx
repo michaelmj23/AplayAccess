@@ -92,6 +92,11 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   const modalRef        = useRef(null);
   const bookingResultRef = useRef(null); // stores API response after booking created
   const [bookingType, setBookingType] = useState("day"); // "day" | "night" | "24hr"
+  // Multi-night count — only meaningful when bookingType === "24hr". Day
+  // and Night stay single-slot. Resets to 1 whenever type changes away
+  // from 24hr so a stale 3-night selection can't leak into a Day
+  // booking.
+  const [nights, setNights]           = useState(1);
   const [visitDate, setVisitDate]     = useState("");
   // Room selection is tracked by its primary-key id so duplicate names
   // can't collapse availability / metadata / submitted-id onto the wrong
@@ -464,6 +469,13 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     if (!allowedTypes.includes(bookingType)) setBookingType(allowedTypes[0]);
   }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reset nights to 1 whenever the booking type changes away from 24hr.
+  // Multi-night only applies to 24hr; a leftover 3 from a prior 24hr
+  // pick must not survive a switch to Day/Night.
+  useEffect(() => {
+    if (bookingType !== "24hr" && nights !== 1) setNights(1);
+  }, [bookingType]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Derived pricing — room rate only, 20% reservation fee ─────────────────
   const is24hr   = bookingType === "24hr";
   const baseRate = bookingType === "night"
@@ -512,9 +524,14 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     [optionalAddons, optionalQtys]
   );
 
+  // Multi-night 24hr: the per-night rate rolls up to roomSubtotal
+  // before promo and package/optional add-ons fold in. room_rate on
+  // the booking row stays per-night; `nights` is a separate column.
+  const effectiveNights    = is24hr ? Math.max(1, Math.min(14, Number(nights) || 1)) : 1;
+  const roomSubtotal       = baseRate * effectiveNights;
   // Discounted room-only subtotal — matches backend `reservation_fee`
-  // math which is `pct × (roomRate - discount)`, excluding package.
-  const discountedRoom     = Math.max(baseRate - discount, 0);
+  // math which is `pct × (roomSubtotal - discount)`, excluding package.
+  const discountedRoom     = Math.max(roomSubtotal - discount, 0);
   // What the guest actually pays for room + bundle: discounted room
   // + package add-ons + picked optional add-ons.
   const discountedTotal    = discountedRoom + packageTotal + optionalTotal;
@@ -559,7 +576,11 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     setPromoError("");
     setPromoResult(null);
     try {
-      const res = await validatePromo(code, baseRate);
+      // Backend computes the discount against the full stay subtotal
+      // (per-night × nights), so multi-night 24hr stays discount their
+      // whole stay. Match that here so the UI preview and the server
+      // charge agree.
+      const res = await validatePromo(code, roomSubtotal);
       const d   = res.data;
       if (d.valid) {
         setPromoResult(d);
@@ -717,6 +738,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         payment_method:   "Online",
         special_requests: specialRequests || null,
         booking_type:     bookingType,
+        // Multi-night, 24hr only. Backend rejects nights > 1 for
+        // Day/Night with a 422; effectiveNights already clamps to 1
+        // for non-24hr types here, so this is belt-and-braces.
+        nights:           effectiveNights,
         promo_code:       promoResult ? promoInput.trim().toUpperCase() : null,
         discount:         discount,
       };
@@ -1058,11 +1083,48 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
 
                 {/* 24hr bookings have a fixed window (7 AM – next day 6 AM).
                     Guests arrive any time during the day; no start-hour
-                    picker needed. */}
+                    picker needed. Multi-night (`nights`) stretches the
+                    window to 6 AM on the (N+1)th day. */}
                 {is24hr && (
-                  <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-900">
-                    <i className="fas fa-circle-info mr-1.5" aria-hidden="true"></i>
-                    You can arrive any time on the selected date. Check-out is 6:00 AM the next morning.
+                  <div className="mt-3 space-y-2">
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-900">
+                      <i className="fas fa-circle-info mr-1.5" aria-hidden="true"></i>
+                      You can arrive any time on the selected date. Check-out is 6:00 AM
+                      {nights > 1 ? ` on day ${nights + 1}.` : " the next morning."}
+                    </div>
+
+                    {/* Multi-night stepper. Caps at 14 nights (backend validator
+                        matches). Buttons change state only; display is tabular
+                        so layout doesn't shift as the number grows. */}
+                    <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                      <div className="text-xs text-amber-900">
+                        <i className="fas fa-moon mr-1.5" aria-hidden="true"></i>
+                        Number of nights
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setNights(n => Math.max(1, Number(n) - 1))}
+                          disabled={nights <= 1}
+                          className="w-7 h-7 rounded-lg bg-white border border-amber-300 text-amber-700 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-100"
+                          aria-label="Decrease nights"
+                        >
+                          <i className="fas fa-minus" aria-hidden="true"></i>
+                        </button>
+                        <span className="min-w-[2.5rem] text-center text-sm font-bold text-amber-900 tabular-nums">
+                          {nights} {nights === 1 ? "night" : "nights"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setNights(n => Math.min(14, Number(n) + 1))}
+                          disabled={nights >= 14}
+                          className="w-7 h-7 rounded-lg bg-white border border-amber-300 text-amber-700 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-100"
+                          aria-label="Increase nights"
+                        >
+                          <i className="fas fa-plus" aria-hidden="true"></i>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1693,9 +1755,14 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 <h4 className="font-medium text-gray-900 mb-2">Payment Summary</h4>
                 <div className="flex justify-between mb-1 text-sm">
                   <span className="text-gray-600">
-                    Room rate ({bookingType === "night" ? "Night" : is24hr ? "24 Hours" : "Day"}):
+                    Room rate ({bookingType === "night" ? "Night" : is24hr ? "24 Hours" : "Day"})
+                    {is24hr && effectiveNights > 1 && (
+                      <span className="text-xs text-gray-500 ml-1">
+                        · {formatPHP(baseRate)} × {effectiveNights} nights
+                      </span>
+                    )}:
                   </span>
-                  <span className={`font-medium tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(baseRate)}</span>
+                  <span className={`font-medium tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(roomSubtotal)}</span>
                 </div>
                 {discount > 0 && (
                   <>
@@ -2195,8 +2262,15 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 <div className="bg-blue-50 rounded-xl border border-blue-200 p-4 space-y-2 text-sm">
                   <p className="font-semibold text-blue-900 mb-1">Payment Breakdown</p>
                   <div className="flex justify-between text-gray-700">
-                    <span>{rateLabel}</span>
-                    <span className={`tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(baseRate)}</span>
+                    <span>
+                      {rateLabel}
+                      {is24hr && effectiveNights > 1 && (
+                        <span className="text-xs text-gray-500 ml-1">
+                          · {formatPHP(baseRate)} × {effectiveNights} nights
+                        </span>
+                      )}
+                    </span>
+                    <span className={`tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(roomSubtotal)}</span>
                   </div>
                   {discount > 0 && (
                     <>
