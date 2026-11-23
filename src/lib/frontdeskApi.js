@@ -93,9 +93,11 @@ export async function createExtension(bookingId, payload) {
 // outstanding > 0 and brings paid_amount up to that sibling's own
 // grand total. Lead row hydrates entrance_fee from the reservation
 // snapshot if still 0. Returns a summary + total_delta collected.
-export async function collectReservationPayment(reservationId, paymentMethod, entranceFee) {
+export async function collectReservationPayment(reservationId, paymentMethod, entranceFee, opts = {}) {
   const body = { payment_method: paymentMethod };
   if (entranceFee != null) body.entrance_fee = Number(entranceFee);
+  if (opts.amount != null) body.amount = Number(opts.amount);
+  if (opts.gcashRef) body.gcash_ref = String(opts.gcashRef).trim();
   const res = await api.post(`/api/admin/reservations/${reservationId}/collect-payment`, body);
   return res.data;
 }
@@ -128,9 +130,11 @@ export async function markBookingNoShow(bookingId) {
 }
 
 // POST /api/admin/bookings/{id}/collect-payment
-export async function collectPayment(bookingId, paymentMethod, entranceFee) {
+export async function collectPayment(bookingId, paymentMethod, entranceFee, opts = {}) {
   const body = { payment_method: paymentMethod };
   if (entranceFee != null) body.entrance_fee = entranceFee;
+  if (opts.amount != null) body.amount = Number(opts.amount);
+  if (opts.gcashRef) body.gcash_ref = String(opts.gcashRef).trim();
   const res = await api.post(`/api/admin/bookings/${bookingId}/collect-payment`, body);
   return res.data;
 }

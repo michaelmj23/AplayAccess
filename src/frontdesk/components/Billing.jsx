@@ -346,6 +346,14 @@ export default function Billing({ embedded = false }) {
   const [billing, setBilling]   = useState(null);   // booking in collect-payment modal
   const [payMethod, setPayMethod] = useState('Cash');
   const [paying, setPaying]     = useState(false);
+  // Partial-payment amount input. Empty string = "collect full
+  // outstanding" (the common case — staff just hits Collect). A number
+  // overrides to that amount; backend clamps to (0, outstanding].
+  const [amountInput, setAmountInput] = useState('');
+  // GCash reference number. Required only when payMethod === 'GCash'.
+  // Not sent to backend for Cash. Backend persists to paymongo_payment_id
+  // so the receipt's "GCash Ref" row keeps working.
+  const [gcashRef, setGcashRef] = useState('');
   const [downloading, setDownloading] = useState(null); // bookingId being downloaded
 
   const [toast, showToast, clearToast, toastType] = useToast();
@@ -628,66 +636,103 @@ export default function Billing({ embedded = false }) {
 
   async function handleCollect() {
     if (!billing) return;
+    // Resolve the requested amount. Empty string = full outstanding.
+    const parsedAmount = amountInput.trim() === '' ? null : Number(amountInput);
+    if (parsedAmount != null && (!Number.isFinite(parsedAmount) || parsedAmount <= 0)) {
+      showToast('Enter a valid amount greater than 0.', 'error');
+      return;
+    }
+    if (parsedAmount != null && parsedAmount > billingOutstanding + 0.009) {
+      showToast(`Amount cannot exceed outstanding balance (${fmtMoney(billingOutstanding)}).`, 'error');
+      return;
+    }
+    if (payMethod === 'GCash' && gcashRef.trim().length < 1) {
+      showToast('Enter the GCash reference number before collecting.', 'error');
+      return;
+    }
     setPaying(true);
     try {
       const ef = calcEntrance(billing, entranceRates);
+      const opts = {};
+      if (parsedAmount != null) opts.amount = parsedAmount;
+      if (payMethod === 'GCash') opts.gcashRef = gcashRef.trim();
 
-      // Multi-room branch: one network call clears the group's
-      // outstanding across every sibling. The entrance fee lives on
-      // the lead; we pass the computed value only when the lead
-      // doesn't already have one stored (backend ignores the hint
-      // for already-hydrated entrance).
       if (billing.isGroup) {
         const res = await collectReservationPayment(
           billing.reservationId,
           payMethod,
-          Number(billing.entranceFee || 0) <= 0 ? ef : undefined
+          Number(billing.entranceFee || 0) <= 0 ? ef : undefined,
+          opts
         );
-        // Optimistic: flag every sibling in the group as fully paid.
-        // Auto-checkin flips Confirmed rows to Checked In per-row.
-        const groupIds = new Set((billing.groupRows || []).map(r => r.bookingId));
-        setBookings(prev =>
-          prev.map(b => groupIds.has(b.bookingId)
-            ? {
-                ...b,
-                fullyPaid:     true,
-                paymentMethod: payMethod,
-                // Each sibling's share of entrance fee (lead carries
-                // the full amount; siblings stay at 0 — sum holds).
-                paidAmount:    Number(b.total ?? 0) + Number(b.entranceFee ?? 0),
-                status:        b.status === 'Confirmed' ? 'Checked In' : b.status,
-              }
-            : b)
-        );
+        // Partial path: the next /bookings poll gives us authoritative
+        // paid_amount per sibling (proportional shares). Avoid guessing
+        // here — just refetch from the response summary + clear the
+        // modal. The row's own paidAmount in the list updates on the
+        // next pull in ~20s. For FULL collect we keep the optimistic
+        // flip so staff see the result immediately.
+        if (parsedAmount == null) {
+          const groupIds = new Set((billing.groupRows || []).map(r => r.bookingId));
+          setBookings(prev =>
+            prev.map(b => groupIds.has(b.bookingId)
+              ? {
+                  ...b,
+                  fullyPaid:     true,
+                  paymentMethod: payMethod,
+                  paidAmount:    Number(b.total ?? 0) + Number(b.entranceFee ?? 0),
+                  status:        b.status === 'Confirmed' ? 'Checked In' : b.status,
+                }
+              : b)
+          );
+        } else {
+          // Trigger a background refresh so the Billing list reflects
+          // the proportional partial collect without the staff having
+          // to wait for the next poll tick.
+          getFdBookings().then(setBookings).catch(() => {});
+        }
         setBilling(null);
         setSelected(null);
-        showToast(res?.message || 'Group payment collected.', 'success');
+        showToast(res?.message || 'Payment collected.', 'success');
       } else {
-        const res = await collectPayment(billing.bookingId, payMethod, ef);
+        const res = await collectPayment(billing.bookingId, payMethod, ef, opts);
         const autoCheckedIn = !!res?.auto_checkedin;
-        setBookings(prev =>
-          prev.map(b => b.bookingId === billing.bookingId
-            ? {
-                ...b,
-                fullyPaid:     true,
-                paymentMethod: payMethod,
-                entranceFee:   ef,
-                paidAmount:    Number(b.total ?? 0) + ef,
-                status:        autoCheckedIn ? 'Checked In' : b.status,
-              }
-            : b)
-        );
+        const fullyPaid     = res?.fully_paid !== false; // default true for legacy
+        if (fullyPaid) {
+          setBookings(prev =>
+            prev.map(b => b.bookingId === billing.bookingId
+              ? {
+                  ...b,
+                  fullyPaid:     true,
+                  paymentMethod: payMethod,
+                  entranceFee:   ef,
+                  paidAmount:    Number(b.total ?? 0) + ef,
+                  status:        autoCheckedIn ? 'Checked In' : b.status,
+                }
+              : b)
+          );
+        } else {
+          // Partial: trust backend's authoritative paid_amount via
+          // next poll — but splash a quick optimistic paidAmount bump
+          // so the row's "₱X paid" chip isn't stale for 20s.
+          const newPaid = Number(res?.paid_amount ?? 0);
+          setBookings(prev =>
+            prev.map(b => b.bookingId === billing.bookingId
+              ? {
+                  ...b,
+                  paymentMethod: payMethod,
+                  entranceFee:   ef,
+                  paidAmount:    newPaid > 0 ? newPaid : Number(b.paidAmount ?? 0) + parsedAmount,
+                }
+              : b)
+          );
+          getFdBookings().then(setBookings).catch(() => {});
+        }
         setBilling(null);
         setSelected(null);
-        showToast(
-          autoCheckedIn
-            ? 'Payment collected. Guest checked in.'
-            : 'Payment collected successfully!',
-          'success'
-        );
+        showToast(res?.message || 'Payment collected successfully!', 'success');
       }
-    } catch {
-      showToast('Failed to collect payment. Please try again.', 'error');
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Failed to collect payment. Please try again.';
+      showToast(msg, 'error');
     } finally {
       setPaying(false);
     }
@@ -716,6 +761,8 @@ export default function Billing({ embedded = false }) {
     setSelected(null);
     setBilling(b);
     setPayMethod('Cash');
+    setAmountInput('');
+    setGcashRef('');
   }
 
   // Outstanding for the collect-payment modal = grand total - paid_amount.
@@ -809,16 +856,63 @@ export default function Billing({ embedded = false }) {
                         <span>− {fmtMoney(billingPaidSoFar)}</span>
                       </div>
                     )}
-                    <div className="flex justify-between px-4 py-3 bg-sky-600 text-white font-bold text-base">
-                      <span>Collect Now</span>
-                      <span>{fmtMoney(billingOutstanding)}</span>
-                    </div>
+                    {(() => {
+                      const parsedAmt = amountInput.trim() === '' ? billingOutstanding : Number(amountInput);
+                      const showAmt = Number.isFinite(parsedAmt) && parsedAmt > 0
+                        ? Math.min(parsedAmt, billingOutstanding)
+                        : billingOutstanding;
+                      return (
+                        <div className="flex justify-between px-4 py-3 bg-sky-600 text-white font-bold text-base">
+                          <span>Collect Now</span>
+                          <span>{fmtMoney(showAmt)}</span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
 
+              {/* Payment amount — partial payments allowed. Blank
+                  defaults to full outstanding (the common case).
+                  A typed value must be > 0 and ≤ outstanding. */}
+              <div className="mb-4">
+                <div className="flex items-baseline justify-between mb-1">
+                  <label htmlFor="collect-amount" className="block text-sm font-medium text-slate-700">
+                    Amount to Collect
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setAmountInput(String(billingOutstanding.toFixed(2)))}
+                    className="text-xs text-sky-600 hover:text-sky-700 underline underline-offset-2"
+                  >
+                    Full balance ({fmtMoney(billingOutstanding)})
+                  </button>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none">₱</span>
+                  <input
+                    id="collect-amount"
+                    type="number"
+                    inputMode="decimal"
+                    min="0.01"
+                    step="0.01"
+                    max={billingOutstanding}
+                    placeholder={`${billingOutstanding.toFixed(2)} (leave blank for full balance)`}
+                    value={amountInput}
+                    onChange={(e) => setAmountInput(e.target.value)}
+                    className="w-full pl-7 pr-3 py-2.5 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                  />
+                </div>
+                {amountInput.trim() !== '' && Number(amountInput) > 0 && Number(amountInput) < billingOutstanding - 0.009 && (
+                  <p className="mt-1 text-xs text-amber-700">
+                    <i className="fas fa-info-circle mr-1"></i>
+                    Partial payment — remaining balance of {fmtMoney(billingOutstanding - Number(amountInput))} stays due.
+                  </p>
+                )}
+              </div>
+
               {/* Payment method */}
-              <div className="mb-6">
+              <div className="mb-4">
                 <label className="block text-sm font-medium text-slate-700 mb-1">Payment Method</label>
                 <div className="flex gap-2">
                   {[
@@ -826,7 +920,7 @@ export default function Billing({ embedded = false }) {
                     { value: 'GCash', icon: 'fa-mobile-alt',      color: 'text-sky-500'  },
                   ].map(opt => (
                     <button key={opt.value} type="button"
-                      onClick={() => setPayMethod(opt.value)}
+                      onClick={() => { setPayMethod(opt.value); if (opt.value !== 'GCash') setGcashRef(''); }}
                       className={`flex-1 flex items-center justify-center gap-2 py-2 border rounded text-sm font-medium transition-colors ${
                         payMethod === opt.value
                           ? 'border-sky-500 bg-sky-50 text-sky-700'
@@ -840,19 +934,56 @@ export default function Billing({ embedded = false }) {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3">
-                <button onClick={() => setBilling(null)}
-                  type="button"
-                  className="min-h-11 px-4 py-2.5 border border-slate-200 rounded text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1">
-                  Cancel
-                </button>
-                <button onClick={handleCollect} disabled={paying}
-                  type="button"
-                  className="inline-flex items-center gap-1 min-h-11 px-4 py-2.5 bg-emerald-600 text-white rounded text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1">
-                  <i className="fas fa-check" aria-hidden="true"></i>
-                  {paying ? 'Processing...' : `Collect ${fmtMoney(billingOutstanding)}`}
-                </button>
-              </div>
+              {/* GCash reference — required when GCash is chosen.
+                  Guest scans the resort's QR on their own phone, so
+                  PayMongo isn't in the loop; staff types the ref they
+                  see on the guest's confirmation screen. */}
+              {payMethod === 'GCash' && (
+                <div className="mb-6">
+                  <label htmlFor="collect-gcash-ref" className="block text-sm font-medium text-slate-700 mb-1">
+                    GCash Reference Number <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    id="collect-gcash-ref"
+                    type="text"
+                    placeholder="e.g. 1234 567 8901"
+                    value={gcashRef}
+                    onChange={(e) => setGcashRef(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                    autoComplete="off"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    <i className="fas fa-mobile-alt mr-1 text-sky-500"></i>
+                    From the guest's GCash confirmation screen. Saved to the receipt.
+                  </p>
+                </div>
+              )}
+              {payMethod !== 'GCash' && <div className="mb-6"></div>}
+
+              {(() => {
+                const parsed = amountInput.trim() === '' ? billingOutstanding : Number(amountInput);
+                const invalidAmt =
+                  amountInput.trim() !== '' &&
+                  (!Number.isFinite(parsed) || parsed <= 0 || parsed > billingOutstanding + 0.009);
+                const missingRef = payMethod === 'GCash' && gcashRef.trim().length < 1;
+                const disabled = paying || invalidAmt || missingRef;
+                const amtToShow = Number.isFinite(parsed) && parsed > 0 ? parsed : billingOutstanding;
+                return (
+                  <div className="flex justify-end gap-3">
+                    <button onClick={() => setBilling(null)}
+                      type="button"
+                      className="min-h-11 px-4 py-2.5 border border-slate-200 rounded text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1">
+                      Cancel
+                    </button>
+                    <button onClick={handleCollect} disabled={disabled}
+                      type="button"
+                      className="inline-flex items-center gap-1 min-h-11 px-4 py-2.5 bg-emerald-600 text-white rounded text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1">
+                      <i className="fas fa-check" aria-hidden="true"></i>
+                      {paying ? 'Processing...' : `Collect ${fmtMoney(amtToShow)}`}
+                    </button>
+                  </div>
+                );
+              })()}
           </div>
         )}
       </Modal>
