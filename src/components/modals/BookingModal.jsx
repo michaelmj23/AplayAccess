@@ -1378,9 +1378,13 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     return asPrimary + asSibling;
                   };
 
+                  // Tap a card = toggle select / deselect. For rooms
+                  // with quantity > 1 the dedicated +/- stepper on
+                  // the right of the card handles multi-unit count.
+                  // Tap behavior stays simple (0 ⇄ 1 or 0 ⇄ N where
+                  // N drops all instances).
                   const onSelect = (r) => {
                     if (!isAvailable(r)) return;
-                    // Single-room mode: just pick. No quantity cycling.
                     if (!multiRoomMode) {
                       setRoomId(String(r.id));
                       setPromoResult(null);
@@ -1388,42 +1392,58 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                       return;
                     }
                     const id = String(r.id);
-                    const max = Math.max(1, Number(r.quantity) || 1);
                     const current = countOfRoom(id);
-
-                    // Cycle count: 0 → 1 → 2 → … → max → 0.
-                    // Each tap on a selected card adds another
-                    // instance (for rooms with quantity > 1).
-                    // Once the max is reached, a further tap
-                    // deselects all instances.
                     if (current === 0) {
-                      if (!roomId) {
-                        setRoomId(id);
-                      } else {
-                        setAdditionalRooms(list => [
-                          ...list,
-                          {
-                            tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                            roomId: id,
-                          },
-                        ]);
-                      }
-                    } else if (current < max) {
-                      setAdditionalRooms(list => [
+                      if (!roomId) setRoomId(id);
+                      else setAdditionalRooms(list => [
                         ...list,
-                        {
-                          tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                          roomId: id,
-                        },
+                        { tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, roomId: id },
                       ]);
                     } else {
-                      // At max — wrap to 0. Clear primary (if it
-                      // matched) and drop every sibling of this id.
+                      // Any count > 0 deselects everything for this
+                      // room. Use the stepper to go 2 → 1 etc.
                       if (String(roomId) === id) setRoomId("");
                       setAdditionalRooms(list => list.filter(ar => String(ar.roomId) !== id));
                     }
                     setPromoResult(null);
                     setPromoInput("");
+                  };
+
+                  // Stepper actions (used by the +/- buttons on
+                  // selected cards where quantity > 1). Independent
+                  // of onSelect so stopPropagation keeps card tap
+                  // from firing when the user clicks these.
+                  const incRoom = (r) => {
+                    const id = String(r.id);
+                    const max = Math.max(1, Number(r.quantity) || 1);
+                    if (countOfRoom(id) >= max) return;
+                    if (!roomId) setRoomId(id);
+                    else setAdditionalRooms(list => [
+                      ...list,
+                      { tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, roomId: id },
+                    ]);
+                  };
+                  const decRoom = (r) => {
+                    const id = String(r.id);
+                    const siblings = additionalRooms.filter(ar => String(ar.roomId) === id);
+                    if (siblings.length > 0) {
+                      // Drop one sibling first — keep primary stable.
+                      const last = siblings[siblings.length - 1];
+                      setAdditionalRooms(list => list.filter(ar => ar.tempId !== last.tempId));
+                    } else if (String(roomId) === id) {
+                      // Primary drops to 0. If siblings for OTHER
+                      // rooms exist they stay staged; a new primary
+                      // promotes from the first sibling to keep
+                      // reservation valid. If nothing else is staged,
+                      // primary just clears.
+                      const nextPrimary = additionalRooms[0];
+                      if (nextPrimary) {
+                        setRoomId(String(nextPrimary.roomId));
+                        setAdditionalRooms(list => list.filter(ar => ar.tempId !== nextPrimary.tempId));
+                      } else {
+                        setRoomId("");
+                      }
+                    }
                   };
 
                   const onKeyDown = (e) => {
@@ -1521,23 +1541,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                             {r.name}
                             {multiRoomMode && isPrimary && (
                               <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-semibold align-middle">
-                                Primary{roomCount > 1 ? ` × ${roomCount}` : ''}
+                                Primary
                               </span>
                             )}
                             {multiRoomMode && !isPrimary && isSibling && (
                               <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-semibold align-middle">
-                                <i className="fas fa-check text-[9px]"></i>
-                                Added{roomCount > 1 ? ` × ${roomCount}` : ''}
-                              </span>
-                            )}
-                            {multiRoomMode && roomMaxQty > 1 && roomCount > 0 && roomCount < roomMaxQty && (
-                              <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[9px] font-medium align-middle" title={`${roomMaxQty - roomCount} more available — tap to add another`}>
-                                Tap again for +1
-                              </span>
-                            )}
-                            {multiRoomMode && atMax && (
-                              <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[9px] font-medium align-middle" title="All units added — tap again to remove">
-                                Max ({roomMaxQty})
+                                <i className="fas fa-check text-[9px]"></i>Added
                               </span>
                             )}
                           </p>
@@ -1582,6 +1591,48 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                         >
                           <i className="fas fa-eye text-sm" aria-hidden="true"></i>
                         </button>
+                      )}
+                      {/* Qty stepper for multi-unit rooms (cottages,
+                          pavilions with quantity > 1). Renders as a
+                          sibling BELOW the card button — outside
+                          the hover image preview's path so the
+                          picker and the preview can coexist. Each
+                          button is a true <button> element so no
+                          HTML-nested-buttons problem. */}
+                      {multiRoomMode && !disabled && selected && roomMaxQty > 1 && (
+                        <div className="mt-1 flex items-center justify-between rounded-lg bg-blue-50 border border-blue-300 px-3 py-2">
+                          <div className="flex items-center gap-1.5 text-xs font-medium text-blue-900">
+                            <i className="fas fa-cubes text-blue-500" aria-hidden="true"></i>
+                            How many of this room?
+                          </div>
+                          <div className="inline-flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => decRoom(r)}
+                              disabled={roomCount <= 0}
+                              aria-label={`Decrease ${r.name} count`}
+                              className="w-7 h-7 inline-flex items-center justify-center rounded-full bg-white border border-blue-300 text-blue-700 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              <i className="fas fa-minus text-[11px]" aria-hidden="true"></i>
+                            </button>
+                            <span className="min-w-[1.75rem] text-center text-sm font-bold tabular-nums text-blue-900" aria-live="polite">
+                              {roomCount}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => incRoom(r)}
+                              disabled={roomCount >= roomMaxQty}
+                              aria-label={`Increase ${r.name} count`}
+                              title={roomCount >= roomMaxQty ? `Max ${roomMaxQty} units for this room` : undefined}
+                              className="w-7 h-7 inline-flex items-center justify-center rounded-full bg-white border border-blue-300 text-blue-700 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              <i className="fas fa-plus text-[11px]" aria-hidden="true"></i>
+                            </button>
+                            <span className="text-[10px] text-blue-700 font-medium">
+                              / {roomMaxQty} units
+                            </span>
+                          </div>
+                        </div>
                       )}
                       </div>
                     );
