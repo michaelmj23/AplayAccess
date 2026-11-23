@@ -54,20 +54,27 @@ function isExpiredPending(b) {
 function StatusBadge({ status, booking }) {
   if (status === 'Pending' && booking && isExpiredPending(booking)) {
     return (
-      <span className="px-2 py-1 rounded text-xs font-medium bg-rose-100 text-rose-700 flex items-center gap-1 w-fit">
-        <i className="fas fa-times-circle text-[10px]"></i>Expired
+      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 w-fit">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-600" aria-hidden="true"></span>
+        Expired
       </span>
     );
   }
-  const cls = {
-    Confirmed:    'bg-sky-100 text-sky-800',
-    Completed:    'bg-emerald-100 text-emerald-800',
-    Cancelled:    'bg-rose-100 text-rose-800',
-    Pending:      'bg-amber-100 text-amber-800',
-    'Checked In': 'bg-violet-100 text-violet-800',
+  // Each status has its own tinted bg + border + text color + dot
+  // color. The leading colored dot carries the identity cue when
+  // color alone isn't enough (color-blind staff, dim screens).
+  const styles = {
+    Confirmed:    { bg: 'bg-sky-50',     text: 'text-sky-800',     border: 'border-sky-200',     dot: 'bg-sky-500'     },
+    Completed:    { bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-200', dot: 'bg-emerald-500' },
+    Cancelled:    { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200',    dot: 'bg-rose-500'    },
+    Pending:      { bg: 'bg-amber-50',   text: 'text-amber-800',   border: 'border-amber-200',   dot: 'bg-amber-500'   },
+    'Checked In': { bg: 'bg-violet-50',  text: 'text-violet-800',  border: 'border-violet-200',  dot: 'bg-violet-500'  },
+    'No-Show':    { bg: 'bg-slate-100',  text: 'text-slate-700',   border: 'border-slate-300',   dot: 'bg-slate-500'   },
   };
+  const s = styles[status] ?? { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200', dot: 'bg-slate-400' };
   return (
-    <span className={`px-2 py-1 rounded text-xs font-medium ${cls[status] ?? 'bg-slate-100 text-slate-800'}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-semibold border w-fit ${s.bg} ${s.text} ${s.border}`}>
+      <span className={`inline-block w-1.5 h-1.5 rounded-full ${s.dot}`} aria-hidden="true"></span>
       {status}
     </span>
   );
@@ -1430,52 +1437,52 @@ export default function Billing({ embedded = false }) {
                         </td>
                         <td className="px-4 py-3"><StatusBadge status={b.status} /></td>
                         <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                          {/* Pills use min-h-11 so tap targets clear
-                              the WCAG 2.5.8 AA floor (24px) with comfortable
-                              margin for tablet/phone use. aria-labels name the
-                              booking so title tooltips aren't the only
-                              affordance for assistive tech. */}
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {b.status === 'Confirmed' && !b.fullyPaid && (
-                              <button
-                                onClick={() => openCollect(b)}
-                                aria-label={`Collect payment for ${b.id}`}
-                                className="inline-flex items-center gap-1 min-h-11 px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-semibold hover:bg-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-                              >
-                                <i className="fas fa-coins text-[11px]" aria-hidden="true"></i>Collect
-                              </button>
-                            )}
-                            {b.status === 'Confirmed' && b.fullyPaid && (
-                              <span className="inline-flex items-center gap-1 min-h-11 px-3 py-1.5 text-xs text-emerald-700 font-medium">
-                                <i className="fas fa-check-circle" aria-hidden="true"></i>Paid — awaiting check-in
-                              </span>
-                            )}
-                            {b.status === 'Pending' && (
-                              <span
-                                aria-label="Awaiting payment clearance"
-                                className="inline-flex items-center gap-1 min-h-11 px-3 py-1.5 text-xs text-amber-700 bg-amber-50 rounded font-medium"
-                              >
-                                <i className="fas fa-hourglass-half text-[11px]" aria-hidden="true"></i>Awaiting payment
-                              </span>
-                            )}
-                            {b.status !== 'Pending' && !(b.status === 'Cancelled' && Number(b.paidAmount ?? 0) <= 0) && (
-                              <button
-                                onClick={() => handleDownloadReceipt(b.bookingId, b.id)}
-                                disabled={downloading === b.bookingId}
-                                aria-label={`Download booking confirmation PDF for ${b.id}`}
-                                className="inline-flex items-center gap-1 min-h-11 px-3 py-2 bg-sky-600 text-white rounded text-xs font-semibold hover:bg-sky-700 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1"
-                                title="Download booking confirmation (PDF)"
-                              >
-                                <i className={`fas ${downloading === b.bookingId ? 'fa-spinner fa-spin' : 'fa-file-pdf'} text-[11px]`} aria-hidden="true"></i>
-                                Confirmation
-                              </button>
-                            )}
-                            {b.status === 'Cancelled' && (
-                              <span className="inline-flex items-center gap-1 min-h-11 px-3 py-1.5 text-xs text-rose-600">
-                                <i className="fas fa-ban" aria-hidden="true"></i>Cancelled
-                              </span>
-                            )}
-                          </div>
+                          {/* One primary action per row + an icon-only
+                              Confirmation button where available. Prose
+                              statuses ("Paid — awaiting check-in",
+                              "Cancelled") were dropped — the Status pill
+                              already carries that. Receipt button
+                              collapses to icon-only when it's the
+                              secondary action so the Collect button
+                              owns the eye. */}
+                          {(() => {
+                            const paidAmt = Number(b.paidAmount ?? 0);
+                            const showCollect = b.status === 'Confirmed' && !b.fullyPaid;
+                            const showReceipt = b.status !== 'Pending' && !(b.status === 'Cancelled' && paidAmt <= 0);
+                            const receiptLoading = downloading === b.bookingId;
+                            return (
+                              <div className="flex items-center gap-1.5">
+                                {showCollect && (
+                                  <button
+                                    onClick={() => openCollect(b)}
+                                    aria-label={`Collect payment for ${b.id}`}
+                                    className="inline-flex items-center gap-1 min-h-11 px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-semibold hover:bg-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                                  >
+                                    <i className="fas fa-coins text-[11px]" aria-hidden="true"></i>Collect
+                                  </button>
+                                )}
+                                {showReceipt && (
+                                  <button
+                                    onClick={() => handleDownloadReceipt(b.bookingId, b.id)}
+                                    disabled={receiptLoading}
+                                    aria-label={`Download booking confirmation PDF for ${b.id}`}
+                                    className={
+                                      showCollect
+                                        ? 'inline-flex items-center justify-center min-h-11 w-11 py-2 bg-white border border-sky-200 text-sky-700 rounded hover:bg-sky-50 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500'
+                                        : 'inline-flex items-center gap-1 min-h-11 px-3 py-2 bg-sky-600 text-white rounded text-xs font-semibold hover:bg-sky-700 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500'
+                                    }
+                                    title="Download booking confirmation (PDF)"
+                                  >
+                                    <i className={`fas ${receiptLoading ? 'fa-spinner fa-spin' : 'fa-file-pdf'} text-[11px]`} aria-hidden="true"></i>
+                                    {!showCollect && <span>Confirmation</span>}
+                                  </button>
+                                )}
+                                {!showCollect && !showReceipt && (
+                                  <span className="text-xs text-slate-400">—</span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );
@@ -1576,52 +1583,48 @@ export default function Billing({ embedded = false }) {
                       </div>
 
                       {/* Action cluster — mirrors the desktop Action
-                          column. stopPropagation so tapping a button
-                          doesn't also open the detail drawer. */}
-                      <div
-                        className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap"
-                        onClick={e => e.stopPropagation()}
-                      >
-                        {b.status === 'Confirmed' && !b.fullyPaid && (
-                          <button
-                            onClick={() => openCollect(b)}
-                            aria-label={`Collect payment for ${b.id}`}
-                            className="inline-flex items-center gap-1 min-h-11 px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-semibold hover:bg-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                            column cleanup. One primary action + a smaller
+                            secondary where applicable. Prose statuses
+                            dropped; the Status pill above carries that. */}
+                      {(() => {
+                        const paidAmt = Number(b.paidAmount ?? 0);
+                        const showCollect = b.status === 'Confirmed' && !b.fullyPaid;
+                        const showReceipt = b.status !== 'Pending' && !(b.status === 'Cancelled' && paidAmt <= 0);
+                        if (!showCollect && !showReceipt) return null;
+                        const receiptLoading = downloading === b.bookingId;
+                        return (
+                          <div
+                            className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2"
+                            onClick={e => e.stopPropagation()}
                           >
-                            <i className="fas fa-coins text-[11px]" aria-hidden="true"></i>Collect
-                          </button>
-                        )}
-                        {b.status === 'Confirmed' && b.fullyPaid && (
-                          <span className="inline-flex items-center gap-1 min-h-11 px-3 py-1.5 text-xs text-emerald-700 font-medium">
-                            <i className="fas fa-check-circle" aria-hidden="true"></i>Paid — awaiting check-in
-                          </span>
-                        )}
-                        {b.status === 'Pending' && (
-                          <span
-                            aria-label="Awaiting payment clearance"
-                            className="inline-flex items-center gap-1 min-h-11 px-3 py-1.5 text-xs text-amber-700 bg-amber-50 rounded font-medium"
-                          >
-                            <i className="fas fa-hourglass-half text-[11px]" aria-hidden="true"></i>Awaiting payment
-                          </span>
-                        )}
-                        {b.status !== 'Pending' && !(b.status === 'Cancelled' && Number(b.paidAmount ?? 0) <= 0) && (
-                          <button
-                            onClick={() => handleDownloadReceipt(b.bookingId, b.id)}
-                            disabled={downloading === b.bookingId}
-                            aria-label={`Download booking confirmation PDF for ${b.id}`}
-                            className="inline-flex items-center gap-1 min-h-11 px-3 py-2 bg-sky-600 text-white rounded text-xs font-semibold hover:bg-sky-700 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1"
-                            title="Download booking confirmation (PDF)"
-                          >
-                            <i className={`fas ${downloading === b.bookingId ? 'fa-spinner fa-spin' : 'fa-file-pdf'} text-[11px]`} aria-hidden="true"></i>
-                            Confirmation
-                          </button>
-                        )}
-                        {b.status === 'Cancelled' && (
-                          <span className="inline-flex items-center gap-1 min-h-11 px-3 py-1.5 text-xs text-rose-600">
-                            <i className="fas fa-ban" aria-hidden="true"></i>Cancelled
-                          </span>
-                        )}
-                      </div>
+                            {showCollect && (
+                              <button
+                                onClick={() => openCollect(b)}
+                                aria-label={`Collect payment for ${b.id}`}
+                                className="flex-1 inline-flex items-center justify-center gap-1 min-h-11 px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-semibold hover:bg-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                              >
+                                <i className="fas fa-coins text-[11px]" aria-hidden="true"></i>Collect
+                              </button>
+                            )}
+                            {showReceipt && (
+                              <button
+                                onClick={() => handleDownloadReceipt(b.bookingId, b.id)}
+                                disabled={receiptLoading}
+                                aria-label={`Download booking confirmation PDF for ${b.id}`}
+                                className={
+                                  showCollect
+                                    ? 'inline-flex items-center justify-center min-h-11 w-11 py-2 bg-white border border-sky-200 text-sky-700 rounded hover:bg-sky-50 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500'
+                                    : 'flex-1 inline-flex items-center justify-center gap-1 min-h-11 px-3 py-2 bg-sky-600 text-white rounded text-xs font-semibold hover:bg-sky-700 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500'
+                                }
+                                title="Download booking confirmation (PDF)"
+                              >
+                                <i className={`fas ${receiptLoading ? 'fa-spinner fa-spin' : 'fa-file-pdf'} text-[11px]`} aria-hidden="true"></i>
+                                {!showCollect && <span>Confirmation</span>}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </li>
                 );
