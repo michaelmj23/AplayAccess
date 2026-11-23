@@ -1262,6 +1262,29 @@ export default function WalkIn({ embedded = false }) {
                     )}
                   </div>
 
+                  {/* Multi-room gate — placed ABOVE the room picker so
+                      staff sees the toggle before committing a room.
+                      Visible regardless of whether a room has been
+                      picked or not. */}
+                  <div className="col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none mb-1">
+                      <input
+                        type="checkbox"
+                        checked={form.multiRoomMode}
+                        onChange={e => setField('multiRoomMode', e.target.checked)}
+                        className="w-4 h-4 text-sky-600 bg-white border-slate-300 rounded focus:ring-2 focus:ring-sky-500"
+                        aria-label="Book multiple rooms"
+                      />
+                      <span className="text-sm text-slate-800 font-medium">
+                        <i className="fas fa-layer-group mr-1 text-sky-600" aria-hidden="true"></i>
+                        Book multiple rooms
+                      </span>
+                      <span className="text-xs text-slate-600">
+                        (same reservation, one entrance fee)
+                      </span>
+                    </label>
+                  </div>
+
                   <div className="col-span-2">
                     <label className="block text-xs font-medium text-slate-700 mb-1">
                       Room *
@@ -1360,30 +1383,6 @@ export default function WalkIn({ embedded = false }) {
                       );
                       return null;
                     })()}
-                  </div>
-
-                  {/* Multi-room gate. Off by default so the common
-                      single-room walk-in flow is unchanged. Staff
-                      ticks the checkbox to reveal the "+ Add
-                      Another Room" button + any staged sibling
-                      cards. */}
-                  <div className="col-span-2">
-                    <label className="flex items-center gap-2 cursor-pointer select-none mb-2">
-                      <input
-                        type="checkbox"
-                        checked={form.multiRoomMode}
-                        onChange={e => setField('multiRoomMode', e.target.checked)}
-                        className="w-4 h-4 text-sky-600 bg-white border-slate-300 rounded focus:ring-2 focus:ring-sky-500"
-                        aria-label="Book multiple rooms"
-                      />
-                      <span className="text-sm text-slate-800 font-medium">
-                        <i className="fas fa-layer-group mr-1 text-sky-600" aria-hidden="true"></i>
-                        Book multiple rooms
-                      </span>
-                      <span className="text-xs text-slate-600">
-                        (same reservation, one entrance fee)
-                      </span>
-                    </label>
                   </div>
 
                   {/* Additional rooms in the SAME reservation. All share

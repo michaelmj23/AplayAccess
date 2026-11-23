@@ -1230,6 +1230,31 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 )}
               </div>
 
+              {/* Multi-room gate. Lives above the room picker so the
+                  guest sees the toggle before picking anything —
+                  turning it on changes the picker into multi-select
+                  mode and the first card they tap becomes the primary.
+                  Checkbox is visible as soon as the modal is open; it
+                  doesn't depend on a room being picked. */}
+              <div className="md:col-span-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none mb-1">
+                  <input
+                    type="checkbox"
+                    checked={multiRoomMode}
+                    onChange={e => setMultiRoomMode(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 bg-white border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                    aria-label="Book multiple rooms"
+                  />
+                  <span className="text-sm text-gray-800 font-medium">
+                    <i className="fas fa-layer-group mr-1 text-blue-500" aria-hidden="true"></i>
+                    Book multiple rooms
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    (same reservation, one payment, one entrance fee)
+                  </span>
+                </label>
+              </div>
+
               {/* Room / Cottage — locked until visitDate is chosen. The
                   availability list is filtered by the selected date, so
                   showing rooms before a date is picked would surface
@@ -1650,34 +1675,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 })()}
               </div>
 
-              {/* Multi-room gate + additional rooms block. The
-                  checkbox stays off by default so the single-room
-                  flow is unchanged for the common case; when
-                  checked, the "+ Add Another Room" button + sibling
-                  cards reveal. Unchecking wipes any staged siblings
-                  so they can't be submitted by accident. Mixed types
-                  supported — each sibling can have its own booking
-                  type + nights. */}
-              {visitDate && roomId && (
-                <div className="md:col-span-2">
-                  <label className="flex items-center gap-2 cursor-pointer select-none mb-2">
-                    <input
-                      type="checkbox"
-                      checked={multiRoomMode}
-                      onChange={e => setMultiRoomMode(e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-white border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-                      aria-label="Book multiple rooms"
-                    />
-                    <span className="text-sm text-gray-800 font-medium">
-                      <i className="fas fa-layer-group mr-1 text-blue-500" aria-hidden="true"></i>
-                      Book multiple rooms
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      (same reservation, one payment, one entrance fee)
-                    </span>
-                  </label>
-                </div>
-              )}
+              {/* Additional-room cards. The checkbox gate lives
+                  above the room picker now; this block renders the
+                  staged sibling cards below the picker once there's
+                  a primary. */}
               {visitDate && roomId && multiRoomMode && (
                 <div className="md:col-span-2">
                   {additionalRooms.map((ar, idx) => {
