@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, Fragment } from 'react';
 import { Helmet } from 'react-helmet-async';
 import Sidebar from './Layout/Sidebar';
 import Modal from '../../components/modals/Modal.jsx';
+import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx';
 import useFocusTrap from '../../hooks/useFocusTrap.js';
 import { getFdBookings, collectPayment, collectReservationPayment, downloadStaffReceipt } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
@@ -354,6 +355,9 @@ export default function Billing({ embedded = false }) {
   // Not sent to backend for Cash. Backend persists to paymongo_payment_id
   // so the receipt's "GCash Ref" row keeps working.
   const [gcashRef, setGcashRef] = useState('');
+  // Two-step confirm so a misclick on Collect doesn't post a payment
+  // to the DB and auto-check-in the guest.
+  const [confirmCollectOpen, setConfirmCollectOpen] = useState(false);
   const [downloading, setDownloading] = useState(null); // bookingId being downloaded
 
   const [toast, showToast, clearToast, toastType] = useToast();
@@ -634,15 +638,20 @@ export default function Billing({ embedded = false }) {
     return { todayConfirmed, todayCompleted, todayCancelled, revenueToday };
   }, [todayAll, entranceRates]);
 
-  async function handleCollect() {
+  // Click handler on the main Collect button. Validates then opens
+  // the confirmation dialog — the actual API call lives in doCollect().
+  function requestCollect() {
     if (!billing) return;
-    // Resolve the requested amount. Empty string = full outstanding.
     const parsedAmount = amountInput.trim() === '' ? null : Number(amountInput);
-    if (parsedAmount != null && (!Number.isFinite(parsedAmount) || parsedAmount <= 0)) {
+    if (parsedAmount == null) {
+      showToast('Enter the amount to collect.', 'error');
+      return;
+    }
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       showToast('Enter a valid amount greater than 0.', 'error');
       return;
     }
-    if (parsedAmount != null && parsedAmount > billingOutstanding + 0.009) {
+    if (parsedAmount > billingOutstanding + 0.009) {
       showToast(`Amount cannot exceed outstanding balance (${fmtMoney(billingOutstanding)}).`, 'error');
       return;
     }
@@ -650,6 +659,15 @@ export default function Billing({ embedded = false }) {
       showToast('Enter the GCash reference number before collecting.', 'error');
       return;
     }
+    setConfirmCollectOpen(true);
+  }
+
+  async function handleCollect() {
+    if (!billing) return;
+    // Re-parse — the dialog was shown against the current state, and
+    // nothing else can mutate it while the dialog is open.
+    const parsedAmount = amountInput.trim() === '' ? null : Number(amountInput);
+    setConfirmCollectOpen(false);
     setPaying(true);
     try {
       const ef = calcEntrance(billing, entranceRates);
@@ -857,14 +875,12 @@ export default function Billing({ embedded = false }) {
                       </div>
                     )}
                     {(() => {
-                      const parsedAmt = amountInput.trim() === '' ? billingOutstanding : Number(amountInput);
-                      const showAmt = Number.isFinite(parsedAmt) && parsedAmt > 0
-                        ? Math.min(parsedAmt, billingOutstanding)
-                        : billingOutstanding;
+                      const parsedAmt = amountInput.trim() === '' ? null : Number(amountInput);
+                      const hasAmt = Number.isFinite(parsedAmt) && parsedAmt > 0;
                       return (
                         <div className="flex justify-between px-4 py-3 bg-sky-600 text-white font-bold text-base">
                           <span>Collect Now</span>
-                          <span>{fmtMoney(showAmt)}</span>
+                          <span>{hasAmt ? fmtMoney(Math.min(parsedAmt, billingOutstanding)) : '—'}</span>
                         </div>
                       );
                     })()}
@@ -961,13 +977,11 @@ export default function Billing({ embedded = false }) {
               {payMethod !== 'GCash' && <div className="mb-6"></div>}
 
               {(() => {
-                const parsed = amountInput.trim() === '' ? billingOutstanding : Number(amountInput);
-                const invalidAmt =
-                  amountInput.trim() !== '' &&
-                  (!Number.isFinite(parsed) || parsed <= 0 || parsed > billingOutstanding + 0.009);
+                const parsed = amountInput.trim() === '' ? null : Number(amountInput);
+                const hasAmt = parsed != null && Number.isFinite(parsed) && parsed > 0;
+                const invalidAmt = parsed != null && (!Number.isFinite(parsed) || parsed <= 0 || parsed > billingOutstanding + 0.009);
                 const missingRef = payMethod === 'GCash' && gcashRef.trim().length < 1;
-                const disabled = paying || invalidAmt || missingRef;
-                const amtToShow = Number.isFinite(parsed) && parsed > 0 ? parsed : billingOutstanding;
+                const disabled = paying || !hasAmt || invalidAmt || missingRef;
                 return (
                   <div className="flex justify-end gap-3">
                     <button onClick={() => setBilling(null)}
@@ -975,11 +989,11 @@ export default function Billing({ embedded = false }) {
                       className="min-h-11 px-4 py-2.5 border border-slate-200 rounded text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1">
                       Cancel
                     </button>
-                    <button onClick={handleCollect} disabled={disabled}
+                    <button onClick={requestCollect} disabled={disabled}
                       type="button"
                       className="inline-flex items-center gap-1 min-h-11 px-4 py-2.5 bg-emerald-600 text-white rounded text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1">
                       <i className="fas fa-check" aria-hidden="true"></i>
-                      {paying ? 'Processing...' : `Collect ${fmtMoney(amtToShow)}`}
+                      {paying ? 'Processing...' : hasAmt ? `Collect ${fmtMoney(parsed)}` : 'Collect'}
                     </button>
                   </div>
                 );
@@ -987,6 +1001,37 @@ export default function Billing({ embedded = false }) {
           </div>
         )}
       </Modal>
+
+      {/* Two-step confirm for the collect action. Variant depends on
+          whether this is a partial (warning — the booking stays open
+          with a remaining balance) or a full settle (info — the booking
+          closes out and Confirmed rows auto-check-in). */}
+      {billing && (() => {
+        const parsed  = Number(amountInput);
+        const hasAmt  = Number.isFinite(parsed) && parsed > 0;
+        const amount  = hasAmt ? Math.min(parsed, billingOutstanding) : 0;
+        const isFull  = hasAmt && amount >= billingOutstanding - 0.009;
+        const remain  = Math.max(0, billingOutstanding - amount);
+        const willAutoCheckIn = isFull && !billing.isGroup && billing.status === 'Confirmed';
+        const parts = [];
+        parts.push(`Collect ${fmtMoney(amount)} from ${billing.guest}`);
+        parts.push(`for ${billing.id} via ${payMethod}${payMethod === 'GCash' ? ` (ref ${gcashRef.trim()})` : ''}.`);
+        if (!isFull) parts.push(`Remaining balance: ${fmtMoney(remain)}.`);
+        if (willAutoCheckIn) parts.push('Guest will be checked in automatically.');
+        parts.push('This cannot be undone.');
+        return (
+          <ConfirmDialog
+            open={confirmCollectOpen}
+            variant={isFull ? 'info' : 'warning'}
+            title={isFull ? 'Confirm Payment Collection' : 'Confirm Partial Payment'}
+            message={parts.join(' ')}
+            confirmLabel={`Collect ${fmtMoney(amount)}`}
+            cancelLabel="Go back"
+            onConfirm={handleCollect}
+            onCancel={() => setConfirmCollectOpen(false)}
+          />
+        );
+      })()}
 
       {/* ── Main ── */}
       <main className="p-6">
