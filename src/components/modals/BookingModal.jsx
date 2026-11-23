@@ -97,6 +97,13 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // from 24hr so a stale 3-night selection can't leak into a Day
   // booking.
   const [nights, setNights]           = useState(1);
+  // Phase 3b-guest: additional rooms attached to the same reservation.
+  // All rooms share the primary's booking_type, nights, and visitDate.
+  // Each entry is `{tempId, roomId}` — optional per-room addons aren't
+  // pickable from the guest modal for siblings in this ship (fixture
+  // addons still auto-attach server-side per-room). Add-ons for the
+  // primary room keep the full picker.
+  const [additionalRooms, setAdditionalRooms] = useState([]);
   const [visitDate, setVisitDate]     = useState("");
   // Room selection is tracked by its primary-key id so duplicate names
   // can't collapse availability / metadata / submitted-id onto the wrong
@@ -418,6 +425,8 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       setVisitDate("");
       setError("");
       setBookingType("day");
+      setNights(1);
+      setAdditionalRooms([]);
       setAvailability(null);
       setPaymentPopup(null);
       setTimeLeft(null);
@@ -476,6 +485,20 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     if (bookingType !== "24hr" && nights !== 1) setNights(1);
   }, [bookingType]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Clear additional rooms when booking type changes — a Night-eligible
+  // room might not be Day-eligible, so wiping the list avoids silent
+  // 422s at submit time. Also clears on primary-room swap when a stale
+  // additional now matches the newly-picked primary (duplicates aren't
+  // allowed in the group).
+  useEffect(() => {
+    if (additionalRooms.length > 0) setAdditionalRooms([]);
+  }, [bookingType]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (additionalRooms.some(ar => String(ar.roomId) === String(roomId))) {
+      setAdditionalRooms(list => list.filter(ar => String(ar.roomId) !== String(roomId)));
+    }
+  }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Derived pricing — room rate only, 20% reservation fee ─────────────────
   const is24hr   = bookingType === "24hr";
   const baseRate = bookingType === "night"
@@ -528,7 +551,23 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // before promo and package/optional add-ons fold in. room_rate on
   // the booking row stays per-night; `nights` is a separate column.
   const effectiveNights    = is24hr ? Math.max(1, Math.min(14, Number(nights) || 1)) : 1;
-  const roomSubtotal       = baseRate * effectiveNights;
+
+  // Phase 3b-guest: fold additional rooms into the room subtotal so
+  // promo / reservation-fee / grand-total math handles multi-room
+  // transparently.
+  function rateForRoom(roomRecord) {
+    if (!roomRecord) return 0;
+    if (bookingType === 'night') return Number(roomRecord.overnight_rate ?? 0);
+    if (bookingType === '24hr' || bookingType === '24hr-pm') return Number(roomRecord.rate_24hr ?? 0);
+    return Number(roomRecord.day_rate ?? 0);
+  }
+  const additionalRoomObjs = additionalRooms
+    .map(ar => rooms.find(r => String(r.id) === String(ar.roomId)))
+    .filter(Boolean);
+  const additionalRoomsSubtotal = additionalRoomObjs
+    .reduce((sum, r) => sum + rateForRoom(r) * effectiveNights, 0);
+  const primaryRoomSubtotal = baseRate * effectiveNights;
+  const roomSubtotal        = primaryRoomSubtotal + additionalRoomsSubtotal;
   // Discounted room-only subtotal — matches backend `reservation_fee`
   // math which is `pct × (roomSubtotal - discount)`, excluding package.
   const discountedRoom     = Math.max(roomSubtotal - discount, 0);
@@ -616,6 +655,29 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       setError("Selected room is not available for the chosen date. Please select another."); return;
     }
     if (!selectedRoomObj?.id) { setError("Could not determine room. Please try again."); return; }
+
+    // Phase 3b-guest validations for additional rooms.
+    const seen = new Set([String(roomId)]);
+    for (const [idx, ar] of additionalRooms.entries()) {
+      if (!ar.roomId) {
+        setError(`Additional room #${idx + 1} needs a selection — remove it or pick a room.`); return;
+      }
+      if (seen.has(String(ar.roomId))) {
+        setError(`Additional room #${idx + 1} duplicates a room already in this reservation.`); return;
+      }
+      seen.add(String(ar.roomId));
+      const adRoom = rooms.find(r => String(r.id) === String(ar.roomId));
+      if (!adRoom) {
+        setError(`Additional room #${idx + 1} no longer exists — remove it.`); return;
+      }
+      if (adRoom.allowed_booking_types && !adRoom.allowed_booking_types.includes(bookingType)) {
+        setError(`${adRoom.name} does not support the ${bookingType === 'night' ? 'Night' : bookingType === '24hr' ? '24 Hours' : 'Day'} booking type.`); return;
+      }
+      if (availability !== null && availability[String(adRoom.id)] !== true) {
+        setError(`${adRoom.name} is not available for the selected date.`); return;
+      }
+    }
+
     setConfirmOpen(true);
   }
 
@@ -733,7 +795,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     setSubmitting(true);
     try {
       const bookingPayload = {
-        room_id:          room.id,
         check_in:         visitDate,
         payment_method:   "Online",
         special_requests: specialRequests || null,
@@ -746,13 +807,26 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         discount:         discount,
       };
 
-      // Optional add-ons picked from the room's attached_addons.
+      // Optional add-ons picked from the PRIMARY room's attached_addons.
       // Backend resolves price per-room so we only send {name, qty}
       // — never trust a client-supplied price.
       const pickedAmenities = Object.entries(optionalQtys)
         .filter(([, qty]) => Number(qty) > 0)
         .map(([name, qty]) => ({ name, qty: Number(qty) }));
-      if (pickedAmenities.length > 0) bookingPayload.amenities = pickedAmenities;
+
+      // Phase 3b-guest: when the guest added rooms via "+ Add Another
+      // Room", build a rooms[] array. Primary room carries the
+      // amenities picker; siblings carry no addons (package fixtures
+      // still auto-attach server-side per-room).
+      if (additionalRooms.length > 0) {
+        bookingPayload.rooms = [
+          { room_id: room.id, amenities: pickedAmenities },
+          ...additionalRooms.map(ar => ({ room_id: Number(ar.roomId), amenities: [] })),
+        ];
+      } else {
+        bookingPayload.room_id = room.id;
+        if (pickedAmenities.length > 0) bookingPayload.amenities = pickedAmenities;
+      }
 
       // Guest mode: add contact info + use public endpoint
       if (guestMode) {
@@ -1497,6 +1571,92 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 })()}
               </div>
 
+              {/* Phase 3b-guest: additional rooms in this reservation.
+                  All inherit the primary's booking type, nights, and
+                  date. Guest can only add after the primary room is
+                  chosen (so the "+ Add" row anchors beneath a committed
+                  selection). Per-room addon pickers for siblings are
+                  deferred to a later ship; package fixtures still
+                  auto-attach server-side. */}
+              {visitDate && roomId && (
+                <div className="md:col-span-2">
+                  {additionalRooms.map((ar, idx) => {
+                    const selectedAdditional = rooms.find(r => String(r.id) === String(ar.roomId));
+                    const addedIds = new Set([
+                      String(roomId),
+                      ...additionalRooms.map(x => String(x.roomId)).filter((_, i) => i !== idx),
+                    ]);
+                    const isAvailable = r =>
+                      availability === null || availability?.[String(r.id)] === true;
+                    const pickable = rooms.filter(r =>
+                      r.category !== 'tent'
+                      && !addedIds.has(String(r.id))
+                      && isAvailable(r)
+                      && (!r.allowed_booking_types || r.allowed_booking_types.includes(bookingType))
+                    );
+                    const rate = rateForRoom(selectedAdditional);
+                    return (
+                      <div key={ar.tempId} className="mt-3 rounded-xl border-2 border-blue-200 bg-blue-50/40 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-900">
+                            <i className="fas fa-plus-circle text-blue-600"></i>
+                            Additional Room #{idx + 1}
+                          </div>
+                          <button type="button"
+                            onClick={() =>
+                              setAdditionalRooms(list => list.filter(x => x.tempId !== ar.tempId))
+                            }
+                            className="text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 rounded hover:bg-rose-50"
+                            aria-label={`Remove additional room ${idx + 1}`}
+                          >
+                            <i className="fas fa-times mr-1"></i>Remove
+                          </button>
+                        </div>
+                        <select value={ar.roomId}
+                          onChange={e =>
+                            setAdditionalRooms(list =>
+                              list.map(x => x.tempId === ar.tempId ? { ...x, roomId: e.target.value } : x)
+                            )
+                          }
+                          aria-label={`Additional room ${idx + 1} selection`}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Select additional room</option>
+                          {pickable.map(r => (
+                            <option key={r.id} value={r.id}>
+                              {r.name} — ₱{Number(rateForRoom(r)).toLocaleString()}
+                              {effectiveNights > 1 ? ` × ${effectiveNights} nights` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {rate > 0 && (
+                          <p className="mt-1 text-xs text-blue-700">
+                            Subtotal: ₱{(rate * effectiveNights).toLocaleString()}
+                            {effectiveNights > 1 && (
+                              <span className="text-blue-600 ml-1">
+                                (₱{rate.toLocaleString()} × {effectiveNights} nights)
+                              </span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <button type="button"
+                    onClick={() =>
+                      setAdditionalRooms(list => [
+                        ...list,
+                        { tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, roomId: '' },
+                      ])
+                    }
+                    className="mt-3 w-full flex items-center justify-center gap-2 border-2 border-dashed border-blue-300 bg-white hover:bg-blue-50 text-blue-700 font-medium text-sm py-2.5 rounded-xl transition-colors"
+                  >
+                    <i className="fas fa-plus" aria-hidden="true"></i>
+                    Add Another Room
+                  </button>
+                </div>
+              )}
+
               {/* Optional add-ons for this room — only renders when the
                   selected room actually has any. Backend verifies the
                   chosen names belong to this room + looks up per-room
@@ -1755,15 +1915,28 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 <h4 className="font-medium text-gray-900 mb-2">Payment Summary</h4>
                 <div className="flex justify-between mb-1 text-sm">
                   <span className="text-gray-600">
-                    Room rate ({bookingType === "night" ? "Night" : is24hr ? "24 Hours" : "Day"})
+                    {additionalRooms.length > 0 ? 'Primary room' : `Room rate (${bookingType === "night" ? "Night" : is24hr ? "24 Hours" : "Day"})`}
                     {is24hr && effectiveNights > 1 && (
                       <span className="text-xs text-gray-500 ml-1">
                         · {formatPHP(baseRate)} × {effectiveNights} nights
                       </span>
                     )}:
                   </span>
-                  <span className={`font-medium tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(roomSubtotal)}</span>
+                  <span className={`font-medium tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(primaryRoomSubtotal)}</span>
                 </div>
+                {additionalRoomObjs.map(r => (
+                  <div key={r.id} className="flex justify-between mb-1 text-sm">
+                    <span className="text-gray-600">
+                      + {r.name}
+                      {is24hr && effectiveNights > 1 && (
+                        <span className="text-xs text-gray-500 ml-1">
+                          · {formatPHP(rateForRoom(r))} × {effectiveNights} nights
+                        </span>
+                      )}:
+                    </span>
+                    <span className={`font-medium tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(rateForRoom(r) * effectiveNights)}</span>
+                  </div>
+                ))}
                 {discount > 0 && (
                   <>
                     <div className="flex justify-between mb-1 text-sm text-green-700 font-medium">
@@ -2263,15 +2436,28 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   <p className="font-semibold text-blue-900 mb-1">Payment Breakdown</p>
                   <div className="flex justify-between text-gray-700">
                     <span>
-                      {rateLabel}
+                      {additionalRooms.length > 0 ? `Primary room (${rateLabel})` : rateLabel}
                       {is24hr && effectiveNights > 1 && (
                         <span className="text-xs text-gray-500 ml-1">
                           · {formatPHP(baseRate)} × {effectiveNights} nights
                         </span>
                       )}
                     </span>
-                    <span className={`tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(roomSubtotal)}</span>
+                    <span className={`tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(primaryRoomSubtotal)}</span>
                   </div>
+                  {additionalRoomObjs.map(r => (
+                    <div key={r.id} className="flex justify-between text-gray-700">
+                      <span>
+                        + {r.name}
+                        {is24hr && effectiveNights > 1 && (
+                          <span className="text-xs text-gray-500 ml-1">
+                            · {formatPHP(rateForRoom(r))} × {effectiveNights} nights
+                          </span>
+                        )}
+                      </span>
+                      <span className={`tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(rateForRoom(r) * effectiveNights)}</span>
+                    </div>
+                  ))}
                   {discount > 0 && (
                     <>
                       <div className="flex justify-between text-green-700 font-medium">
