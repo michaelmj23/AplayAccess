@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import Sidebar from './Layout/Sidebar';
 import Modal from '../../components/modals/Modal.jsx';
 import useFocusTrap from '../../hooks/useFocusTrap.js';
-import { getFdBookings, collectPayment, downloadStaffReceipt } from '../../lib/frontdeskApi';
+import { getFdBookings, collectPayment, collectReservationPayment, downloadStaffReceipt } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import Toast, { useToast } from '../../components/ui/Toast';
 import PaymentCell from '../../components/ui/PaymentPill';
@@ -542,10 +542,61 @@ export default function Billing({ embedded = false }) {
     return 0;
   }), [searchedTodayAll, sortBy, sortDir, entranceRates]);
 
+  // Collapse multi-room reservations to one aggregated row before
+  // pagination — same shape as Bookings.jsx (see 5b2a620). A
+  // multi-room group now shows ONE billing row carrying the group's
+  // aggregated total / paidAmount / entranceFee / outstanding.
+  // Single-room reservations pass through unchanged.
+  const collapsedTodayAll = useMemo(() => {
+    const byRes = new Map();
+    const order = [];
+    for (const b of sortedTodayAll) {
+      const isGroupMember = b.reservationId && Number(b.groupSize ?? 1) > 1;
+      const key = isGroupMember ? `res:${b.reservationId}` : `solo:${b.bookingId}`;
+      if (!byRes.has(key)) {
+        byRes.set(key, []);
+        order.push(key);
+      }
+      byRes.get(key).push(b);
+    }
+    const priority = {
+      'Checked In': 1, 'Confirmed': 2, 'Pending': 3,
+      'No-Show': 4, 'Completed': 5, 'Cancelled': 6,
+    };
+    return order.map(key => {
+      const items = byRes.get(key);
+      if (items.length === 1 && key.startsWith('solo:')) return items[0];
+      const sorted = [...items].sort((a, b) => a.bookingId - b.bookingId);
+      const lead = sorted[0];
+      const total       = sorted.reduce((s, x) => s + Number(x.total || 0), 0);
+      const paidAmount  = sorted.reduce((s, x) => s + Number(x.paidAmount || 0), 0);
+      // Entrance fee is on the lead row only for multi-room — sum
+      // picks up whichever row carries it, which is correct.
+      const entranceFee = sorted.reduce((s, x) => s + Number(x.entranceFee || 0), 0);
+      const outstanding = Math.max(0, total + entranceFee - paidAmount);
+      const fullyPaid   = sorted.every(x => x.fullyPaid);
+      const names = sorted.map(x => x.roomType).filter(Boolean);
+      const roomDisplay = names.length <= 2
+        ? names.join(' + ')
+        : `${names[0]} +${names.length - 1} more`;
+      const topStatus = sorted
+        .map(x => x.status)
+        .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0];
+      return {
+        ...lead,
+        isGroup: true,
+        groupRows: sorted,
+        roomType: roomDisplay,
+        total, paidAmount, entranceFee, outstanding, fullyPaid,
+        status: topStatus,
+      };
+    });
+  }, [sortedTodayAll]);
+
   // Pagination — same 25/page cap as Bookings. Page resets to 1 on
   // search/sort change so a narrowed list snaps back to the top
   // instead of stranding the user on a now-empty page.
-  const { setPage, paginated, totalPages, safePage, info } = usePagination(sortedTodayAll, 25);
+  const { setPage, paginated, totalPages, safePage, info } = usePagination(collapsedTodayAll, 25);
   useEffect(() => { setPage(1); }, [searchTerm, sortBy, sortDir, setPage]);
 
   // Bookings awaiting balance collection: Confirmed/Checked In with any
@@ -580,33 +631,61 @@ export default function Billing({ embedded = false }) {
     setPaying(true);
     try {
       const ef = calcEntrance(billing, entranceRates);
-      const res = await collectPayment(billing.bookingId, payMethod, ef);
-      // Optimistically mark fully paid and bring paidAmount up to the new
-      // grand total so the UI updates without waiting on the next 20s poll.
-      // If the backend auto-checked-in (resort policy: full payment at
-      // check-in), flip the row's status too so staff see the transition
-      // immediately on the Billing board.
-      const autoCheckedIn = !!res?.auto_checkedin;
-      setBookings(prev =>
-        prev.map(b => b.bookingId === billing.bookingId
-          ? {
-              ...b,
-              fullyPaid:     true,
-              paymentMethod: payMethod,
-              entranceFee:   ef,
-              paidAmount:    Number(b.total ?? 0) + ef,
-              status:        autoCheckedIn ? 'Checked In' : b.status,
-            }
-          : b)
-      );
-      setBilling(null);
-      setSelected(null);
-      showToast(
-        autoCheckedIn
-          ? 'Payment collected. Guest checked in.'
-          : 'Payment collected successfully!',
-        'success'
-      );
+
+      // Multi-room branch: one network call clears the group's
+      // outstanding across every sibling. The entrance fee lives on
+      // the lead; we pass the computed value only when the lead
+      // doesn't already have one stored (backend ignores the hint
+      // for already-hydrated entrance).
+      if (billing.isGroup) {
+        const res = await collectReservationPayment(
+          billing.reservationId,
+          payMethod,
+          Number(billing.entranceFee || 0) <= 0 ? ef : undefined
+        );
+        // Optimistic: flag every sibling in the group as fully paid.
+        // Auto-checkin flips Confirmed rows to Checked In per-row.
+        const groupIds = new Set((billing.groupRows || []).map(r => r.bookingId));
+        setBookings(prev =>
+          prev.map(b => groupIds.has(b.bookingId)
+            ? {
+                ...b,
+                fullyPaid:     true,
+                paymentMethod: payMethod,
+                // Each sibling's share of entrance fee (lead carries
+                // the full amount; siblings stay at 0 — sum holds).
+                paidAmount:    Number(b.total ?? 0) + Number(b.entranceFee ?? 0),
+                status:        b.status === 'Confirmed' ? 'Checked In' : b.status,
+              }
+            : b)
+        );
+        setBilling(null);
+        setSelected(null);
+        showToast(res?.message || 'Group payment collected.', 'success');
+      } else {
+        const res = await collectPayment(billing.bookingId, payMethod, ef);
+        const autoCheckedIn = !!res?.auto_checkedin;
+        setBookings(prev =>
+          prev.map(b => b.bookingId === billing.bookingId
+            ? {
+                ...b,
+                fullyPaid:     true,
+                paymentMethod: payMethod,
+                entranceFee:   ef,
+                paidAmount:    Number(b.total ?? 0) + ef,
+                status:        autoCheckedIn ? 'Checked In' : b.status,
+              }
+            : b)
+        );
+        setBilling(null);
+        setSelected(null);
+        showToast(
+          autoCheckedIn
+            ? 'Payment collected. Guest checked in.'
+            : 'Payment collected successfully!',
+          'success'
+        );
+      }
     } catch {
       showToast('Failed to collect payment. Please try again.', 'error');
     } finally {
@@ -1009,8 +1088,17 @@ export default function Billing({ embedded = false }) {
                             className="font-mono text-slate-700 hover:text-sky-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1"
                             aria-label={`View billing detail for ${b.id}, guest ${guestLabel}`}
                           >
-                            {b.id}
+                            {b.isGroup ? (b.reservationResId || b.id) : b.id}
                           </button>
+                          {Number(b.groupSize ?? 1) > 1 && (
+                            <div
+                              className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-semibold"
+                              title={`Reservation with ${b.groupSize} rooms — collect clears the whole group`}
+                            >
+                              <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
+                              Group of {b.groupSize}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-sm font-medium">{guestLabel}</td>
                         <td className="px-4 py-3 text-sm text-slate-600">{b.roomType}</td>
@@ -1134,7 +1222,15 @@ export default function Billing({ embedded = false }) {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <p className="text-base font-semibold text-slate-900 truncate">{guestLabel}</p>
-                          <p className="text-xs font-mono text-slate-500 mt-0.5 truncate">{b.id}</p>
+                          <p className="text-xs font-mono text-slate-500 mt-0.5 truncate">
+                            {b.isGroup ? (b.reservationResId || b.id) : b.id}
+                          </p>
+                          {Number(b.groupSize ?? 1) > 1 && (
+                            <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-semibold">
+                              <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
+                              Group of {b.groupSize}
+                            </span>
+                          )}
                         </div>
                         <div className="shrink-0 flex flex-col items-end gap-1.5">
                           <p className="text-sm font-semibold text-slate-800">{fmtMoney(b.total)}</p>

@@ -88,6 +88,18 @@ export async function createExtension(bookingId, payload) {
   return res.data;
 }
 
+// POST /api/admin/reservations/{id}/collect-payment
+// Group / reservation-level collect-payment. Walks each sibling with
+// outstanding > 0 and brings paid_amount up to that sibling's own
+// grand total. Lead row hydrates entrance_fee from the reservation
+// snapshot if still 0. Returns a summary + total_delta collected.
+export async function collectReservationPayment(reservationId, paymentMethod, entranceFee) {
+  const body = { payment_method: paymentMethod };
+  if (entranceFee != null) body.entrance_fee = Number(entranceFee);
+  const res = await api.post(`/api/admin/reservations/${reservationId}/collect-payment`, body);
+  return res.data;
+}
+
 // POST /api/admin/reservations/{id}/mark-no-show
 // Group / reservation-level mark-as-no-show. Flips every Confirmed
 // Day/Night sibling whose slot has started to No-Show. 24hr siblings
