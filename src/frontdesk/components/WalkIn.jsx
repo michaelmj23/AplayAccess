@@ -53,6 +53,11 @@ const EMPTY_FORM = {
   // those with a 422). Resets to 1 whenever the type changes.
   nights: 1,
   guests: 1,
+  // Multi-room mode gate. Off by default — staff ticks the checkbox
+  // above the room picker to reveal the "+ Add Another Room" flow.
+  // Untocking wipes additionalRooms so they can't be submitted by
+  // accident.
+  multiRoomMode: false,
   // Additional rooms in the same reservation. Each entry can carry
   // its own bookingType and nights (mixed types supported). When
   // bookingType is null/empty the entry inherits the top-level
@@ -367,6 +372,14 @@ export default function WalkIn({ embedded = false }) {
   useEffect(() => {
     if (form.bookingType !== '24hr' && form.nights !== 1) setField('nights', 1);
   }, [form.bookingType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Multi-room checkbox toggled off → drop any staged siblings so
+  // they don't silently end up in the submit payload.
+  useEffect(() => {
+    if (!form.multiRoomMode && form.additionalRooms.length > 0) {
+      setField('additionalRooms', []);
+    }
+  }, [form.multiRoomMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pricing preview — room rate only; entrance fees collected at check-in by frontdesk
   const selectedRoom  = rooms.find(r => String(r.id) === String(form.roomId));
@@ -1355,12 +1368,37 @@ export default function WalkIn({ embedded = false }) {
                     })()}
                   </div>
 
+                  {/* Multi-room gate. Off by default so the common
+                      single-room walk-in flow is unchanged. Staff
+                      ticks the checkbox to reveal the "+ Add
+                      Another Room" button + any staged sibling
+                      cards. */}
+                  <div className="col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none mb-2">
+                      <input
+                        type="checkbox"
+                        checked={form.multiRoomMode}
+                        onChange={e => setField('multiRoomMode', e.target.checked)}
+                        className="w-4 h-4 text-sky-600 bg-white border-slate-300 rounded focus:ring-2 focus:ring-sky-500"
+                        aria-label="Book multiple rooms"
+                      />
+                      <span className="text-sm text-slate-800 font-medium">
+                        <i className="fas fa-layer-group mr-1 text-sky-600" aria-hidden="true"></i>
+                        Book multiple rooms
+                      </span>
+                      <span className="text-xs text-slate-600">
+                        (same reservation, one entrance fee)
+                      </span>
+                    </label>
+                  </div>
+
                   {/* Additional rooms in the SAME reservation. All share
                       the same booking type + date + nights + guest count.
                       Add-ons for additional rooms are added via the
                       per-booking staff flow post-check-in — shared-pool
                       items like pillows should be added on the primary
                       room above since the pool is reservation-wide. */}
+                  {form.multiRoomMode && (
                   <div className="col-span-2">
                     {form.additionalRooms.map((ar, idx) => {
                       const row = additionalRoomRows[idx];
@@ -1503,6 +1541,7 @@ export default function WalkIn({ embedded = false }) {
                       )}
                     </button>
                   </div>
+                  )}
 
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">

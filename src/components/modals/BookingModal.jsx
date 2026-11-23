@@ -97,6 +97,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // from 24hr so a stale 3-night selection can't leak into a Day
   // booking.
   const [nights, setNights]           = useState(1);
+  // Multi-room mode gate: a checkbox above the room picker flips
+  // this on. When off the UI stays pure single-room (no "+ Add"
+  // button, no sibling cards). Turning it off also wipes any
+  // additional rooms the user had staged so they can't be submitted
+  // by accident.
+  const [multiRoomMode, setMultiRoomMode] = useState(false);
   // Additional rooms attached to the same reservation. Each entry
   // can carry its own bookingType and nights (mixed types supported).
   // Omitted fields inherit the top-level primary values. Optional
@@ -425,6 +431,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       setError("");
       setBookingType("day");
       setNights(1);
+      setMultiRoomMode(false);
       setAdditionalRooms([]);
       setAvailability(null);
       setPaymentPopup(null);
@@ -493,6 +500,14 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       setAdditionalRooms(list => list.filter(ar => String(ar.roomId) !== String(roomId)));
     }
   }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Multi-room checkbox toggled off → drop any siblings so they
+  // don't silently end up in the submit payload.
+  useEffect(() => {
+    if (!multiRoomMode && additionalRooms.length > 0) {
+      setAdditionalRooms([]);
+    }
+  }, [multiRoomMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived pricing — room rate only, 20% reservation fee ─────────────────
   const is24hr   = bookingType === "24hr";
@@ -1587,13 +1602,35 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 })()}
               </div>
 
-              {/* Additional rooms in this reservation. Mixed types
+              {/* Multi-room gate + additional rooms block. The
+                  checkbox stays off by default so the single-room
+                  flow is unchanged for the common case; when
+                  checked, the "+ Add Another Room" button + sibling
+                  cards reveal. Unchecking wipes any staged siblings
+                  so they can't be submitted by accident. Mixed types
                   supported — each sibling can have its own booking
-                  type + nights. The "+ Add" row anchors beneath a
-                  committed primary. Per-room addon pickers for
-                  siblings are deferred; package fixtures still
-                  auto-attach server-side. */}
+                  type + nights. */}
               {visitDate && roomId && (
+                <div className="md:col-span-2">
+                  <label className="flex items-center gap-2 cursor-pointer select-none mb-2">
+                    <input
+                      type="checkbox"
+                      checked={multiRoomMode}
+                      onChange={e => setMultiRoomMode(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-white border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                      aria-label="Book multiple rooms"
+                    />
+                    <span className="text-sm text-gray-800 font-medium">
+                      <i className="fas fa-layer-group mr-1 text-blue-500" aria-hidden="true"></i>
+                      Book multiple rooms
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      (same reservation, one payment, one entrance fee)
+                    </span>
+                  </label>
+                </div>
+              )}
+              {visitDate && roomId && multiRoomMode && (
                 <div className="md:col-span-2">
                   {additionalRooms.map((ar, idx) => {
                     const row = additionalRoomRows[idx];
