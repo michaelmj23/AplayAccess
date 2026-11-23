@@ -58,14 +58,14 @@ const EMPTY_FORM = {
   // Untocking wipes additionalRooms so they can't be submitted by
   // accident.
   multiRoomMode: false,
-  // Additional rooms in the same reservation. Each entry can carry
-  // its own bookingType and nights (mixed types supported). When
-  // bookingType is null/empty the entry inherits the top-level
-  // bookingType; same for nights. Shared-pool addons (pillows,
-  // parking) go on the primary room's picker since the pool is
-  // accounted reservation-wide. Room-specific optional addons on
-  // siblings can be added post-booking via the staff Add Addon flow.
-  additionalRooms: [], // {tempId, roomId, bookingType?, nights?}
+  // Primary room unit count — for rooms with quantity > 1 staff
+  // can book up to that many Small Cottages (etc.) without adding
+  // siblings. Always 1 when the selected primary has quantity 1.
+  primaryQty: 1,
+  // Additional rooms in the same reservation. Each entry can
+  // carry its own qty for multi-unit rooms (cottages / pavilions
+  // with quantity > 1). On submit each entry expands by its qty.
+  additionalRooms: [], // {tempId, roomId, qty?}
 };
 
 // ─── component ────────────────────────────────────────────────────────────────
@@ -379,7 +379,16 @@ export default function WalkIn({ embedded = false }) {
     if (!form.multiRoomMode && form.additionalRooms.length > 0) {
       setField('additionalRooms', []);
     }
+    if (!form.multiRoomMode && form.primaryQty !== 1) {
+      setField('primaryQty', 1);
+    }
   }, [form.multiRoomMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Primary room swap → reset qty to 1 (the new room's quantity
+  // may be smaller than the previous one's).
+  useEffect(() => {
+    if (form.primaryQty !== 1) setField('primaryQty', 1);
+  }, [form.roomId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pricing preview — room rate only; entrance fees collected at check-in by frontdesk
   const selectedRoom  = rooms.find(r => String(r.id) === String(form.roomId));
@@ -408,19 +417,26 @@ export default function WalkIn({ embedded = false }) {
 
   // Resolve each additional room — all siblings inherit the
   // primary's slot (resort rule: one group, one visit slot).
+  // Each row's `qty` scales its subtotal (multi-unit cottages /
+  // pavilions).
   const additionalRoomRows = form.additionalRooms.map(ar => {
     const room = rooms.find(r => String(r.id) === String(ar.roomId));
     const type = form.bookingType;
     const n    = type === '24hr' ? effectiveNights : 1;
-    return { ar, room, type, nights: n, rate: rateForRoom(room, type) };
+    const qty  = Math.max(1, Number(ar.qty ?? 1));
+    return { ar, room, type, nights: n, qty, rate: rateForRoom(room, type) };
   });
   const additionalRoomObjs = additionalRoomRows.map(r => r.room).filter(Boolean);
   const additionalRoomsSubtotal = additionalRoomRows
     .filter(r => r.room)
-    .reduce((sum, r) => sum + r.rate * r.nights, 0);
+    .reduce((sum, r) => sum + r.rate * r.nights * r.qty, 0);
 
-  // Primary room's own subtotal (room-rate × nights, excludes addons).
-  const primaryRoomSubtotal = baseRate * effectiveNights;
+  // Primary room's subtotal multiplied by its own unit count (when
+  // the room supports multiple units and staff upped the qty).
+  const effectivePrimaryQty = (form.multiRoomMode && selectedRoom && Number(selectedRoom.quantity ?? 1) > 1)
+    ? Math.max(1, Math.min(Number(selectedRoom.quantity), Number(form.primaryQty) || 1))
+    : 1;
+  const primaryRoomSubtotal = baseRate * effectiveNights * effectivePrimaryQty;
   const roomSubtotal = primaryRoomSubtotal + additionalRoomsSubtotal;
 
   // Set of addon IDs that are attached to SOME room (as either package
@@ -578,21 +594,32 @@ export default function WalkIn({ embedded = false }) {
 
     // Validate additional rooms: each must have a selection, no
     // duplicates with the primary or other additionals, available
-    // for the date, and accepting this room's EFFECTIVE type (mixed
-    // types supported — per-row type overrides are honored).
-    const addedIds = new Set([String(form.roomId)]);
+    // for the date, and accepting this room's EFFECTIVE type.
+    // Primary qty + any sibling qty for the same room must not
+    // exceed that room's physical quantity.
+    const roomCounts = {};
+    const primaryRoomRec = rooms.find(r => String(r.id) === String(form.roomId));
+    const primaryQ = (form.multiRoomMode && primaryRoomRec && Number(primaryRoomRec.quantity ?? 1) > 1)
+      ? Math.max(1, Number(form.primaryQty) || 1)
+      : 1;
+    roomCounts[String(form.roomId)] = primaryQ;
+    if (primaryRoomRec && primaryQ > Number(primaryRoomRec.quantity ?? 1)) {
+      setFormError(`${primaryRoomRec.name} only has ${primaryRoomRec.quantity} unit${primaryRoomRec.quantity === 1 ? '' : 's'} — can't book more than that in one reservation.`); return;
+    }
     for (const [idx, row] of additionalRoomRows.entries()) {
       const ar = row.ar;
       if (!ar.roomId) {
         setFormError(`Additional room #${idx + 1} needs a selection — remove it or pick a room.`); return;
       }
-      if (addedIds.has(String(ar.roomId))) {
-        setFormError(`Additional room #${idx + 1} duplicates a room already in this reservation.`); return;
-      }
-      addedIds.add(String(ar.roomId));
       const adRoom = row.room;
       if (!adRoom) {
         setFormError(`Additional room #${idx + 1} no longer exists — remove it.`); return;
+      }
+      const sibQty = Math.max(1, Number(ar.qty ?? 1));
+      roomCounts[String(ar.roomId)] = (roomCounts[String(ar.roomId)] ?? 0) + sibQty;
+      const maxQty = Math.max(1, Number(adRoom.quantity ?? 1));
+      if (roomCounts[String(ar.roomId)] > maxQty) {
+        setFormError(`${adRoom.name} only has ${maxQty} unit${maxQty === 1 ? '' : 's'} — can't book more than that in one reservation.`); return;
       }
       if (adRoom.allowed_booking_types && !adRoom.allowed_booking_types.includes(row.type)) {
         setFormError(`${adRoom.name} does not support ${row.type}.`); return;
@@ -644,17 +671,28 @@ export default function WalkIn({ embedded = false }) {
         promo_code:        promoResult ? promoInput.trim().toUpperCase() : null,
         discount:          promoDiscount,
       };
-      if (multiRoom) {
-        // All siblings share the primary's slot (top-level booking_type +
-        // nights). No per-row overrides — backend treats missing fields
-        // as "inherit from top-level".
-        payload.rooms = [
+      // Multi-room branch: expand primary + each sibling by their
+      // qty so cottages/pavilions with quantity > 1 become multiple
+      // rooms[] entries sharing the same room_id. Backend handles
+      // duplicates up to room.quantity via its per-iteration
+      // overlap count. Only the FIRST primary entry carries the
+      // amenities (addon pool is reservation-wide).
+      if (multiRoom || effectivePrimaryQty > 1) {
+        const primaryEntries = [
           { room_id: Number(form.roomId), amenities },
-          ...additionalRoomRows.map(r => ({
-            room_id: Number(r.ar.roomId),
+          ...Array.from({ length: effectivePrimaryQty - 1 }).map(() => ({
+            room_id: Number(form.roomId),
             amenities: [],
           })),
         ];
+        const siblingEntries = additionalRoomRows.flatMap(r => {
+          const q = Math.max(1, Number(r.ar.qty ?? 1));
+          return Array.from({ length: q }).map(() => ({
+            room_id: Number(r.ar.roomId),
+            amenities: [],
+          }));
+        });
+        payload.rooms = [...primaryEntries, ...siblingEntries];
       } else {
         payload.room_id  = Number(form.roomId);
         payload.amenities = amenities;
@@ -1383,6 +1421,47 @@ export default function WalkIn({ embedded = false }) {
                       );
                       return null;
                     })()}
+                    {/* Primary room qty stepper — only shown when
+                        the selected room has multiple physical
+                        units (cottages, pavilions where quantity
+                        > 1) AND we're in multi-room mode. For
+                        single-unit rooms this stays hidden; single-
+                        room mode doesn't need it either. */}
+                    {form.multiRoomMode && selectedRoom && Number(selectedRoom.quantity ?? 1) > 1 && (
+                      <div className="mt-2 flex items-center justify-between rounded-lg bg-sky-50 border border-sky-200 px-3 py-2">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-sky-900">
+                          <i className="fas fa-cubes text-sky-500" aria-hidden="true"></i>
+                          How many {selectedRoom.name}?
+                        </div>
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setField('primaryQty', Math.max(1, Number(form.primaryQty) - 1))}
+                            disabled={Number(form.primaryQty) <= 1}
+                            aria-label={`Decrease ${selectedRoom.name} count`}
+                            className="w-7 h-7 inline-flex items-center justify-center rounded-full bg-white border border-sky-300 text-sky-700 hover:bg-sky-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <i className="fas fa-minus text-[11px]" aria-hidden="true"></i>
+                          </button>
+                          <span className="min-w-[1.75rem] text-center text-sm font-bold tabular-nums text-sky-900">
+                            {form.primaryQty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setField('primaryQty', Math.min(Number(selectedRoom.quantity), Number(form.primaryQty) + 1))}
+                            disabled={Number(form.primaryQty) >= Number(selectedRoom.quantity)}
+                            aria-label={`Increase ${selectedRoom.name} count`}
+                            title={Number(form.primaryQty) >= Number(selectedRoom.quantity) ? `Max ${selectedRoom.quantity} units` : undefined}
+                            className="w-7 h-7 inline-flex items-center justify-center rounded-full bg-white border border-sky-300 text-sky-700 hover:bg-sky-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <i className="fas fa-plus text-[11px]" aria-hidden="true"></i>
+                          </button>
+                          <span className="text-[10px] text-sky-700 font-medium">
+                            / {selectedRoom.quantity} units
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Additional rooms in the SAME reservation. All share
@@ -1433,7 +1512,7 @@ export default function WalkIn({ embedded = false }) {
                             </button>
                           </div>
                           <select value={ar.roomId}
-                            onChange={e => patchRoom({ roomId: e.target.value })}
+                            onChange={e => patchRoom({ roomId: e.target.value, qty: 1 })}
                             disabled={!form.date}
                             aria-label={`Additional room ${idx + 1} selection`}
                             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 disabled:bg-slate-100">
@@ -1445,9 +1524,47 @@ export default function WalkIn({ embedded = false }) {
                               </option>
                             ))}
                           </select>
+                          {/* Sibling qty stepper — appears when the
+                              picked room has quantity > 1. Lets staff
+                              book e.g. 3 Medium Cottages in one
+                              sibling without needing to add 3 rows. */}
+                          {row.room && Number(row.room.quantity ?? 1) > 1 && (
+                            <div className="mt-2 flex items-center justify-between rounded-md bg-sky-50 border border-sky-200 px-2 py-1.5">
+                              <div className="flex items-center gap-1.5 text-[11px] font-medium text-sky-900">
+                                <i className="fas fa-cubes text-sky-500" aria-hidden="true"></i>
+                                How many {row.room.name}?
+                              </div>
+                              <div className="inline-flex items-center gap-1.5">
+                                <button type="button"
+                                  onClick={() => patchRoom({ qty: Math.max(1, Number(ar.qty ?? 1) - 1) })}
+                                  disabled={Number(ar.qty ?? 1) <= 1}
+                                  aria-label={`Decrease ${row.room.name} count`}
+                                  className="w-6 h-6 inline-flex items-center justify-center rounded bg-white border border-sky-300 text-sky-700 text-[10px] font-bold disabled:opacity-40"
+                                ><i className="fas fa-minus"></i></button>
+                                <span className="min-w-[1.5rem] text-center text-xs font-bold tabular-nums text-sky-900">
+                                  {ar.qty ?? 1}
+                                </span>
+                                <button type="button"
+                                  onClick={() => patchRoom({ qty: Math.min(Number(row.room.quantity), Number(ar.qty ?? 1) + 1) })}
+                                  disabled={Number(ar.qty ?? 1) >= Number(row.room.quantity)}
+                                  aria-label={`Increase ${row.room.name} count`}
+                                  title={Number(ar.qty ?? 1) >= Number(row.room.quantity) ? `Max ${row.room.quantity} units` : undefined}
+                                  className="w-6 h-6 inline-flex items-center justify-center rounded bg-white border border-sky-300 text-sky-700 text-[10px] font-bold disabled:opacity-40"
+                                ><i className="fas fa-plus"></i></button>
+                                <span className="text-[10px] text-sky-700 font-medium pl-0.5">
+                                  / {row.room.quantity}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                           {rate > 0 && (
                             <p className="mt-1 text-xs text-sky-700">
-                              Subtotal: ₱{(rate * effN).toLocaleString()}
+                              Subtotal: ₱{(rate * effN * (ar.qty ?? 1)).toLocaleString()}
+                              {(ar.qty ?? 1) > 1 && (
+                                <span className="text-sky-600 ml-1">
+                                  (× {ar.qty} units)
+                                </span>
+                              )}
                               {effN > 1 && (
                                 <span className="text-sky-600 ml-1">
                                   (₱{rate.toLocaleString()} × {effN} nights)
