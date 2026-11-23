@@ -395,10 +395,35 @@ export default function MyBookings() {
       await api.post(`/api/bookings/${b.bookingId}/checkin`);
       setItems(prev => prev.map(x => x.bookingId === b.bookingId ? { ...x, status: "Checked In" } : x));
       setSelected(prev => prev ? { ...prev, status: "Checked In" } : null);
-    } catch {
-      // silent — polling will catch it
+      showToast('Checked in — enjoy your stay!', 'success');
+    } catch (err) {
+      // Surface the backend's specific guard message (e.g. "You can
+      // only check in on or after your arrival date." or "Only fully
+      // paid bookings can self check-in."). Silent catch was hiding
+      // real errors from the guest, making the button feel broken.
+      const msg = err?.response?.data?.message || 'Could not check in. Please try again.';
+      showToast(msg, 'error');
     } finally {
       setCheckingIn(false);
+    }
+  }
+
+  // Mirrors the backend's self-check-in date guard
+  // (Api\BookingController::checkIn): the booking's arrival date
+  // must be today or earlier. Local date comparison so a guest
+  // whose phone clock is at 23:59 on the eve still can't check in
+  // for tomorrow.
+  function canCheckInToday(checkInRaw) {
+    if (!checkInRaw) return false;
+    try {
+      const ci = new Date(String(checkInRaw).replace(' ', 'T'));
+      if (Number.isNaN(ci.getTime())) return false;
+      const ciDay = new Date(ci.getFullYear(), ci.getMonth(), ci.getDate());
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return ciDay.getTime() <= today.getTime();
+    } catch {
+      return false;
     }
   }
 
@@ -908,11 +933,17 @@ export default function MyBookings() {
               {renderSpecialRequests(selected.specialRequests)}
             </div>
             <div className="px-6 pb-6 flex flex-wrap gap-2 justify-end">
-              {selected.status === 'Confirmed' && selected.fullyPaid && (
+              {selected.status === 'Confirmed' && selected.fullyPaid && canCheckInToday(selected.checkIn) && (
                 <button onClick={() => handleCheckIn(selected)} disabled={checkingIn}
                   className="px-4 py-2 bg-violet-600 text-white rounded-xl text-sm hover:bg-violet-700 disabled:opacity-60">
                   {checkingIn ? <><i className="fas fa-spinner fa-spin mr-1" />Checking in...</> : <><i className="fas fa-door-open mr-1" />Check In</>}
                 </button>
+              )}
+              {selected.status === 'Confirmed' && selected.fullyPaid && !canCheckInToday(selected.checkIn) && (
+                <div className="w-full px-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
+                  <i className="fas fa-info-circle mr-1 text-slate-400" aria-hidden="true"></i>
+                  Self check-in will unlock on your arrival date ({fmtDateTime(selected.checkIn)}). You can still check in at the front desk on the day.
+                </div>
               )}
               {(selected.status === "Pending" || selected.status === "Confirmed") && (
                 <button onClick={() => { setSelected(null); setCancelling(selected); }}
