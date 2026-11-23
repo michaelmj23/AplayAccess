@@ -369,13 +369,88 @@ export default function Bookings({ embedded = false }) {
     return keyed.map(x => x.b);
   }, [bookings, filterStatus, filterSource, searchTerm, sortBy, sortDir, entranceRates]);
 
+  // Collapse by reservation: rows for a multi-room reservation
+  // (groupSize > 1) fold into a single aggregated row that preserves
+  // the first sibling's position in the sorted filtered list. Single-
+  // room reservations (groupSize === 1) pass through unchanged, so
+  // the classic single-booking rendering is byte-identical. Group
+  // rows synthesize aggregated status, room-name display, grand
+  // total / paid / outstanding / fully_paid, and earliest check-in /
+  // latest check-out across the siblings still in `filtered` (some
+  // siblings may have been filtered out by status or search; those
+  // omitted ones don't affect the display here — the Group section
+  // inside the detail modal still shows the complete sibling list
+  // from the backend). Row click still opens a detail modal; the
+  // row carries the LEAD booking's bookingId so the modal shows the
+  // group section with all actions.
+  const collapsedRows = useMemo(() => {
+    const byRes = new Map();
+    const order = [];
+    for (const b of filtered) {
+      const isGroupMember = b.reservationId && Number(b.groupSize ?? 1) > 1;
+      const key = isGroupMember ? `res:${b.reservationId}` : `solo:${b.bookingId}`;
+      if (!byRes.has(key)) {
+        byRes.set(key, []);
+        order.push(key);
+      }
+      byRes.get(key).push(b);
+    }
+    const priority = {
+      'Checked In': 1, 'Confirmed': 2, 'Pending': 3,
+      'No-Show': 4, 'Completed': 5, 'Cancelled': 6,
+    };
+    return order.map(key => {
+      const items = byRes.get(key);
+      if (items.length === 1 && key.startsWith('solo:')) return items[0];
+
+      // Group row aggregation.
+      const sorted = [...items].sort((a, b) => a.bookingId - b.bookingId);
+      const lead = sorted[0];
+      const total       = sorted.reduce((s, x) => s + Number(x.total || 0), 0);
+      const paidAmount  = sorted.reduce((s, x) => s + Number(x.paidAmount || 0), 0);
+      const entranceFee = sorted.reduce((s, x) => s + Number(x.entranceFee || 0), 0);
+      const outstanding = Math.max(0, total + entranceFee - paidAmount);
+      const fullyPaid   = sorted.every(x => x.fullyPaid);
+      const names = sorted.map(x => x.roomType).filter(Boolean);
+      const roomDisplay = names.length <= 2
+        ? names.join(' + ')
+        : `${names[0]} +${names.length - 1} more`;
+      const topStatus = sorted
+        .map(x => x.status)
+        .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0];
+      const earliestCheckIn = sorted.map(x => x.checkIn).sort()[0];
+      const latestCheckOut  = sorted.map(x => x.checkOut).sort().reverse()[0];
+      return {
+        ...lead,
+        isGroup: true,
+        groupRows: sorted,
+        roomType: roomDisplay,
+        total, paidAmount, entranceFee, outstanding, fullyPaid,
+        status: topStatus,
+        checkIn: earliestCheckIn,
+        checkOut: latestCheckOut,
+      };
+    });
+  }, [filtered]);
+
   // Pagination — 25 rows per page is dense enough to scan a busy
   // booking day at a glance, sparse enough to keep mobile cards from
   // becoming an endless scroll. Reset to page 1 whenever any filter
   // changes so the user doesn't end up on "page 5 of 1" after
   // narrowing the list.
-  const { setPage, paginated, totalPages, safePage, info } = usePagination(filtered, 25);
+  const { setPage, paginated, totalPages, safePage, info } = usePagination(collapsedRows, 25);
   useEffect(() => { setPage(1); }, [filterStatus, filterSource, searchTerm, sortBy, sortDir, setPage]);
+
+  // Expansion state: which group rows are showing their siblings
+  // inline. Toggling adds / removes the reservation id from the set.
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
+  function toggleGroupExpansion(resId) {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(resId)) next.delete(resId); else next.add(resId);
+      return next;
+    });
+  }
 
   // Source-count badges for the segmented toggle.
   //
@@ -665,8 +740,8 @@ export default function Bookings({ embedded = false }) {
                     is active, show both so staff see how much the filters
                     hid. */}
                 {(filterStatus === 'All' && filterSource === 'all' && !searchTerm.trim())
-                  ? `${bookings.length} total`
-                  : `Showing ${filtered.length} of ${bookings.length}`}
+                  ? `${collapsedRows.length} rows · ${bookings.length} bookings`
+                  : `Showing ${collapsedRows.length} rows · ${filtered.length} of ${bookings.length} bookings`}
               </span>
             </div>
             <button
@@ -901,31 +976,48 @@ export default function Bookings({ embedded = false }) {
                     const showSourcePill = filterSource === 'all';
                     const guestLabel = wi ? wi.name : (b.guest || 'Guest');
 
+                    const isExpanded = b.isGroup && expandedGroups.has(b.reservationId);
                     return (
-                      <tr key={b.bookingId}
+                      <Fragment key={b.isGroup ? `grp-${b.reservationId}` : `solo-${b.bookingId}`}>
+                      <tr
                           className={`cursor-pointer ${rowCls}`}
                           onClick={() => setViewBooking(b)}>
                         <td className="px-4 py-3 text-xs whitespace-nowrap">
-                          {/* Primary keyboard affordance for opening the
-                              detail modal. Native button = proper focus ring,
-                              semantic announcement, keyboard-activatable. */}
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setViewBooking(b); }}
-                            className="font-mono text-slate-700 hover:text-sky-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1"
-                            aria-label={`View booking ${b.id} for ${guestLabel}`}
-                          >
-                            {b.id}
-                          </button>
-                          {Number(b.groupSize) > 1 && (
-                            <div
-                              className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-semibold"
-                              title={`Part of a ${b.groupSize}-room reservation (${b.reservationResId ?? ''})`}
-                            >
-                              <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
-                              Group of {b.groupSize}
+                          <div className="flex items-start gap-1">
+                            {b.isGroup && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); toggleGroupExpansion(b.reservationId); }}
+                                className="inline-flex w-6 h-6 items-center justify-center rounded text-slate-500 hover:text-sky-700 hover:bg-sky-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                                aria-label={isExpanded ? 'Collapse group' : 'Expand group'}
+                                aria-expanded={isExpanded}
+                              >
+                                <i className={`fas fa-chevron-${isExpanded ? 'down' : 'right'} text-[10px]`} aria-hidden="true"></i>
+                              </button>
+                            )}
+                            <div>
+                              {/* Primary keyboard affordance for opening the
+                                  detail modal. Native button = proper focus ring,
+                                  semantic announcement, keyboard-activatable. */}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setViewBooking(b); }}
+                                className="font-mono text-slate-700 hover:text-sky-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1"
+                                aria-label={`View booking ${b.id} for ${guestLabel}`}
+                              >
+                                {b.isGroup ? (b.reservationResId || b.id) : b.id}
+                              </button>
+                              {Number(b.groupSize) > 1 && (
+                                <div
+                                  className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-semibold"
+                                  title={`Reservation with ${b.groupSize} rooms`}
+                                >
+                                  <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
+                                  Group of {b.groupSize}
+                                </div>
+                              )}
                             </div>
-                          )}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -971,7 +1063,12 @@ export default function Bookings({ embedded = false }) {
                               className="inline-flex w-11 h-11 items-center justify-center rounded text-sky-700 hover:bg-sky-50 hover:text-sky-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
                               <i className="fas fa-eye" aria-hidden="true"></i>
                             </button>
-                            {b.status === 'Pending' && Number(b.paidAmount ?? 0) > 0 && (
+                            {/* Hide per-row action shortcuts for GROUP rows —
+                                they'd act on the lead only and confuse staff
+                                into thinking the action covers the whole
+                                group. Group bulk actions live in the detail
+                                modal's Group section. */}
+                            {!b.isGroup && b.status === 'Pending' && Number(b.paidAmount ?? 0) > 0 && (
                               <button onClick={() => setConfirmState({ bookingId: b.bookingId, action: 'confirm', booking: b })}
                                 disabled={actionLoading === b.bookingId}
                                 title="Confirm" aria-label={`Confirm booking ${b.id}`}
@@ -979,7 +1076,7 @@ export default function Bookings({ embedded = false }) {
                                 <i className="fas fa-check" aria-hidden="true"></i>
                               </button>
                             )}
-                            {b.status === 'Confirmed' && canCheckInToday(b.checkIn) && (
+                            {!b.isGroup && b.status === 'Confirmed' && canCheckInToday(b.checkIn) && (
                               <button onClick={() => setConfirmState({ bookingId: b.bookingId, action: 'checkin', booking: b })}
                                 disabled={actionLoading === b.bookingId}
                                 title="Check In" aria-label={`Check in guest for ${b.id}`}
@@ -987,7 +1084,7 @@ export default function Bookings({ embedded = false }) {
                                 <i className="fas fa-door-open" aria-hidden="true"></i>
                               </button>
                             )}
-                            {b.status === 'Checked In' && (
+                            {!b.isGroup && b.status === 'Checked In' && (
                               <>
                                 <span title="Go to Billing to collect payment &amp; complete"
                                   aria-label="Billing handles payment collection for checked-in guests"
@@ -1010,7 +1107,7 @@ export default function Bookings({ embedded = false }) {
                                 )}
                               </>
                             )}
-                            {b.status === 'Pending' && (
+                            {!b.isGroup && b.status === 'Pending' && (
                               <button onClick={() => setConfirmState({ bookingId: b.bookingId, action: 'cancel', booking: b })}
                                 disabled={actionLoading === b.bookingId}
                                 title="Cancel" aria-label={`Cancel booking ${b.id}`}
@@ -1036,6 +1133,53 @@ export default function Bookings({ embedded = false }) {
                           </div>
                         </td>
                       </tr>
+                      {/* Collapsed-group expanded sibling rows. Rendered
+                          below the group's main row when expanded; each
+                          is a plain booking row clickable to its own
+                          detail modal. */}
+                      {isExpanded && b.groupRows.map(sib => {
+                        const sibLabel = sib.guest || 'Guest';
+                        const sibOverdue = isOverdueCheckout(sib);
+                        return (
+                          <tr key={`sib-${sib.bookingId}`}
+                              className="cursor-pointer bg-slate-50/70 hover:bg-slate-100 border-l-4 border-sky-100"
+                              onClick={() => setViewBooking(sib)}>
+                            <td className="px-4 py-2 text-xs whitespace-nowrap pl-10">
+                              <span className="font-mono text-slate-600">{sib.id}</span>
+                            </td>
+                            <td className="px-4 py-2 text-xs text-slate-600">
+                              <span>{sibLabel}</span>
+                            </td>
+                            <td className="px-4 py-2 text-xs text-slate-700 whitespace-nowrap">{sib.roomType}</td>
+                            <td className="px-4 py-2 text-xs text-slate-600 whitespace-nowrap">
+                              {fmtDateTime(sib.checkIn)}<br />
+                              <span className="text-slate-400">→ {fmtTime(sib.checkOut)}</span>
+                            </td>
+                            <td className="px-4 py-2 text-xs text-center text-slate-600">{sib.guests}</td>
+                            <td className="px-4 py-2 whitespace-nowrap">
+                              <PaymentPill booking={sib} entranceRates={entranceRates} />
+                            </td>
+                            <td className="px-4 py-2">
+                              <div className="flex flex-col gap-1 items-start">
+                                <StatusBadge status={sib.status} booking={sib} />
+                                {sibOverdue && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-100 text-rose-800 flex items-center gap-1">
+                                    <i className="fas fa-exclamation-triangle text-[9px]"></i>Overdue
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2" onClick={e => e.stopPropagation()}>
+                              <button onClick={() => setViewBooking(sib)}
+                                title="View details" aria-label={`View details for ${sib.id}`}
+                                className="inline-flex w-10 h-10 items-center justify-center rounded text-sky-700 hover:bg-sky-50 hover:text-sky-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+                                <i className="fas fa-eye text-xs" aria-hidden="true"></i>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      </Fragment>
                     );
                   })}
                 </tbody>
