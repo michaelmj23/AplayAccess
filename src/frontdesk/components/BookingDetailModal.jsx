@@ -10,6 +10,7 @@ import {
   checkInReservation,
   checkOutReservation,
   cancelReservation,
+  revertNoShowReservation,
 } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import { applyPromoToBooking } from '../../lib/adminApi';
@@ -443,6 +444,30 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       showToast?.(msg);
     } finally {
       setGroupCheckOutLoading(false);
+    }
+  }
+
+  // Reservation-level bulk no-show reversal. Flips No-Show siblings
+  // back to Confirmed (restores the row + re-increments any promo
+  // count that was released). For when staff marked no-show
+  // prematurely and the guest is expected to arrive later. If the
+  // guest is already at the counter, bulk check-in already covers
+  // the No-Show → Checked In reversal path.
+  const [groupRevertNoShowLoading, setGroupRevertNoShowLoading] = useState(false);
+  async function handleGroupRevertNoShow() {
+    if (!booking.reservationId) return;
+    setGroupRevertNoShowLoading(true);
+    try {
+      const res = await revertNoShowReservation(booking.reservationId);
+      showToast?.(res.message || `Group reversal: ${res.summary?.reverted ?? 0} room(s) restored.`);
+      onReload?.();
+      refreshNotifications?.();
+      onClose?.();
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Group no-show reversal failed.';
+      showToast?.(msg);
+    } finally {
+      setGroupRevertNoShowLoading(false);
     }
   }
 
@@ -902,6 +927,32 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                         <>
                           <i className="fas fa-door-open text-[10px]" aria-hidden="true"></i>
                           Check out all eligible rooms
+                        </>
+                      )}
+                    </button>
+                  )}
+                  {/* Reservation-level bulk no-show reversal.
+                      Visible when any sibling is No-Show. Flips
+                      them back to Confirmed (not Checked In — if
+                      the guest is already at the counter, bulk
+                      check-in handles the No-Show → Checked In path
+                      instead). */}
+                  {booking.groupSiblings.some(s => s.status === 'No-Show') && (
+                    <button
+                      type="button"
+                      onClick={handleGroupRevertNoShow}
+                      disabled={groupRevertNoShowLoading}
+                      className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-amber-100 hover:bg-amber-200 disabled:opacity-50 text-amber-800 border border-amber-300 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
+                    >
+                      {groupRevertNoShowLoading ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>
+                          Reversing no-show…
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-rotate-left text-[10px]" aria-hidden="true"></i>
+                          Reverse no-show on all eligible rooms
                         </>
                       )}
                     </button>

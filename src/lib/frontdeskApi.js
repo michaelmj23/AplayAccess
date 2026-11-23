@@ -59,6 +59,17 @@ export async function cancelReservation(reservationId) {
   return res.data;
 }
 
+// POST /api/admin/reservations/{id}/revert-no-show
+// Group / reservation-level no-show reversal. Flips every No-Show
+// sibling back to Confirmed, clears no_show_at, and re-increments
+// any promo uses_count that was released on markNoShow. Use when
+// staff marked no-show prematurely and the guest is expected to
+// arrive later. Returns {reverted, not_no_show} plus `message`.
+export async function revertNoShowReservation(reservationId) {
+  const res = await api.post(`/api/admin/reservations/${reservationId}/revert-no-show`);
+  return res.data;
+}
+
 // POST /api/admin/bookings/{id}/checkin
 export async function checkInBooking(bookingId, entranceFee) {
   const payload = entranceFee != null ? { entrance_fee: entranceFee } : {};
