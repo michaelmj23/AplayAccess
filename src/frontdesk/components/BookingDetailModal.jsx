@@ -12,6 +12,8 @@ import {
   cancelReservation,
   revertNoShowReservation,
   markNoShowReservation,
+  getExtensionOptions,
+  createExtension,
 } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import { applyPromoToBooking } from '../../lib/adminApi';
@@ -448,6 +450,56 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     }
   }
 
+  // Phase 5 — stay extensions. Opens a picker, loads valid
+  // continuations from the backend, lets staff pick a slot type
+  // (+ nights for 24hr), and posts the extension. On success the
+  // parent list refreshes so the extended check_out and the new
+  // balance flow through.
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [extendOptions, setExtendOptions] = useState(null);
+  const [extendOptionsLoading, setExtendOptionsLoading] = useState(false);
+  const [extendSelected, setExtendSelected] = useState(null); // {type, nights}
+  const [extendSubmitting, setExtendSubmitting] = useState(false);
+  const [extendError, setExtendError] = useState('');
+
+  async function openExtendPicker() {
+    setExtendOpen(true);
+    setExtendError('');
+    setExtendSelected(null);
+    setExtendOptions(null);
+    setExtendOptionsLoading(true);
+    try {
+      const res = await getExtensionOptions(booking.bookingId);
+      setExtendOptions(res);
+      // Pre-select the first option so the Confirm button is active
+      // without an extra click when only one is valid (Day → Night).
+      const first = res?.options?.[0];
+      if (first) setExtendSelected({ type: first.type, nights: first.nights ?? 1 });
+    } catch (err) {
+      setExtendError(err?.response?.data?.message || 'Could not load extension options.');
+    } finally {
+      setExtendOptionsLoading(false);
+    }
+  }
+
+  async function submitExtend() {
+    if (!extendSelected?.type) return;
+    setExtendSubmitting(true);
+    setExtendError('');
+    try {
+      await createExtension(booking.bookingId, extendSelected);
+      showToast?.('Stay extended.');
+      onReload?.();
+      refreshNotifications?.();
+      setExtendOpen(false);
+      onClose?.();
+    } catch (err) {
+      setExtendError(err?.response?.data?.message || 'Could not extend the stay.');
+    } finally {
+      setExtendSubmitting(false);
+    }
+  }
+
   // Reservation-level bulk mark-as-no-show. Mirrors the per-row
   // markNoShow guards (Confirmed + Day|Night + slot started). 24hr
   // siblings and future-slot siblings are blocked by the backend;
@@ -863,6 +915,175 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
               <p className="font-semibold text-sky-700">{fmtMoney(booking.total)}</p>
             </div>
             <div><p className="text-xs text-slate-500">Payment Method</p><PayIcon method={booking.paymentMethod} /></div>
+            {/* Phase 5 — stay extensions list. Renders when any
+                extensions have been added to this booking. Each
+                row shows the slot the extension added, its window,
+                and the amount added to the balance. */}
+            {Array.isArray(booking.extensions) && booking.extensions.length > 0 && (
+              <div className="col-span-2">
+                <div className="rounded-xl border-2 border-violet-200 bg-violet-50/60 p-3">
+                  <p className="text-xs font-semibold text-violet-900 flex items-center gap-1.5 mb-2">
+                    <i className="fas fa-clock-rotate-left text-violet-600" aria-hidden="true"></i>
+                    Stay extensions
+                    <span className="ml-auto text-[11px] text-violet-700 font-normal">
+                      +{fmtMoney(booking.extensionsTotal ?? booking.extensions.reduce((s, e) => s + Number(e.total || 0), 0))} total
+                    </span>
+                  </p>
+                  <ul className="space-y-1">
+                    {booking.extensions.map(e => {
+                      const typeLbl = e.type === 'night' ? 'Night' : e.type === '24hr' ? `24hr × ${e.nights}` : 'Day';
+                      return (
+                        <li key={e.id}
+                            className="flex items-center justify-between text-xs px-2 py-1 rounded text-slate-700">
+                          <span className="truncate">
+                            <i className="fas fa-plus mr-1 text-[10px] text-violet-400" aria-hidden="true"></i>
+                            {typeLbl}
+                            <span className="ml-1 text-[11px] text-slate-500">
+                              {fmtDateTime(e.start)} → {fmtDateTime(e.end)}
+                            </span>
+                          </span>
+                          <span className="tabular-nums text-slate-700 font-medium shrink-0">
+                            +{fmtMoney(e.total)}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* Phase 5 — "Extend stay" action. Visible only while the
+                guest is Checked In. The picker loads valid
+                continuations from the backend and shows one card per
+                option. */}
+            {booking.status === 'Checked In' && (
+              <div className="col-span-2">
+                {!extendOpen ? (
+                  <button
+                    type="button"
+                    onClick={openExtendPicker}
+                    className="w-full inline-flex items-center justify-center gap-2 bg-white border-2 border-violet-300 hover:bg-violet-50 text-violet-700 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
+                  >
+                    <i className="fas fa-clock-rotate-left text-[10px]" aria-hidden="true"></i>
+                    Extend stay
+                  </button>
+                ) : (
+                  <div className="rounded-xl border-2 border-violet-200 bg-violet-50/40 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-violet-900">
+                        <i className="fas fa-clock-rotate-left mr-1 text-violet-600"></i>
+                        Extend stay
+                      </p>
+                      <button type="button"
+                        onClick={() => setExtendOpen(false)}
+                        disabled={extendSubmitting}
+                        className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-100"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    {extendOptionsLoading && (
+                      <p className="text-xs text-violet-700">
+                        <i className="fas fa-spinner fa-spin mr-1"></i>Loading options…
+                      </p>
+                    )}
+                    {extendError && !extendOptionsLoading && (
+                      <p className="text-xs text-rose-600 mb-2">
+                        <i className="fas fa-triangle-exclamation mr-1"></i>{extendError}
+                      </p>
+                    )}
+                    {extendOptions && (
+                      <>
+                        <p className="text-[11px] text-slate-600 mb-2">
+                          Current end: <span className="font-medium text-slate-800">{fmtDateTime(extendOptions.current?.endsAt)}</span>.
+                          {extendOptions.options.length === 0 && (
+                            <span className="ml-1 text-rose-600">No valid continuation from this slot.</span>
+                          )}
+                        </p>
+                        <div className="space-y-2">
+                          {extendOptions.options.map(opt => {
+                            const active = extendSelected?.type === opt.type;
+                            // For 24hr, let staff multiply nights client-side.
+                            const nights = active && opt.type === '24hr'
+                              ? Math.max(1, Math.min(14, Number(extendSelected.nights) || 1))
+                              : 1;
+                            const total = (opt.rate || 0) * nights;
+                            return (
+                              <div key={opt.type}
+                                className={`rounded-lg border p-2 ${active ? 'border-violet-500 bg-white' : 'border-violet-200 bg-white/60'}`}>
+                                <button type="button"
+                                  onClick={() => setExtendSelected({ type: opt.type, nights: 1 })}
+                                  className="w-full text-left"
+                                  aria-pressed={active}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm font-semibold text-slate-800">
+                                      {opt.type === 'night' ? 'Night'
+                                        : opt.type === '24hr' ? '24-hour slot'
+                                        : 'Day'}
+                                    </span>
+                                    <span className="text-xs tabular-nums text-slate-700">
+                                      {fmtMoney(total)}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 mt-0.5">
+                                    {opt.type === '24hr' && active
+                                      ? `${fmtDateTime(opt.start)} → ${fmtDateTime(active ? '' : opt.end)}`
+                                      : `${fmtDateTime(opt.start)} → ${fmtDateTime(opt.end)}`}
+                                    <span className="ml-1 text-slate-400">
+                                      · {fmtMoney(opt.rate)} × {nights}
+                                    </span>
+                                  </p>
+                                </button>
+                                {active && opt.type === '24hr' && (
+                                  <div className="mt-2 flex items-center justify-between rounded bg-amber-50 border border-amber-200 px-2 py-1">
+                                    <span className="text-[11px] text-amber-900">
+                                      <i className="fas fa-moon mr-1"></i>Nights
+                                    </span>
+                                    <div className="flex items-center gap-1.5">
+                                      <button type="button"
+                                        onClick={() => setExtendSelected(s => ({ ...s, nights: Math.max(1, (s.nights || 1) - 1) }))}
+                                        disabled={(extendSelected.nights || 1) <= 1}
+                                        className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
+                                        aria-label="Decrease nights"
+                                      ><i className="fas fa-minus"></i></button>
+                                      <span className="min-w-[2rem] text-center text-xs font-bold text-amber-900 tabular-nums">
+                                        {extendSelected.nights || 1}
+                                      </span>
+                                      <button type="button"
+                                        onClick={() => setExtendSelected(s => ({ ...s, nights: Math.min(14, (s.nights || 1) + 1) }))}
+                                        disabled={(extendSelected.nights || 1) >= 14}
+                                        className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
+                                        aria-label="Increase nights"
+                                      ><i className="fas fa-plus"></i></button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <button type="button"
+                            onClick={submitExtend}
+                            disabled={extendSubmitting || !extendSelected}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-semibold py-2 px-3 rounded"
+                          >
+                            {extendSubmitting ? (
+                              <><i className="fas fa-spinner fa-spin text-[10px]"></i>Extending…</>
+                            ) : (
+                              <><i className="fas fa-check text-[10px]"></i>Confirm extension</>
+                            )}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Phase 3c: when this booking belongs to a multi-room reservation,
                 show the other rooms in the group so staff can jump between
                 them without hunting through the bookings list. Hidden for

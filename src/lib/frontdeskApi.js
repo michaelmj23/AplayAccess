@@ -70,6 +70,24 @@ export async function revertNoShowReservation(reservationId) {
   return res.data;
 }
 
+// GET /api/admin/bookings/{id}/extension-options
+// Phase 5. Returns the valid-continuations list + pricing preview for
+// extending a Checked-In booking. Shape: {current: {type, endsAt},
+// options: [{type, nights, start, end, rate, total}]}.
+export async function getExtensionOptions(bookingId) {
+  const res = await api.get(`/api/admin/bookings/${bookingId}/extension-options`);
+  return res.data;
+}
+
+// POST /api/admin/bookings/{id}/extensions
+// body: {type, nights?, notes?}. Returns {extension}. The parent
+// booking's check_out, fully_paid, outstanding, and extensions[]
+// payload refresh on the next getFdBookings call.
+export async function createExtension(bookingId, payload) {
+  const res = await api.post(`/api/admin/bookings/${bookingId}/extensions`, payload);
+  return res.data;
+}
+
 // POST /api/admin/reservations/{id}/mark-no-show
 // Group / reservation-level mark-as-no-show. Flips every Confirmed
 // Day/Night sibling whose slot has started to No-Show. 24hr siblings
