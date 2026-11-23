@@ -646,6 +646,7 @@ export default function Bookings({ embedded = false }) {
             setViewBooking(updated);
             syncBooking(updated.bookingId, updated);
           }}
+          onReload={load}
           showToast={showToast}
         />
       )}

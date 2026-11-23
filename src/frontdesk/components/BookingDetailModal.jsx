@@ -7,6 +7,7 @@ import {
   addAmenity, updateAmenity, removeAmenity, downloadStaffReceipt, updateBookingGuests,
   getFdRooms, getFdBookings, transferRoom,
   addonAvailabilityForBooking,
+  checkInReservation,
 } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import { applyPromoToBooking } from '../../lib/adminApi';
@@ -156,7 +157,7 @@ const COLOR = {
 /**
  * BookingDetailModal
  */
-export default function BookingDetailModal({ booking: initialBooking, onClose, onUpdated, showToast }) {
+export default function BookingDetailModal({ booking: initialBooking, onClose, onUpdated, onReload, showToast }) {
   const { refresh: refreshNotifications } = useNotifications();
   const [booking,       setBooking]       = useState(initialBooking);
   const [addonCatalog,     setAddonCatalog]     = useState([]);
@@ -390,6 +391,34 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       showToast?.('Failed to update guest count.');
     } finally {
       setGuestLoading(false);
+    }
+  }
+
+  // Phase 3c+: reservation-level bulk check-in. Walks every sibling in
+  // the parent reservation whose status is Confirmed (or No-Show
+  // reversal) and whose check_in date is today or earlier, flipping
+  // them to Checked In in one call. Future-dated, unpaid, cancelled,
+  // or already-checked-in siblings are returned in the summary and
+  // surfaced as a toast so staff knows exactly what was skipped.
+  const [groupCheckInLoading, setGroupCheckInLoading] = useState(false);
+  async function handleGroupCheckIn() {
+    if (!booking.reservationId) return;
+    setGroupCheckInLoading(true);
+    try {
+      const res = await checkInReservation(booking.reservationId);
+      showToast?.(res.message || `Group check-in: ${res.summary?.checked_in ?? 0} room(s) checked in.`);
+      // The call touched multiple bookings — hand back control to the
+      // parent to refresh the whole list so each sibling row reflects
+      // its new state. The modal closes afterwards; staff reopens any
+      // row from the refreshed list if they want to act further.
+      onReload?.();
+      refreshNotifications?.();
+      onClose?.();
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Group check-in failed.';
+      showToast?.(msg);
+    } finally {
+      setGroupCheckInLoading(false);
     }
   }
 
@@ -779,8 +808,33 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       );
                     })}
                   </ul>
+                  {/* Reservation-level bulk check-in. Enabled when
+                      any sibling is still Confirmed. The backend
+                      handles skipping future-dated / unpaid /
+                      already-checked-in / cancelled siblings and
+                      reports them per-category in the toast. */}
+                  {booking.groupSiblings.some(s => s.status === 'Confirmed' || s.status === 'No-Show') && (
+                    <button
+                      type="button"
+                      onClick={handleGroupCheckIn}
+                      disabled={groupCheckInLoading}
+                      className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
+                    >
+                      {groupCheckInLoading ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>
+                          Checking in group…
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-user-check text-[10px]" aria-hidden="true"></i>
+                          Check in all eligible rooms
+                        </>
+                      )}
+                    </button>
+                  )}
                   <p className="mt-2 text-[11px] text-sky-700/80">
-                    Per-room actions (check-in, check-out, transfer, cancel) apply only to this room — open the other rooms from the bookings list to act on them.
+                    Per-room actions (check-out, transfer, cancel) apply only to this room — open the other rooms from the bookings list to act on them.
                   </p>
                 </div>
               </div>

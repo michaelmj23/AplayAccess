@@ -25,6 +25,17 @@ export async function updateBookingStatus(bookingId, status, extra = {}) {
   return res.data;
 }
 
+// POST /api/admin/reservations/{id}/checkin
+// Group / reservation-level bulk check-in. Flips every sibling whose
+// status is Confirmed and whose check_in date is today or earlier to
+// Checked In. Returns a summary {checked_in, skipped_future,
+// blocked_unpaid, already_checked_in, blocked_terminal} plus a
+// human-friendly `message` ready to render as a toast.
+export async function checkInReservation(reservationId) {
+  const res = await api.post(`/api/admin/reservations/${reservationId}/checkin`);
+  return res.data;
+}
+
 // POST /api/admin/bookings/{id}/checkin
 export async function checkInBooking(bookingId, entranceFee) {
   const payload = entranceFee != null ? { entrance_fee: entranceFee } : {};
