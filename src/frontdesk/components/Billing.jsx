@@ -27,6 +27,32 @@ function calcEntrance(b, entranceRates = FALLBACK_RATES) {
 const todayStr = () => localDateStr();
 
 
+// Classify a booking's slot into a short tag staff can scan without
+// decoding the time range. Multi-night 24hr stays carry `× N` so the
+// row's actual length is obvious. Falls back to Day for unknown types
+// (legacy rows, defensive default).
+function SlotTag({ bookingType, nights }) {
+  const type = (bookingType ?? 'day').toLowerCase();
+  const n = Number(nights) > 1 ? Number(nights) : 0;
+  const cls = {
+    day:       'bg-amber-50 text-amber-800 border-amber-200',
+    night:     'bg-indigo-50 text-indigo-800 border-indigo-200',
+    '24hr':    'bg-sky-50 text-sky-800 border-sky-200',
+    '24hr-pm': 'bg-sky-50 text-sky-800 border-sky-200',
+  }[type] ?? 'bg-slate-50 text-slate-700 border-slate-200';
+  const label = {
+    day:       'Day',
+    night:     'Night',
+    '24hr':    n > 0 ? `24hr × ${n}` : '24hr',
+    '24hr-pm': n > 0 ? `24hr × ${n}` : '24hr',
+  }[type] ?? 'Day';
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border uppercase tracking-wide ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
 function PayIcon({ method }) {
   const m = (method || '').toLowerCase();
   if (m === 'cash')
@@ -57,6 +83,19 @@ function StatusBadge({ status, booking }) {
       <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 w-fit">
         <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-600" aria-hidden="true"></span>
         Expired
+      </span>
+    );
+  }
+  // "Prepaid" — a Confirmed booking whose balance is already settled
+  // but the guest hasn't walked in yet. Replaces the old
+  // "Paid — awaiting check-in" prose that used to live in the action
+  // column. Visually distinct from Completed (which means the stay is
+  // over) by its lighter emerald tint.
+  if (status === 'Confirmed' && booking?.fullyPaid) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-semibold bg-teal-50 text-teal-800 border border-teal-200 w-fit" title="Payment collected — guest has not checked in yet">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-500" aria-hidden="true"></span>
+        Prepaid
       </span>
     );
   }
@@ -140,9 +179,12 @@ function BillingDetailDrawer({ booking: b, onClose, onCollect, onDownloadReceipt
           <div className="bg-slate-50 rounded-lg p-4 space-y-1 text-sm">
             <p className="font-semibold text-slate-800 text-base">{walkInName(b)}</p>
             <p className="text-slate-500">{b.roomType} · {b.guests} pax</p>
-            <p className="text-slate-400 text-xs mt-1">
-              {fmtDateTime(b.checkIn)} → {fmtDateTime(b.checkOut)}
-            </p>
+            <div className="mt-1 flex items-center gap-2 flex-wrap">
+              <SlotTag bookingType={b.bookingType} nights={b.nights} />
+              <p className="text-slate-400 text-xs">
+                {fmtDateTime(b.checkIn)} → {fmtDateTime(b.checkOut)}
+              </p>
+            </div>
           </div>
 
           {/* Payment method */}
@@ -1428,14 +1470,19 @@ export default function Billing({ embedded = false }) {
                         <td className="px-4 py-3 text-sm font-medium">{guestLabel}</td>
                         <td className="px-4 py-3 text-sm text-slate-600">{b.roomType}</td>
                         <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
-                          {fmtDateTime(b.checkIn)}<br />
-                          <span className="text-slate-400">→ {fmtDateTime(b.checkOut)}</span>
+                          <div className="flex flex-col gap-1">
+                            <SlotTag bookingType={b.bookingType} nights={b.nights} />
+                            <span>
+                              {fmtDateTime(b.checkIn)}<br />
+                              <span className="text-slate-400">→ {fmtDateTime(b.checkOut)}</span>
+                            </span>
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-sm">{fmtMoney(b.total)}</td>
                         <td className="px-4 py-3">
                           <PaymentCell booking={b} entranceRates={entranceRates} />
                         </td>
-                        <td className="px-4 py-3"><StatusBadge status={b.status} /></td>
+                        <td className="px-4 py-3"><StatusBadge status={b.status} booking={b} /></td>
                         <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                           {/* One primary action per row + an icon-only
                               Confirmation button where available. Prose
@@ -1559,7 +1606,7 @@ export default function Billing({ embedded = false }) {
                         </div>
                         <div className="shrink-0 flex flex-col items-end gap-1.5">
                           <p className="text-sm font-semibold text-slate-800">{fmtMoney(b.total)}</p>
-                          <StatusBadge status={b.status} />
+                          <StatusBadge status={b.status} booking={b} />
                         </div>
                       </div>
 
@@ -1571,10 +1618,13 @@ export default function Billing({ embedded = false }) {
                         </div>
                         <div className="min-w-0">
                           <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Time</p>
-                          <p className="text-sm text-slate-700 mt-0.5">
-                            {fmtDateTime(b.checkIn)}
-                            <span className="block text-xs text-slate-400">→ {fmtDateTime(b.checkOut)}</span>
-                          </p>
+                          <div className="mt-0.5 flex flex-col gap-1">
+                            <SlotTag bookingType={b.bookingType} nights={b.nights} />
+                            <p className="text-sm text-slate-700">
+                              {fmtDateTime(b.checkIn)}
+                              <span className="block text-xs text-slate-400">→ {fmtDateTime(b.checkOut)}</span>
+                            </p>
+                          </div>
                         </div>
                         <div className="col-span-2">
                           <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide mb-1">Payment</p>
