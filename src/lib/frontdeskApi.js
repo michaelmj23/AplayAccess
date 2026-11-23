@@ -47,6 +47,18 @@ export async function checkOutReservation(reservationId) {
   return res.data;
 }
 
+// POST /api/admin/reservations/{id}/cancel
+// Group / reservation-level bulk cancel. Flips every Pending or
+// Confirmed sibling to Cancelled. Checked-In and Completed siblings
+// are blocked and surfaced in the summary — they need per-row
+// handling (check-out, refund decisions). Returns {cancelled,
+// blocked_checked_in, blocked_completed, already_cancelled,
+// already_no_show} plus `message`.
+export async function cancelReservation(reservationId) {
+  const res = await api.post(`/api/admin/reservations/${reservationId}/cancel`);
+  return res.data;
+}
+
 // POST /api/admin/bookings/{id}/checkin
 export async function checkInBooking(bookingId, entranceFee) {
   const payload = entranceFee != null ? { entrance_fee: entranceFee } : {};

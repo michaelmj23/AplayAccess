@@ -9,6 +9,7 @@ import {
   addonAvailabilityForBooking,
   checkInReservation,
   checkOutReservation,
+  cancelReservation,
 } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import { applyPromoToBooking } from '../../lib/adminApi';
@@ -442,6 +443,30 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       showToast?.(msg);
     } finally {
       setGroupCheckOutLoading(false);
+    }
+  }
+
+  // Reservation-level bulk cancel. Confirms via an inline UI first —
+  // cancelling a group is irreversible and has promo-release
+  // consequences. Checked-In / Completed siblings are blocked by the
+  // backend; the toast surfaces exactly what was skipped.
+  const [groupCancelLoading, setGroupCancelLoading] = useState(false);
+  const [groupCancelConfirm, setGroupCancelConfirm] = useState(false);
+  async function handleGroupCancel() {
+    if (!booking.reservationId) return;
+    setGroupCancelLoading(true);
+    try {
+      const res = await cancelReservation(booking.reservationId);
+      showToast?.(res.message || `Group cancel: ${res.summary?.cancelled ?? 0} room(s) cancelled.`);
+      onReload?.();
+      refreshNotifications?.();
+      setGroupCancelConfirm(false);
+      onClose?.();
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Group cancel failed.';
+      showToast?.(msg);
+    } finally {
+      setGroupCancelLoading(false);
     }
   }
 
@@ -881,8 +906,54 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       )}
                     </button>
                   )}
+                  {/* Reservation-level bulk cancel. Visible when any
+                      sibling is still Pending or Confirmed. Rendered
+                      as a two-step confirm (the raw button becomes a
+                      confirm / abort pair) so staff can't fat-finger
+                      an irreversible group cancellation. Checked-In
+                      and Completed siblings get skipped by the backend. */}
+                  {booking.groupSiblings.some(s => s.status === 'Pending' || s.status === 'Confirmed') && (
+                    groupCancelConfirm ? (
+                      <div className="mt-2 rounded-lg bg-rose-50 border border-rose-200 p-2">
+                        <p className="text-[11px] text-rose-800 mb-2">
+                          Cancel all Pending/Confirmed rooms in this reservation? Checked-in rooms stay unchanged. This cannot be undone.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={handleGroupCancel}
+                            disabled={groupCancelLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded"
+                          >
+                            {groupCancelLoading ? (
+                              <><i className="fas fa-spinner fa-spin text-[10px]"></i>Cancelling…</>
+                            ) : (
+                              <><i className="fas fa-check text-[10px]"></i>Yes, cancel group</>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setGroupCancelConfirm(false)}
+                            disabled={groupCancelLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 text-[11px] font-semibold py-1.5 px-2 rounded"
+                          >
+                            Keep bookings
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setGroupCancelConfirm(true)}
+                        className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-white border border-rose-300 hover:bg-rose-50 text-rose-700 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
+                      >
+                        <i className="fas fa-ban text-[10px]" aria-hidden="true"></i>
+                        Cancel all eligible rooms
+                      </button>
+                    )
+                  )}
                   <p className="mt-2 text-[11px] text-sky-700/80">
-                    Per-room actions (transfer, cancel, collect balance) apply only to this room — open the other rooms from the bookings list to act on them.
+                    Per-room actions (transfer, collect balance, no-show) apply only to this room — open the other rooms from the bookings list to act on them.
                   </p>
                 </div>
               </div>
