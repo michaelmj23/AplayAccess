@@ -1344,7 +1344,47 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
 
                   const onSelect = (r) => {
                     if (!isAvailable(r)) return;
-                    setRoomId(String(r.id));
+                    // Single-room mode: just pick. Multi-room mode:
+                    // toggle. Clicking an unselected card adds it as
+                    // an additional room (primary stays). Clicking a
+                    // sibling card removes it. Clicking the primary
+                    // moves it to a different room instead of
+                    // deselecting — a reservation always needs a
+                    // primary.
+                    if (!multiRoomMode) {
+                      setRoomId(String(r.id));
+                      setPromoResult(null);
+                      setPromoInput("");
+                      return;
+                    }
+                    const id = String(r.id);
+                    if (!roomId) {
+                      setRoomId(id);
+                      setPromoResult(null);
+                      setPromoInput("");
+                      return;
+                    }
+                    if (id === String(roomId)) {
+                      // Clicking the primary card is a no-op — can't
+                      // drop the primary without replacing it.
+                      return;
+                    }
+                    const already = additionalRooms.find(ar => String(ar.roomId) === id);
+                    if (already) {
+                      setAdditionalRooms(list => list.filter(ar => String(ar.roomId) !== id));
+                    } else {
+                      setAdditionalRooms(list => [
+                        ...list,
+                        {
+                          tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                          roomId: id,
+                          // Default to primary's type + nights; staff can
+                          // override per-sibling for mixed types.
+                          bookingType: bookingType,
+                          nights: bookingType === '24hr' ? nights : 1,
+                        },
+                      ]);
+                    }
                     setPromoResult(null);
                     setPromoInput("");
                   };
@@ -1373,7 +1413,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   const renderCard = (r, { disabled = false } = {}) => {
                     const cat = getCategory(r);
                     const meta = CATEGORY_META[cat] ?? CATEGORY_META.room;
-                    const selected = String(roomId) === String(r.id);
+                    const isPrimary = String(roomId) === String(r.id);
+                    const isSibling = multiRoomMode
+                      && additionalRooms.some(ar => String(ar.roomId) === String(r.id));
+                    const selected = isPrimary || isSibling;
                     const price = rateFor(r);
                     const typeWord = bookingType === 'night' ? 'overnight' : (bookingType === '24hr' || bookingType === '24hr-pm') ? '24 hours' : 'day visit';
                     const perWord  = bookingType === 'night' ? 'night' : (bookingType === '24hr' || bookingType === '24hr-pm') ? '24 hrs' : 'day';
@@ -1436,6 +1479,16 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                         <div className="flex-1 min-w-0">
                           <p className={`font-semibold text-sm sm:text-base truncate ${disabled ? "text-gray-500" : "text-gray-900"}`}>
                             {r.name}
+                            {multiRoomMode && isPrimary && (
+                              <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-semibold align-middle">
+                                Primary
+                              </span>
+                            )}
+                            {multiRoomMode && isSibling && (
+                              <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-semibold align-middle">
+                                <i className="fas fa-check text-[9px]"></i>Added
+                              </span>
+                            )}
                           </p>
                           <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                             <i className="fas fa-users text-[10px]" aria-hidden="true"></i>
@@ -1653,19 +1706,20 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                       setAdditionalRooms(list =>
                         list.map(x => x.tempId === ar.tempId ? { ...x, ...patch } : x)
                       );
+                    const roomName = row.room?.name ?? `Additional Room #${idx + 1}`;
                     return (
                       <div key={ar.tempId} className="mt-3 rounded-xl border-2 border-blue-200 bg-blue-50/40 p-3">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-900">
                             <i className="fas fa-plus-circle text-blue-600"></i>
-                            Additional Room #{idx + 1}
+                            {roomName}
                           </div>
                           <button type="button"
                             onClick={() =>
                               setAdditionalRooms(list => list.filter(x => x.tempId !== ar.tempId))
                             }
                             className="text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 rounded hover:bg-rose-50"
-                            aria-label={`Remove additional room ${idx + 1}`}
+                            aria-label={`Remove ${roomName}`}
                           >
                             <i className="fas fa-times mr-1"></i>Remove
                           </button>
@@ -1714,19 +1768,26 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                             </div>
                           </div>
                         )}
-                        <select value={ar.roomId}
-                          onChange={e => patchRoom({ roomId: e.target.value })}
-                          aria-label={`Additional room ${idx + 1} selection`}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">Select additional room</option>
-                          {pickable.map(r => (
-                            <option key={r.id} value={r.id}>
-                              {r.name} — ₱{Number(rateForRoom(r, effType)).toLocaleString()}
-                              {effN > 1 ? ` × ${effN} nights` : ''}
-                            </option>
-                          ))}
-                        </select>
+                        {/* Room is set from the main grid in multi-room
+                            mode — no dropdown here. Fallback dropdown
+                            kept for the rare edge case where an entry
+                            lacks a roomId (shouldn't happen from the
+                            new flow but defensive). */}
+                        {!ar.roomId && (
+                          <select value={ar.roomId}
+                            onChange={e => patchRoom({ roomId: e.target.value })}
+                            aria-label={`Additional room ${idx + 1} selection`}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">Select a room above (tap a card)</option>
+                            {pickable.map(r => (
+                              <option key={r.id} value={r.id}>
+                                {r.name} — ₱{Number(rateForRoom(r, effType)).toLocaleString()}
+                                {effN > 1 ? ` × ${effN} nights` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         {rate > 0 && (
                           <p className="mt-1 text-xs text-blue-700">
                             Subtotal: ₱{(rate * effN).toLocaleString()}
@@ -1740,23 +1801,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                       </div>
                     );
                   })}
-                  <button type="button"
-                    onClick={() =>
-                      setAdditionalRooms(list => [
-                        ...list,
-                        {
-                          tempId: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                          roomId: '',
-                          bookingType: bookingType,
-                          nights: bookingType === '24hr' ? nights : 1,
-                        },
-                      ])
-                    }
-                    className="mt-3 w-full flex items-center justify-center gap-2 border-2 border-dashed border-blue-300 bg-white hover:bg-blue-50 text-blue-700 font-medium text-sm py-2.5 rounded-xl transition-colors"
-                  >
-                    <i className="fas fa-plus" aria-hidden="true"></i>
-                    Add Another Room
-                  </button>
+                  {additionalRooms.length === 0 && (
+                    <p className="mt-3 text-xs text-blue-700 text-center px-4 py-3 rounded-lg bg-blue-50 border border-dashed border-blue-200">
+                      <i className="fas fa-hand-pointer mr-1" aria-hidden="true"></i>
+                      Tap another room above to add it to this reservation.
+                    </p>
+                  )}
                 </div>
               )}
 
