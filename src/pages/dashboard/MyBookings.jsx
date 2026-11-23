@@ -543,7 +543,20 @@ export default function MyBookings() {
                     onClick={onRowActivate}
                     onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowActivate(); }}}
                     className={`cursor-pointer hover:bg-slate-50 transition-colors ${b.status === 'Pending' ? 'bg-amber-50/30' : ''}`}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-medium">{b.id}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-medium">
+                    <div className="flex flex-col gap-1">
+                      <span>{b.id}</span>
+                      {Number(b.groupSize ?? 1) > 1 && (
+                        <span
+                          className="inline-flex items-center gap-1 self-start px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-semibold"
+                          title={`Part of a ${b.groupSize}-room reservation${b.reservationResId ? ` (${b.reservationResId})` : ''}`}
+                        >
+                          <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
+                          Group of {b.groupSize}
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">{b.roomType}</td>
                   <td className="px-6 py-4 text-sm text-slate-700 whitespace-nowrap">
                     <div>{fmtDateTime(b.checkIn)}</div>
@@ -689,7 +702,22 @@ export default function MyBookings() {
               className={cardCls}>
               {/* Top row: ID + status */}
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-900">{b.id}</span>
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                  <span className="text-sm font-semibold text-slate-900">{b.id}</span>
+                  {/* Group-of-N chip: this booking was created as part
+                      of a multi-room reservation at the counter. Guest
+                      sees one card per room (the account is attached to
+                      each); the chip ties them together. */}
+                  {Number(b.groupSize ?? 1) > 1 && (
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-semibold"
+                      title={`Part of a ${b.groupSize}-room reservation${b.reservationResId ? ` (${b.reservationResId})` : ''}`}
+                    >
+                      <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
+                      Group of {b.groupSize}
+                    </span>
+                  )}
+                </div>
                 <StatusLabel booking={b} />
               </div>
               {/* Room + slot */}

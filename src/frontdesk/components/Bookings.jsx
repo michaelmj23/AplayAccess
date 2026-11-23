@@ -916,6 +916,15 @@ export default function Bookings({ embedded = false }) {
                           >
                             {b.id}
                           </button>
+                          {Number(b.groupSize) > 1 && (
+                            <div
+                              className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-semibold"
+                              title={`Part of a ${b.groupSize}-room reservation (${b.reservationResId ?? ''})`}
+                            >
+                              <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
+                              Group of {b.groupSize}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -1082,6 +1091,15 @@ export default function Bookings({ embedded = false }) {
                             <p className="text-xs font-mono text-slate-500 mt-0.5 truncate">
                               {b.id}
                             </p>
+                            {Number(b.groupSize) > 1 && (
+                              <span
+                                className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-semibold"
+                                title={`Part of a ${b.groupSize}-room reservation (${b.reservationResId ?? ''})`}
+                              >
+                                <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
+                                Group of {b.groupSize}
+                              </span>
+                            )}
                             {(wi ? wi.email : b.guestEmail) && (
                               <p className="text-xs text-slate-500 truncate">
                                 {fmtGuestEmail(wi ? wi.email : b.guestEmail)}

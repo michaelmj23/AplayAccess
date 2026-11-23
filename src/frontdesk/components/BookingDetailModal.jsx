@@ -734,6 +734,57 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
               <p className="font-semibold text-sky-700">{fmtMoney(booking.total)}</p>
             </div>
             <div><p className="text-xs text-slate-500">Payment Method</p><PayIcon method={booking.paymentMethod} /></div>
+            {/* Phase 3c: when this booking belongs to a multi-room reservation,
+                show the other rooms in the group so staff can jump between
+                them without hunting through the bookings list. Hidden for
+                classic single-room bookings (groupSize <= 1). */}
+            {Number(booking.groupSize ?? 1) > 1 && Array.isArray(booking.groupSiblings) && (
+              <div className="col-span-2">
+                <div className="rounded-xl border-2 border-sky-200 bg-sky-50/60 p-3">
+                  <p className="text-xs font-semibold text-sky-900 flex items-center gap-1.5 mb-2">
+                    <i className="fas fa-layer-group text-sky-600" aria-hidden="true"></i>
+                    Group reservation
+                    {booking.reservationResId && (
+                      <span className="font-mono font-normal text-sky-700 text-[11px]">· {booking.reservationResId}</span>
+                    )}
+                    <span className="ml-auto text-[11px] text-sky-700 font-normal">
+                      {booking.groupSize} rooms total
+                    </span>
+                  </p>
+                  <ul className="space-y-1">
+                    {booking.groupSiblings.map(s => {
+                      const isSelf = Number(s.bookingId) === Number(booking.bookingId);
+                      return (
+                        <li key={s.bookingId}
+                            className={`flex items-center justify-between text-xs px-2 py-1 rounded ${isSelf ? 'bg-sky-100 font-semibold text-sky-900' : 'text-slate-700 hover:bg-sky-100/40'}`}>
+                          <span className="truncate">
+                            <i className={`fas fa-bed mr-1 text-[10px] ${isSelf ? 'text-sky-700' : 'text-slate-400'}`} aria-hidden="true"></i>
+                            {s.roomName ?? `Room #${s.bookingId}`}
+                            {isSelf && <span className="ml-1 text-[10px] uppercase tracking-wide text-sky-700">(this one)</span>}
+                          </span>
+                          <span className="flex items-center gap-2 shrink-0">
+                            <span className="text-slate-500 tabular-nums">{fmtMoney(s.total)}</span>
+                            <span className={`inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                              s.status === 'Checked In'  ? 'bg-emerald-100 text-emerald-800' :
+                              s.status === 'Confirmed'   ? 'bg-sky-100 text-sky-800' :
+                              s.status === 'Completed'   ? 'bg-slate-200 text-slate-700' :
+                              s.status === 'Cancelled'   ? 'bg-rose-100 text-rose-700' :
+                              s.status === 'No-Show'     ? 'bg-amber-100 text-amber-800' :
+                              'bg-slate-100 text-slate-700'
+                            }`}>
+                              {s.status}
+                            </span>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="mt-2 text-[11px] text-sky-700/80">
+                    Per-room actions (check-in, check-out, transfer, cancel) apply only to this room — open the other rooms from the bookings list to act on them.
+                  </p>
+                </div>
+              </div>
+            )}
             {booking.promoCode && Number(booking.discount) > 0 && (
               <div className="col-span-2">
                 <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
