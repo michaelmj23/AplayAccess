@@ -129,7 +129,8 @@ function printDailyReport(dateBookings, reportDateLabel, totalRevenue, entranceR
   const statusCount = (s) => dateBookings.filter(b => b.status === s).length;
   // Gross = full value of all bookings regardless of status (shows potential earnings).
   // Used only for the "Gross Booking Value" summary card (labeled "Full value if no cancellations").
-  const grossTotal = dateBookings.reduce((s,b) => s + Number(b.total||0) + calcEntrance(b, entranceRates), 0);
+  // extensionsTotal must fold in — an extended stay IS additional earned value.
+  const grossTotal = dateBookings.reduce((s,b) => s + Number(b.total||0) + Number(b.extensionsTotal||0) + calcEntrance(b, entranceRates), 0);
   // Active-only sums for the "Total Guests" summary card + the per-row
   // Totals tfoot — cancelled rows contribute nothing to what the resort
   // actually served, so including them inflated the numbers.

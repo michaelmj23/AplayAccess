@@ -353,7 +353,7 @@ export default function Bookings({ embedded = false }) {
         // rows sort as 0 so the column surfaces "what still needs
         // collecting" at the top when clicked descending.
         if (b.status === 'Completed' || b.status === 'Cancelled' || b.fullyPaid) key = 0;
-        else key = Math.max(0, Number(b.total ?? 0) + calcEntrance(b, entranceRates) - Number(b.paidAmount ?? 0));
+        else key = Math.max(0, Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + calcEntrance(b, entranceRates) - Number(b.paidAmount ?? 0));
       }
       else if (sortBy === 'Status')     key = STATUS_ORDER[b.status] ?? 5;
       else                              key = '';
@@ -406,10 +406,14 @@ export default function Bookings({ embedded = false }) {
       // Group row aggregation.
       const sorted = [...items].sort((a, b) => a.bookingId - b.bookingId);
       const lead = sorted[0];
-      const total       = sorted.reduce((s, x) => s + Number(x.total || 0), 0);
-      const paidAmount  = sorted.reduce((s, x) => s + Number(x.paidAmount || 0), 0);
-      const entranceFee = sorted.reduce((s, x) => s + Number(x.entranceFee || 0), 0);
-      const outstanding = Math.max(0, total + entranceFee - paidAmount);
+      const total            = sorted.reduce((s, x) => s + Number(x.total || 0), 0);
+      const paidAmount       = sorted.reduce((s, x) => s + Number(x.paidAmount || 0), 0);
+      const entranceFee      = sorted.reduce((s, x) => s + Number(x.entranceFee || 0), 0);
+      // Fold sibling stay-extensions into the group outstanding so a
+      // multi-room reservation where any sibling got extended doesn't
+      // under-report its balance in the collapsed row.
+      const extensionsTotal  = sorted.reduce((s, x) => s + Number(x.extensionsTotal || 0), 0);
+      const outstanding      = Math.max(0, total + entranceFee + extensionsTotal - paidAmount);
       const fullyPaid   = sorted.every(x => x.fullyPaid);
       const names = sorted.map(x => x.roomType).filter(Boolean);
       const roomDisplay = names.length <= 2
@@ -425,7 +429,7 @@ export default function Bookings({ embedded = false }) {
         isGroup: true,
         groupRows: sorted,
         roomType: roomDisplay,
-        total, paidAmount, entranceFee, outstanding, fullyPaid,
+        total, paidAmount, entranceFee, extensionsTotal, outstanding, fullyPaid,
         status: topStatus,
         checkIn: earliestCheckIn,
         checkOut: latestCheckOut,
@@ -597,11 +601,14 @@ export default function Bookings({ embedded = false }) {
                     ['Guest',      guest],
                     ['Room',       b.roomType],
                     // The confirm dialog keeps "Total" as the grand sum
-                    // (room + gate) even though the table column shifted
-                    // to payment pills — when staff is about to confirm
-                    // an action they want the full collectible number,
-                    // not just the outstanding balance.
-                    ['Total',      fmtMoney(Number(b.total ?? 0) + calcEntrance(b, entranceRates))],
+                    // (room + gate + extensions) even though the table
+                    // column shifted to payment pills — when staff is
+                    // about to confirm an action they want the full
+                    // collectible number, not just the outstanding
+                    // balance. Extensions must fold in here or a
+                    // Day→Night extended booking confirm dialog
+                    // under-reports what's actually owed.
+                    ['Total',      fmtMoney(Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + calcEntrance(b, entranceRates))],
                   ].map(([label, val]) => (
                     <div key={label} className="flex justify-between px-4 py-2">
                       <span className="text-slate-600">{label}</span>
