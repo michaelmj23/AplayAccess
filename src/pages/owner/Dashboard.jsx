@@ -252,7 +252,13 @@ export default function OwnerDashboard() {
   const revBreakdown = useMemo(() => {
     let room = 0, entrance = 0, addons = 0, promos = 0;
     activeBookings.forEach(b => {
-      const grand = Number(b.total ?? 0) + Number(b.entranceFee ?? 0);
+      // Grand must include extensionsTotal — a Day→Night extension's
+      // ₱1,500 is real collected money. Without this, the fully-paid
+      // gate still passes (paid ≥ room+entrance), but the donut
+      // silently underreports collected revenue by the extension
+      // amount because no slice absorbs it.
+      const extensions = Number(b.extensionsTotal ?? 0);
+      const grand = Number(b.total ?? 0) + Number(b.entranceFee ?? 0) + extensions;
       const paid  = Number(b.paidAmount ?? 0);
       if (paid <= 0 || paid + 0.01 < grand) return; // skip unpaid + partial
       const amenityTotal = Array.isArray(b.amenities)
@@ -260,7 +266,8 @@ export default function OwnerDashboard() {
         : 0;
       const disc = Number(b.discount ?? 0);
       const tot  = Number(b.total ?? 0);
-      room     += tot + disc - amenityTotal;
+      // Extensions are extra room-nights so they fold into the room slice.
+      room     += tot + disc - amenityTotal + extensions;
       entrance += Number(b.entranceFee ?? 0);
       addons   += amenityTotal;
       promos   += disc;

@@ -264,7 +264,9 @@ export default function OwnerTransactions() {
     const buckets = { partial: 0, unpaid: 0 };
     for (const b of allBookings) {
       if (["Cancelled", "Completed"].includes(b.status)) continue;
-      const grand = Number(b.total ?? 0) + Number(b.entranceFee ?? 0);
+      // grand must fold extensionsTotal — a Day→Night extension adds
+      // ₱1,500+ that would otherwise ghost out of the Outstanding card.
+      const grand = Number(b.total ?? 0) + Number(b.entranceFee ?? 0) + Number(b.extensionsTotal ?? 0);
       const owed  = Math.max(0, grand - Number(b.paidAmount ?? 0));
       if (owed <= 0) continue;
       // Partial = has paid something but not everything.
@@ -482,7 +484,8 @@ export default function OwnerTransactions() {
                       // lost — they still see "oh, this booking was ₱1,500
                       // but we only collected ₱300".
                       const entrance   = Number(b.entranceFee ?? 0);
-                      const grandTotal = Number(b.total ?? 0) + entrance;
+                      const extensions = Number(b.extensionsTotal ?? 0);
+                      const grandTotal = Number(b.total ?? 0) + entrance + extensions;
                       const collected  = collectedAmt(b);
                       const isCancelled    = b.status === 'Cancelled';
                       const isFullyPaid    = collected > 0 && collected + 0.01 >= grandTotal;
@@ -566,7 +569,8 @@ export default function OwnerTransactions() {
             <ul className="md:hidden space-y-3 p-4">
               {currentRows.map((b) => {
                 const entrance      = Number(b.entranceFee ?? 0);
-                const grandTotal    = Number(b.total ?? 0) + entrance;
+                const extensions    = Number(b.extensionsTotal ?? 0);
+                const grandTotal    = Number(b.total ?? 0) + entrance + extensions;
                 const collected     = collectedAmt(b);
                 const isCancelled   = b.status === 'Cancelled';
                 const isFullyPaid   = collected > 0 && collected + 0.01 >= grandTotal;
