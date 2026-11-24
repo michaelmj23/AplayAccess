@@ -18,7 +18,8 @@ function toResumeBooking(b) {
   const typeLabels = {
     day: 'Day Visit (7 AM – 5 PM)',
     night: 'Night Stay (6 PM – 6 AM)',
-    '24hr': '24 Hours',
+    '24hr':    '24 Hours (AM)',
+    '24hr-pm': '24 Hours (PM)',
     '24hr-pm': '24 Hours',
   };
   return {
