@@ -120,7 +120,10 @@ function roomOffers(r, type) {
   const typeAllowed  = unrestricted || allowed.includes(type);
   if (!typeAllowed) return false;
   if (type === 'night') return Number(r?.overnight_rate) > 0;
-  if (type === '24hr')  return Number(r?.rate_24hr)      > 0;
+  // 24hr and 24hr-pm share the rate_24hr column; without this an
+  // unrestricted room with day_rate = 0 (common on cottages /
+  // pavilions) would silently fail to advertise the PM variant.
+  if (type === '24hr' || type === '24hr-pm') return Number(r?.rate_24hr) > 0;
   return Number(r?.day_rate) > 0;
 }
 
@@ -445,7 +448,7 @@ export default function Resort() {
     if (!b) return null;
     const typeLabels = {
       day: 'Day Visit (7 AM – 5 PM)', night: 'Night Stay (6 PM – 6 AM)',
-      '24hr': '24 Hours', '24hr-pm': '24 Hours',
+      '24hr': '24 Hours (AM)', '24hr-pm': '24 Hours (PM)',
     };
     return {
       bookingId:        b.bookingId,
