@@ -26,7 +26,7 @@ const PRICING_FIELDS = [
   {
     key:         "entrance_fee_24hr",
     label:       "Entrance Fee — 24 Hours",
-    description: "Per guest for full-day (24-hour) visits.",
+    description: "Per guest for full-day (24-hour) visits. Shared by both AM (7AM–next 6AM) and PM (6PM–next 6PM) variants.",
     icon:        "fa-clock",
     prefix:      "₱",
     suffix:      "/ head",
@@ -57,7 +57,7 @@ const PRICING_FIELDS = [
   {
     key:         "reservation_fee_pct_24hr",
     label:       "Online Reservation Fee — 24 Hours",
-    description: "Percentage charged online when the guest books a 24-hour slot. Set to 100 to require full payment at booking.",
+    description: "Percentage charged online when the guest books a 24-hour slot (both AM and PM variants). Set to 100 to require full payment at booking.",
     icon:        "fa-clock",
     prefix:      "",
     suffix:      "%",
@@ -292,7 +292,7 @@ export default function OwnerSettings() {
                     <input
                       type="number"
                       min={0}
-                      max={field.key === "reservation_fee_pct" ? 100 : undefined}
+                      max={/^reservation_fee_pct/.test(field.key) ? 100 : undefined}
                       step={field.step}
                       value={draft[field.key] ?? ""}
                       onChange={e => handleChange(field.key, e.target.value)}
@@ -334,7 +334,7 @@ export default function OwnerSettings() {
               {[
                 { label: 'Day slot',       icon: 'fa-sun',   pct: pctDay,   preview: prevDay   },
                 { label: 'Night slot',     icon: 'fa-moon',  pct: pctNight, preview: prevNight },
-                { label: '24-hour slot',   icon: 'fa-clock', pct: pct24hr,  preview: prev24hr  },
+                { label: '24-hour slot (AM + PM share this rate)', icon: 'fa-clock', pct: pct24hr, preview: prev24hr  },
               ].map(({ label, icon, pct, preview }) => (
                 <div key={label} className="px-6 py-4 space-y-2">
                   <div className="flex items-center justify-between">
