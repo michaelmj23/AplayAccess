@@ -1185,26 +1185,78 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     );
                   })}
                 </div>
-                {/* Rate shown below — pill-styled so the live rate is
-                    legible at a glance instead of disappearing as gray
-                    fine print. Accent color tracks the active booking
-                    type so the eye lands here right after the click. */}
-                {roomId && (
-                  <div className="mt-2 flex justify-center">
-                    <span className={`inline-flex items-baseline gap-1.5 px-3 py-1 rounded-full text-base font-bold tabular-nums shadow-sm ${
-                      bookingType === "night"
-                        ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200"
-                        : is24hr
-                          ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
-                          : "bg-sky-50 text-sky-700 ring-1 ring-sky-200"
-                    }`}>
-                      {formatPHP(baseRate)}
-                      <span className="text-[11px] font-medium opacity-70">
-                        / {bookingType === "night" ? "night" : is24hr ? "24 hrs" : "day"}
-                      </span>
-                    </span>
-                  </div>
-                )}
+                {/* Estimated total — swaps the old per-slot rate pill
+                    (which only reflected the primary room) for a live
+                    grand-total card that covers every selected room,
+                    add-ons, and the entrance fee estimate. Aggregates
+                    across primary + additionalRooms so multi-room
+                    bookings see the real figure update as rooms are
+                    added or removed. */}
+                {roomId && (() => {
+                  const totalRooms = 1 + additionalRoomObjs.length;
+                  const slotLabel = bookingType === "night"
+                    ? "Night"
+                    : is24hr
+                      ? `24 hrs${effectiveNights > 1 ? ` × ${effectiveNights}` : ""}`
+                      : "Day";
+                  const accent = bookingType === "night"
+                    ? "from-indigo-50 to-blue-50 border-indigo-200 text-indigo-700"
+                    : is24hr
+                      ? "from-amber-50 to-orange-50 border-amber-200 text-amber-700"
+                      : "from-sky-50 to-cyan-50 border-sky-200 text-sky-700";
+                  return (
+                    <div className={`mt-3 rounded-2xl border bg-gradient-to-br ${accent} shadow-sm overflow-hidden`}>
+                      <div className="px-4 py-3 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 flex items-center gap-1">
+                            <i className="fas fa-receipt text-[9px]" aria-hidden="true"></i>
+                            Estimated total
+                          </p>
+                          <p className="text-[11px] mt-0.5 opacity-80">
+                            {totalRooms} {totalRooms === 1 ? "room" : "rooms"} · {slotLabel}
+                            {Number(estimatedEntrance) > 0 && " · entrance incl."}
+                          </p>
+                        </div>
+                        <p className="text-2xl md:text-3xl font-extrabold tabular-nums shrink-0">
+                          {formatPHP(grandEstimate)}
+                        </p>
+                      </div>
+                      {/* Mini breakdown so the number isn't a black box.
+                          Reads left-to-right so guests can trace it back
+                          to the room list / booking-type choice above. */}
+                      <div className="px-4 pb-2.5 flex items-center gap-x-3 gap-y-1 flex-wrap text-[10.5px] opacity-80">
+                        <span className="inline-flex items-baseline gap-1">
+                          <span className="opacity-70">Rooms</span>
+                          <span className="font-semibold tabular-nums">{formatPHP(roomSubtotal)}</span>
+                        </span>
+                        {Number(packageTotal) > 0 && (
+                          <span className="inline-flex items-baseline gap-1">
+                            <span className="opacity-70">Package</span>
+                            <span className="font-semibold tabular-nums">+{formatPHP(packageTotal)}</span>
+                          </span>
+                        )}
+                        {Number(optionalTotal) > 0 && (
+                          <span className="inline-flex items-baseline gap-1">
+                            <span className="opacity-70">Add-ons</span>
+                            <span className="font-semibold tabular-nums">+{formatPHP(optionalTotal)}</span>
+                          </span>
+                        )}
+                        {Number(discount) > 0 && (
+                          <span className="inline-flex items-baseline gap-1">
+                            <span className="opacity-70">Promo</span>
+                            <span className="font-semibold tabular-nums">−{formatPHP(discount)}</span>
+                          </span>
+                        )}
+                        {Number(estimatedEntrance) > 0 && (
+                          <span className="inline-flex items-baseline gap-1">
+                            <span className="opacity-70">Entrance (est)</span>
+                            <span className="font-semibold tabular-nums">+{formatPHP(estimatedEntrance)}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 24hr bookings have a fixed window (7 AM – next day 6 AM).
                     Guests arrive any time during the day; no start-hour
