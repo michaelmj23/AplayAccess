@@ -96,7 +96,7 @@ export default function PromoCodes() {
   /* ── table controls ── */
   const [searchTerm, setSearchTerm] = useState("");
   const debouncedSearch = useDebounce(searchTerm, 300);
-  const [filterStatus, setFilterStatus] = useState("all"); // all | active | inactive | expired
+  const [filterStatus, setFilterStatus] = useState("active"); // all | active | inactive | expired
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState(() => localStorage.getItem("promo_sortBy") || "Code");
   const [sortDir, setSortDir] = useState(() => localStorage.getItem("promo_sortDir") || "asc");
