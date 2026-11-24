@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Modal from "./Modal.jsx";
 import { createBooking, createGuestBooking, cancelBooking, cancelGuestBooking, createGuestPaymentLink, getGuestPaymentStatus, guestConfirmPayment } from "../../lib/bookingApi.js";
+import { primeCsrf } from "../../lib/api.js";
 import { createPaymentLink, getPaymentStatus } from "../../lib/paymentApi.js";
 import { api } from "../../lib/api.js";
 import { validatePromo } from "../../lib/adminApi.js";
@@ -727,6 +728,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     setError("");
     setSubmitting(true);
     try {
+      // Prime CSRF before the mutating POST — see the comment on the
+      // create-booking path for why app-boot's one-shot prime isn't
+      // enough once the user has sat on the modal for a bit.
+      await primeCsrf();
       // Authed user → /api/bookings/{id}/resume-payment
       // Guest token → /api/guest-resume-payment (not used from MyBookings
       // since those are authed, but supported for completeness)
@@ -872,6 +877,14 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         bookingPayload.guest_email = guestEmail.trim();
         bookingPayload.guest_phone = guestPhone.trim() || null;
       }
+
+      // Prime Sanctum's XSRF-TOKEN cookie right before the mutating
+      // POST. The one at app boot can rotate while the user fills the
+      // form (long sessions, refocus, Vercel route caching), so a
+      // stale cookie would 419 with "CSRF token mismatch". Same fix
+      // as Signup.jsx / SignupModal.jsx — call it per-submit, not
+      // just once at app boot.
+      await primeCsrf();
 
       const result = guestMode
         ? await createGuestBooking(bookingPayload)
