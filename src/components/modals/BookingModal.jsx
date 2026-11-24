@@ -518,6 +518,40 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     }
   }, [multiRoomMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // When availability changes (date or booking type flipped),
+  // auto-drop the primary / sibling rooms that are no longer bookable
+  // on the new slot — previously the invalid selection stayed in state
+  // and the only feedback was a failed submit. Tell the user what we
+  // cleared so a surprise 0-room post-change doesn't look like a UI
+  // glitch. Skipped while availability is still loading (null).
+  useEffect(() => {
+    if (!availability) return;
+    const dropped = [];
+    if (roomId && availability[String(roomId)] !== true) {
+      const name = rooms.find(r => String(r.id) === String(roomId))?.name;
+      if (name) dropped.push(name);
+      setRoomId("");
+    }
+    const stillOk = additionalRooms.filter(ar => availability[String(ar.roomId)] === true);
+    if (stillOk.length !== additionalRooms.length) {
+      additionalRooms
+        .filter(ar => availability[String(ar.roomId)] !== true)
+        .forEach(ar => {
+          const name = rooms.find(r => String(r.id) === String(ar.roomId))?.name;
+          if (name) dropped.push(name);
+        });
+      setAdditionalRooms(stillOk);
+    }
+    if (dropped.length > 0) {
+      const unique = Array.from(new Set(dropped));
+      setError(
+        unique.length === 1
+          ? `${unique[0]} isn't available for the new date/slot — removed from your selection. Pick another.`
+          : `${unique.join(', ')} aren't available for the new date/slot — removed from your selection. Pick again.`
+      );
+    }
+  }, [availability]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Derived pricing — room rate only, 20% reservation fee ─────────────────
   const is24hr   = bookingType === "24hr";
   const baseRate = bookingType === "night"
