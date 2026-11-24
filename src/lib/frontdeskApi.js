@@ -102,11 +102,20 @@ export async function extendReservation(reservationId, payload) {
 // DELETE /api/admin/bookings/{id}/extensions/{extensionId}
 // Cancel the tail extension. Backend guards: only tail, must not
 // have started yet, booking status Checked In. Returns
-// {removed_total, overpayment, booking} — overpayment > 0 means
-// staff collected cash for this extension already and needs to
-// reconcile (refund / credit) at checkout.
-export async function cancelExtension(bookingId, extensionId) {
-  const res = await api.delete(`/api/admin/bookings/${bookingId}/extensions/${extensionId}`);
+// {removed_total, refund_applied, overpayment, booking}.
+//
+// Pass opts.refundCash=true when staff confirms they physically
+// handed back the overpayment to the guest — backend then records
+// it as a refund (refund_amount += overpayment, refunded_at = now).
+// Omit or false to leave the booking overpaid without recording a
+// refund (staff keeps as credit or will reconcile at checkout).
+export async function cancelExtension(bookingId, extensionId, opts = {}) {
+  const body = {};
+  if (opts.refundCash) body.refund_cash = true;
+  const res = await api.delete(
+    `/api/admin/bookings/${bookingId}/extensions/${extensionId}`,
+    { data: body },
+  );
   return res.data;
 }
 

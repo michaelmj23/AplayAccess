@@ -507,15 +507,21 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     }
   }
 
-  async function handleCancelExtension() {
+  async function handleCancelExtension({ refundCash } = {}) {
     if (!cancelExtPending) return;
     setCancelExtLoading(true);
     try {
-      const res = await cancelExtension(booking.bookingId, cancelExtPending.id);
-      const over = Number(res?.overpayment ?? 0);
-      const msg = over > 0
-        ? `Extension cancelled. Guest overpaid by ${fmtMoney(over)} — refund or credit at checkout.`
-        : 'Extension cancelled.';
+      const res = await cancelExtension(booking.bookingId, cancelExtPending.id, { refundCash });
+      const refunded = Number(res?.refund_applied ?? 0);
+      const over     = Number(res?.overpayment ?? 0);
+      let msg;
+      if (refunded > 0) {
+        msg = `Extension cancelled. Refund of ${fmtMoney(refunded)} recorded — hand the cash to the guest.`;
+      } else if (over > 0) {
+        msg = `Extension cancelled. Guest overpaid by ${fmtMoney(over)} — refund or credit at checkout.`;
+      } else {
+        msg = 'Extension cancelled.';
+      }
       showToast?.(msg);
       onReload?.();
       refreshNotifications?.();
@@ -1144,45 +1150,96 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       Previews the overpayment the cancel will create
                       so staff know to reconcile at checkout. */}
                   {cancelExtPending && (() => {
-                    const paid = Number(booking.paidAmount ?? 0);
-                    const grand = Number(booking.total ?? 0) + Number(booking.entranceFee ?? 0) + Number(booking.extensionsTotal ?? 0);
-                    const futureGrand = grand - Number(cancelExtPending.amount ?? 0);
-                    const futureOverpay = Math.max(0, paid - futureGrand);
+                    const paid   = Number(booking.paidAmount ?? 0);
+                    const refund = Number(booking.refundAmount ?? 0);
+                    const effectivePaid = paid - refund;
+                    const grand  = Number(booking.total ?? 0) + Number(booking.entranceFee ?? 0) + Number(booking.extensionsTotal ?? 0);
+                    const futureGrand   = grand - Number(cancelExtPending.amount ?? 0);
+                    const futureOverpay = Math.max(0, effectivePaid - futureGrand);
+                    const hasOverpay    = futureOverpay > 0;
                     return (
                       <div className="mt-2 rounded-lg bg-rose-50 border border-rose-200 p-2">
                         <p className="text-[11px] text-rose-900 mb-1">
                           Cancel the <span className="font-semibold">{cancelExtPending.label}</span> extension?
                           Removes <span className="font-semibold">{fmtMoney(cancelExtPending.amount)}</span> from the balance.
                         </p>
-                        {futureOverpay > 0 && (
-                          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
-                            <i className="fas fa-triangle-exclamation mr-1" aria-hidden="true"></i>
-                            Guest has paid {fmtMoney(paid)} which exceeds the new grand total — overpaid by
-                            {' '}<span className="font-semibold">{fmtMoney(futureOverpay)}</span>. Refund or credit at checkout.
-                          </p>
+                        {hasOverpay && (
+                          <div className="text-[11px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 mb-2 space-y-1">
+                            <p className="flex items-start gap-1.5">
+                              <i className="fas fa-coins text-emerald-600 mt-0.5" aria-hidden="true"></i>
+                              <span>
+                                Guest paid <span className="font-semibold">{fmtMoney(effectivePaid)}</span>, new grand total is <span className="font-semibold">{fmtMoney(futureGrand)}</span>.
+                                You'll owe the guest <span className="font-bold text-emerald-700">{fmtMoney(futureOverpay)}</span> in cash.
+                              </span>
+                            </p>
+                            <p className="text-[10px] text-emerald-700 ml-5">
+                              Pick an option below. Policy: cash / GCash collected at the counter is refundable; online reservation fees paid via PayMongo are NOT.
+                            </p>
+                          </div>
                         )}
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={handleCancelExtension}
-                            disabled={cancelExtLoading}
-                            className="flex-1 inline-flex items-center justify-center gap-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded"
-                          >
-                            {cancelExtLoading ? (
-                              <><i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>Cancelling…</>
-                            ) : (
-                              <><i className="fas fa-times text-[10px]" aria-hidden="true"></i>Yes, cancel extension</>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setCancelExtPending(null)}
-                            disabled={cancelExtLoading}
-                            className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 text-[11px] font-semibold py-1.5 px-2 rounded"
-                          >
-                            Keep extension
-                          </button>
-                        </div>
+                        {/* Two primary paths when there's an overpayment:
+                            RECORD the refund (staff hands cash now, system
+                            logs it and nets out of Reports), or CANCEL
+                            WITHOUT refund (leaves booking overpaid — staff
+                            reconciles manually at checkout). No-overpay
+                            case collapses to a single cancel. */}
+                        {hasOverpay ? (
+                          <div className="flex flex-col gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleCancelExtension({ refundCash: true })}
+                              disabled={cancelExtLoading}
+                              className="inline-flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[11px] font-semibold py-2 px-2 rounded"
+                            >
+                              {cancelExtLoading ? (
+                                <><i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>Recording refund…</>
+                              ) : (
+                                <><i className="fas fa-check text-[10px]" aria-hidden="true"></i>I've handed back {fmtMoney(futureOverpay)} cash — cancel + record refund</>
+                              )}
+                            </button>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleCancelExtension({ refundCash: false })}
+                                disabled={cancelExtLoading}
+                                className="flex-1 inline-flex items-center justify-center gap-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded"
+                              >
+                                <i className="fas fa-times text-[10px]" aria-hidden="true"></i>Cancel without refund
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCancelExtPending(null)}
+                                disabled={cancelExtLoading}
+                                className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 text-[11px] font-semibold py-1.5 px-2 rounded"
+                              >
+                                Keep extension
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleCancelExtension({ refundCash: false })}
+                              disabled={cancelExtLoading}
+                              className="flex-1 inline-flex items-center justify-center gap-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded"
+                            >
+                              {cancelExtLoading ? (
+                                <><i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>Cancelling…</>
+                              ) : (
+                                <><i className="fas fa-times text-[10px]" aria-hidden="true"></i>Yes, cancel extension</>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCancelExtPending(null)}
+                              disabled={cancelExtLoading}
+                              className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 text-[11px] font-semibold py-1.5 px-2 rounded"
+                            >
+                              Keep extension
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
