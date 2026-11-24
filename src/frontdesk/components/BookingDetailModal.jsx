@@ -1339,7 +1339,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                             const active = extendSelected?.type === opt.type;
                             // For 24hr, let staff multiply nights client-side.
                             const nights = active && opt.type === '24hr'
-                              ? Math.max(1, Math.min(14, Number(extendSelected.nights) || 1))
+                              ? Math.max(1, Math.min(30, Number(extendSelected.nights) || 1))
                               : 1;
                             const total = (opt.rate || 0) * nights;
                             return (
@@ -1385,8 +1385,8 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                                         {extendSelected.nights || 1}
                                       </span>
                                       <button type="button"
-                                        onClick={() => setExtendSelected(s => ({ ...s, nights: Math.min(14, (s.nights || 1) + 1) }))}
-                                        disabled={(extendSelected.nights || 1) >= 14}
+                                        onClick={() => setExtendSelected(s => ({ ...s, nights: Math.min(30, (s.nights || 1) + 1) }))}
+                                        disabled={(extendSelected.nights || 1) >= 30}
                                         className="w-6 h-6 rounded bg-white border border-amber-300 text-amber-700 text-[10px] font-bold disabled:opacity-40"
                                         aria-label="Increase nights"
                                       ><i className="fas fa-plus"></i></button>

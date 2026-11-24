@@ -568,7 +568,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // Multi-night 24hr: the per-night rate rolls up to roomSubtotal
   // before promo and package/optional add-ons fold in. room_rate on
   // the booking row stays per-night; `nights` is a separate column.
-  const effectiveNights    = is24hr ? Math.max(1, Math.min(14, Number(nights) || 1)) : 1;
+  const effectiveNights    = is24hr ? Math.max(1, Math.min(30, Number(nights) || 1)) : 1;
 
   // Per-room rate helper. Honors mixed-type bookings: an additional
   // room can override `type` and the rate column switches to match.
@@ -1293,8 +1293,8 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                         </span>
                         <button
                           type="button"
-                          onClick={() => setNights(n => Math.min(14, Number(n) + 1))}
-                          disabled={nights >= 14}
+                          onClick={() => setNights(n => Math.min(30, Number(n) + 1))}
+                          disabled={nights >= 30}
                           className="w-7 h-7 rounded-lg bg-white border border-amber-300 text-amber-700 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-100"
                           aria-label="Increase nights"
                         >

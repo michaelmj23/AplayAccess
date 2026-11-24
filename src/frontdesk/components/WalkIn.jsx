@@ -402,7 +402,7 @@ export default function WalkIn({ embedded = false }) {
   // Multi-night 24hr: per-night rate rolls up for pricing previews.
   // room_rate on the booking row stays per-night; `nights` is sent
   // separately and the backend recomputes.
-  const effectiveNights = is24hr ? Math.max(1, Math.min(14, Number(form.nights) || 1)) : 1;
+  const effectiveNights = is24hr ? Math.max(1, Math.min(30, Number(form.nights) || 1)) : 1;
 
   // Per-room rate helper. Honors mixed-type bookings by letting the
   // caller pass an override type (each additionalRoom may carry its
@@ -1287,8 +1287,8 @@ export default function WalkIn({ embedded = false }) {
                             </span>
                             <button
                               type="button"
-                              onClick={() => setField('nights', Math.min(14, Number(form.nights) + 1))}
-                              disabled={form.nights >= 14}
+                              onClick={() => setField('nights', Math.min(30, Number(form.nights) + 1))}
+                              disabled={form.nights >= 30}
                               className="w-7 h-7 rounded-md bg-white border border-amber-300 text-amber-700 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-100"
                               aria-label="Increase nights"
                             >
