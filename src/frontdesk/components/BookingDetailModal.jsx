@@ -880,10 +880,32 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
             document.body
           )}
 
-          {/* Header */}
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold">Booking — {booking.id}</h3>
-            <button onClick={onClose} type="button" className="w-11 h-11 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500" aria-label="Close">
+          {/* Header — for group bookings the reservation id is shown
+              as the primary line so it matches what the bookings table
+              displays for the expanded group row (RSV-…). The per-room
+              APL-… id becomes a subtitle so staff can still copy it
+              for ticketing / receipts. Singles keep the one-line
+              "Booking — APL-…" header. */}
+          <div className="flex justify-between items-start mb-4 gap-3">
+            {Number(booking.groupSize ?? 1) > 1 && booking.reservationResId ? (
+              <div className="min-w-0">
+                <h3 className="text-lg font-semibold text-slate-900 flex items-center flex-wrap gap-x-2">
+                  <span>Group reservation — {booking.reservationResId}</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-bold uppercase tracking-wide">
+                    <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
+                    Group of {booking.groupSize}
+                  </span>
+                </h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  This room: <span className="font-mono text-slate-700">{booking.id}</span>
+                  <span className="mx-1 text-slate-300">·</span>
+                  <span className="font-medium text-slate-700">{booking.roomType}</span>
+                </p>
+              </div>
+            ) : (
+              <h3 className="text-lg font-semibold">Booking — {booking.id}</h3>
+            )}
+            <button onClick={onClose} type="button" className="shrink-0 w-11 h-11 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500" aria-label="Close">
               <i className="fas fa-times"></i>
             </button>
           </div>
