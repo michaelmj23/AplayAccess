@@ -537,26 +537,18 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
         const res = await extendReservation(booking.reservationId, extendSelected);
         const summary = res?.summary || {};
         const extended = Number(summary.extended ?? 0);
-        const skippedCount =
-          (summary.skipped_not_checked_in?.length ?? 0) +
-          (summary.skipped_type_mismatch?.length ?? 0) +
-          (summary.skipped_room_conflict?.length ?? 0) +
-          (summary.skipped_addon_conflict?.length ?? 0);
-        // Always refresh the parent list so extended siblings reflect
-        // their new check_out / balance. Then decide whether to keep
-        // the picker open: if ANY rooms were skipped, hold the picker
-        // on a result screen so staff see exactly which rooms didn't
-        // take and why — a toast alone is too fleeting for a partial
-        // group outcome.
+        const expectedSkips = (summary.skipped_not_checked_in?.length ?? 0);
+        // Backend returns 200 only when the whole group succeeded
+        // (atomic semantics). Reload the parent so new check_out /
+        // balance show up. If there were "not Checked In" expected
+        // skips, hold the result card open so staff see the breakdown;
+        // otherwise toast + close like a normal full success.
         onReload?.();
         refreshNotifications?.();
-        if (skippedCount > 0) {
-          setExtendResult({ scope: 'group', ...summary, message: res.message });
-          // Keep extendOpen; staff dismisses via the Close button
-          // on the result card so they've seen the detail.
+        if (expectedSkips > 0) {
+          setExtendResult({ scope: 'group', aborted: false, ...summary, message: res.message });
           return;
         }
-        // Full success — toast the one-liner and close as before.
         showToast?.(res.message || `Group extend: ${extended} room(s) extended.`);
         setExtendOpen(false);
         onClose?.();
@@ -569,7 +561,16 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
         onClose?.();
       }
     } catch (err) {
-      setExtendError(err?.response?.data?.message || 'Could not extend the stay.');
+      // Structured 422 abort from the group-extend endpoint. Carries
+      // a full summary (per-room names + categories). Show it in the
+      // result card instead of a toast so staff can read what blocked
+      // each room and act on it.
+      const data = err?.response?.data;
+      if (extendScope === 'group' && data?.summary) {
+        setExtendResult({ scope: 'group', aborted: !!data.aborted, ...data.summary, message: data.message });
+      } else {
+        setExtendError(data?.message || 'Could not extend the stay.');
+      }
     } finally {
       setExtendSubmitting(false);
     }
@@ -1244,8 +1245,21 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                         outcome. */}
                     {extendResult && (
                       <div className="space-y-2">
-                        <p className="text-xs text-violet-900 font-semibold">Group extend — result</p>
-                        {Number(extendResult.extended ?? 0) > 0 && (
+                        <p className="text-xs text-violet-900 font-semibold">
+                          Group extend — {extendResult.aborted ? 'aborted' : 'result'}
+                        </p>
+                        {extendResult.aborted && (
+                          <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2">
+                            <p className="text-[11px] text-rose-900 font-semibold flex items-center gap-1.5">
+                              <i className="fas fa-ban text-rose-600" aria-hidden="true"></i>
+                              Nothing was extended — all-or-nothing abort
+                            </p>
+                            <p className="text-[11px] text-rose-800 mt-0.5 ml-5">
+                              A conflict on one or more rooms stopped the whole operation. No BookingExtension rows were written. Resolve the conflicts below, then re-run.
+                            </p>
+                          </div>
+                        )}
+                        {!extendResult.aborted && Number(extendResult.extended ?? 0) > 0 && (
                           <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2">
                             <p className="text-[11px] text-emerald-900 font-semibold flex items-center gap-1.5">
                               <i className="fas fa-check-circle text-emerald-600" aria-hidden="true"></i>
@@ -1300,11 +1314,24 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                         ))}
                         <button
                           type="button"
-                          onClick={() => { setExtendOpen(false); setExtendResult(null); onClose?.(); }}
+                          onClick={() => {
+                            // On abort nothing happened, so just dismiss the result
+                            // card and let staff reconcile without losing the modal.
+                            // On a successful run the modal closes so staff can see
+                            // the refreshed list.
+                            if (extendResult.aborted) {
+                              setExtendOpen(false);
+                              setExtendResult(null);
+                            } else {
+                              setExtendOpen(false);
+                              setExtendResult(null);
+                              onClose?.();
+                            }
+                          }}
                           className="w-full inline-flex items-center justify-center gap-1 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold py-2 px-3 rounded"
                         >
-                          <i className="fas fa-check text-[10px]" aria-hidden="true"></i>
-                          Got it
+                          <i className={`fas ${extendResult.aborted ? 'fa-times' : 'fa-check'} text-[10px]`} aria-hidden="true"></i>
+                          {extendResult.aborted ? 'Close — reconcile and retry' : 'Got it'}
                         </button>
                       </div>
                     )}
@@ -1337,7 +1364,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                             <p className="text-[11px] text-violet-700 bg-violet-100 rounded px-2 py-1 mb-2">
                               <i className="fas fa-layer-group mr-1" aria-hidden="true"></i>
                               Applies to {eligible} Checked-In room{eligible === 1 ? '' : 's'} of {booking.groupSize} in this reservation.
-                              Siblings whose current slot can't accept this type will be skipped.
+                              All-or-nothing: if any room conflicts, no rooms are extended — the response will name which rooms blocked and why.
                             </p>
                           );
                         })()}
