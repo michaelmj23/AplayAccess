@@ -1322,6 +1322,20 @@ export default function Billing({ embedded = false }) {
                                       {sOut > 0 ? `${fmtMoney(sOut)} due` : '✓ Paid'}
                                     </p>
                                   </div>
+                                  {/* Per-sibling Collect — fires collectPayment for just
+                                      this room instead of the whole reservation. Hidden
+                                      when the sibling is already fully paid. */}
+                                  {sOut > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); openCollect(sibling); }}
+                                      onKeyDown={(e) => e.stopPropagation()}
+                                      aria-label={`Collect ${fmtMoney(sOut)} for ${sibling.roomType} ${sibling.id} only`}
+                                      className="shrink-0 inline-flex items-center gap-1 min-h-9 px-3 py-1 border border-emerald-600 text-emerald-700 bg-white rounded text-xs font-semibold hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
+                                    >
+                                      <i className="fas fa-hand-holding-usd text-[11px]" aria-hidden="true"></i>Collect
+                                    </button>
+                                  )}
                                 </li>
                               );
                             })}
@@ -1505,6 +1519,17 @@ export default function Billing({ embedded = false }) {
                                       {sOut > 0 ? `${fmtMoney(sOut)} due` : '✓ Paid'}
                                     </p>
                                   </div>
+                                  {sOut > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); openCollect(sibling); }}
+                                      onKeyDown={(e) => e.stopPropagation()}
+                                      aria-label={`Collect ${fmtMoney(sOut)} for ${sibling.roomType} ${sibling.id} only`}
+                                      className="shrink-0 inline-flex items-center gap-1 min-h-9 px-3 py-1 border border-emerald-600 text-emerald-700 bg-white rounded text-xs font-semibold hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
+                                    >
+                                      <i className="fas fa-hand-holding-usd text-[11px]" aria-hidden="true"></i>Collect
+                                    </button>
+                                  )}
                                 </li>
                               );
                             })}
