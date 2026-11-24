@@ -969,12 +969,23 @@ export default function Bookings({ embedded = false }) {
                     // live rows at the top stand out naturally; the
                     // urgency-default sort already floats them up there.
                     const isResolved = b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'No-Show';
+                    // Row highlight priorities:
+                    //   overdue (safety)  > group tint > walk-in tint > default
+                    // Groups pick up a violet tint + violet left border so
+                    // staff can spot multi-room reservations from across the
+                    // list without scanning for the "Group of N" badge. On
+                    // a walk-in group, keep the amber background but switch
+                    // the left border to violet so BOTH signals land.
                     const rowCls = [
                       overdue
                         ? 'bg-rose-50 hover:bg-rose-100 border-l-4 border-rose-500'
-                        : isWalkIn
-                          ? 'bg-amber-50/60 hover:bg-amber-100/80 border-l-4 border-amber-400'
-                          : 'bg-white hover:bg-slate-50 border-l-4 border-sky-200',
+                        : b.isGroup
+                          ? (isWalkIn
+                              ? 'bg-amber-50/60 hover:bg-amber-100/80 border-l-4 border-violet-500'
+                              : 'bg-violet-50/70 hover:bg-violet-100/80 border-l-4 border-violet-400')
+                          : isWalkIn
+                            ? 'bg-amber-50/60 hover:bg-amber-100/80 border-l-4 border-amber-400'
+                            : 'bg-white hover:bg-slate-50 border-l-4 border-sky-200',
                       isResolved ? 'opacity-60 hover:opacity-100 transition-opacity' : '',
                     ].filter(Boolean).join(' ');
 
@@ -1217,12 +1228,16 @@ export default function Bookings({ embedded = false }) {
                   // overrides walk-in tint; both override the default
                   // sky border for online bookings.
                   const cardCls = [
-                    'w-full text-left rounded-xl border-l-4 border bg-white shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500',
+                    'w-full text-left rounded-xl border-l-4 border shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500',
                     overdue
                       ? 'border-l-rose-500 border-rose-200 bg-rose-50 hover:bg-rose-100'
-                      : isWalkIn
-                        ? 'border-l-amber-400 border-amber-200 bg-amber-50/60 hover:bg-amber-100/80'
-                        : 'border-l-sky-200 border-slate-200 hover:bg-slate-50',
+                      : b.isGroup
+                        ? (isWalkIn
+                            ? 'border-l-violet-500 border-amber-200 bg-amber-50/60 hover:bg-amber-100/80'
+                            : 'border-l-violet-400 border-violet-200 bg-violet-50/60 hover:bg-violet-100/70')
+                        : isWalkIn
+                          ? 'border-l-amber-400 border-amber-200 bg-amber-50/60 hover:bg-amber-100/80'
+                          : 'border-l-sky-200 border-slate-200 bg-white hover:bg-slate-50',
                     isResolved ? 'opacity-60' : '',
                   ].filter(Boolean).join(' ');
 

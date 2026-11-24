@@ -1676,10 +1676,15 @@ export default function Billing({ embedded = false }) {
                     // track horizontally without losing the line.
                     // Odd rows take a very faint slate wash; hover
                     // still overrides both tiers cleanly.
-                    const zebraCls = idx % 2 === 1 ? 'bg-slate-50/60' : 'bg-white';
+                    // Group rows get a violet tint + left border so staff
+                    // can spot multi-room reservations at a glance.
+                    // Singles keep the zebra wash + sky hover.
+                    const rowTint = b.isGroup
+                      ? 'bg-violet-50/60 hover:bg-violet-100/70 border-l-4 border-l-violet-400'
+                      : (idx % 2 === 1 ? 'bg-slate-50/60' : 'bg-white') + ' hover:bg-sky-50/40';
                     return (
                       <tr key={b.bookingId}
-                        className={`${zebraCls} hover:bg-sky-50/40 cursor-pointer transition-colors`}
+                        className={`${rowTint} cursor-pointer transition-colors`}
                         onClick={() => setSelected(b)}
                       >
                         <td className="px-4 py-3 text-xs whitespace-nowrap">
@@ -1804,12 +1809,17 @@ export default function Billing({ embedded = false }) {
                 const guestLabel = walkInName(b);
                 const isResolved = b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'No-Show';
                 const cardCls = [
-                  'rounded-xl border bg-white shadow-sm transition cursor-pointer',
-                  b.status === 'Confirmed' && !b.fullyPaid
-                    ? 'border-l-4 border-l-emerald-400 border-emerald-100 hover:bg-emerald-50/40'
-                    : b.status === 'Pending'
-                      ? 'border-l-4 border-l-amber-400 border-amber-100 hover:bg-amber-50/40'
-                      : 'border-slate-200 hover:bg-slate-50',
+                  'rounded-xl border shadow-sm transition cursor-pointer',
+                  // Group bookings get a violet left border + tint so
+                  // they're identifiable at a glance before the badge
+                  // text is read. Priority: group > status-based.
+                  b.isGroup
+                    ? 'border-l-4 border-l-violet-400 border-violet-200 bg-violet-50/60 hover:bg-violet-100/70'
+                    : b.status === 'Confirmed' && !b.fullyPaid
+                      ? 'border-l-4 border-l-emerald-400 border-emerald-100 bg-white hover:bg-emerald-50/40'
+                      : b.status === 'Pending'
+                        ? 'border-l-4 border-l-amber-400 border-amber-100 bg-white hover:bg-amber-50/40'
+                        : 'border-slate-200 bg-white hover:bg-slate-50',
                   isResolved ? 'opacity-70' : '',
                 ].filter(Boolean).join(' ');
                 return (
