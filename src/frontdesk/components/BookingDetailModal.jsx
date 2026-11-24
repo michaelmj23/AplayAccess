@@ -1035,24 +1035,27 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
             {/* Phase 5 — "Extend stay" action. Visible only while the
                 guest is Checked In. The picker loads valid
                 continuations from the backend and shows one card per
-                option. */}
+                option. For GROUP reservations the outer button is
+                hidden — the group panel's "Extend all eligible rooms"
+                is the one visible extend entry, and per-room extend
+                follows the same pattern as transfer / collect balance
+                / no-show (open that sibling's own modal). The picker
+                itself still renders when extendOpen is true so the
+                group-scoped picker can open from inside the group
+                panel on a multi-room booking. */}
             {booking.status === 'Checked In' && (
               <div className="col-span-2">
                 {!extendOpen ? (
-                  <button
-                    type="button"
-                    onClick={() => openExtendPicker('room')}
-                    className="w-full inline-flex items-center justify-center gap-2 bg-white border-2 border-violet-300 hover:bg-violet-50 text-violet-700 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
-                  >
-                    <i className="fas fa-clock-rotate-left text-[10px]" aria-hidden="true"></i>
-                    {/* Scope-explicit label when the booking is part of
-                        a group — "Extend stay" alone reads as the whole
-                        reservation and misleads staff. Singles keep
-                        the shorter label. */}
-                    {Number(booking.groupSize ?? 1) > 1
-                      ? `Extend this room's stay (${booking.roomType})`
-                      : 'Extend stay'}
-                  </button>
+                  Number(booking.groupSize ?? 1) <= 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => openExtendPicker('room')}
+                      className="w-full inline-flex items-center justify-center gap-2 bg-white border-2 border-violet-300 hover:bg-violet-50 text-violet-700 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
+                    >
+                      <i className="fas fa-clock-rotate-left text-[10px]" aria-hidden="true"></i>
+                      Extend stay
+                    </button>
+                  ) : null
                 ) : (
                   <div className="rounded-xl border-2 border-violet-200 bg-violet-50/40 p-3">
                     <div className="flex items-center justify-between mb-2">
@@ -1495,7 +1498,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                     </div>
                   </details>
                   <p className="mt-2 text-[11px] text-sky-700/80">
-                    Per-room actions (transfer, collect balance, no-show) apply only to this room — open the other rooms from the bookings list to act on them.
+                    Per-room actions (transfer, collect balance, no-show, extend) apply only to this room — open the other rooms from the bookings list to act on them.
                   </p>
                 </div>
               </div>
