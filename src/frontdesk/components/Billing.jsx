@@ -5,6 +5,7 @@ import Modal from '../../components/modals/Modal.jsx';
 import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx';
 import useFocusTrap from '../../hooks/useFocusTrap.js';
 import { getFdBookings, collectPayment, collectReservationPayment, downloadStaffReceipt, createCounterXenditInvoice, createCounterXenditInvoiceForReservation, getCounterXenditStatus } from '../../lib/frontdeskApi';
+import { uploadFile } from '../../lib/uploadApi';
 import { QRCodeSVG } from 'qrcode.react';
 import { api } from '../../lib/api';
 import Toast, { useToast } from '../../components/ui/Toast';
@@ -491,6 +492,12 @@ export default function Billing({ embedded = false }) {
   // 'pending'. Replaced by paid/expired state to unlock the body.
   const [qrInvoice, setQrInvoice]     = useState(null);
   const [qrGenerating, setQrGenerating] = useState(false);
+  // Manual-ref GCash evidence: Cloudinary URL of the guest's confirmation
+  // screenshot. Required alongside gcashRef when Manual Ref is submitted.
+  // Image is uploaded immediately on file-pick so the collect submit
+  // posts a URL, not a File.
+  const [gcashRefImageUrl, setGcashRefImageUrl] = useState('');
+  const [gcashImageUploading, setGcashImageUploading] = useState(false);
   // Two-step confirm so a misclick on Collect doesn't post a payment
   // to the DB and auto-check-in the guest.
   const [confirmCollectOpen, setConfirmCollectOpen] = useState(false);
@@ -849,7 +856,10 @@ export default function Billing({ embedded = false }) {
       if (parsedAmount != null) {
         opts.amount = Math.min(parsedAmount, billingOutstanding);
       }
-      if (payMethod === 'GCash') opts.gcashRef = gcashRef.trim();
+      if (payMethod === 'GCash') {
+        opts.gcashRef = gcashRef.trim();
+        if (gcashRefImageUrl) opts.gcashRefImageUrl = gcashRefImageUrl;
+      }
 
       if (billing.isGroup) {
         const res = await collectReservationPayment(
@@ -963,6 +973,34 @@ export default function Billing({ embedded = false }) {
     setGcashMode('qr');
     setQrInvoice(null);
     setQrGenerating(false);
+    setGcashRefImageUrl('');
+    setGcashImageUploading(false);
+  }
+
+  // Manual Ref — upload the guest's GCash confirmation screenshot.
+  // Cloudinary via existing /api/upload endpoint, folder 'gcash-refs'.
+  async function handleGcashImagePick(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // let the same file re-trigger onChange
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please select an image file.', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image must be 5 MB or smaller.', 'error');
+      return;
+    }
+    setGcashImageUploading(true);
+    try {
+      const url = await uploadFile(file, 'gcash-refs');
+      setGcashRefImageUrl(url);
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Failed to upload image.';
+      showToast(msg, 'error');
+    } finally {
+      setGcashImageUploading(false);
+    }
   }
 
   // Counter-Xendit QR: create a short-lived invoice for the staff-entered
@@ -1370,25 +1408,81 @@ export default function Billing({ embedded = false }) {
               )}
 
               {/* GCash — Manual Ref (legacy static-QR + staff types the
-                  reference from the guest's GCash confirmation screen). */}
+                  reference and uploads a screenshot of the guest's GCash
+                  confirmation screen). Both ref AND image are required:
+                  ref is the lookup key for reconciling against the
+                  resort's GCash wallet, image is the audit evidence. */}
               {payMethod === 'GCash' && gcashMode === 'ref' && (
-                <div className="mb-6">
-                  <label htmlFor="collect-gcash-ref" className="block text-sm font-medium text-slate-700 mb-1">
-                    GCash Reference Number <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    id="collect-gcash-ref"
-                    type="text"
-                    placeholder="e.g. 1234 567 8901"
-                    value={gcashRef}
-                    onChange={(e) => setGcashRef(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-                    autoComplete="off"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">
-                    <i className="fas fa-mobile-alt mr-1 text-sky-500"></i>
-                    From the guest's GCash confirmation screen. Saved to the receipt.
-                  </p>
+                <div className="mb-6 space-y-3">
+                  <div>
+                    <label htmlFor="collect-gcash-ref" className="block text-sm font-medium text-slate-700 mb-1">
+                      GCash Reference Number <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      id="collect-gcash-ref"
+                      type="text"
+                      placeholder="e.g. 1234 567 8901"
+                      value={gcashRef}
+                      onChange={(e) => setGcashRef(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                      autoComplete="off"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Confirmation Screenshot <span className="text-rose-600">*</span>
+                    </label>
+                    {!gcashRefImageUrl ? (
+                      <label className={`flex flex-col items-center justify-center w-full py-6 border-2 border-dashed rounded cursor-pointer transition-colors ${
+                        gcashImageUploading
+                          ? 'border-sky-300 bg-sky-50 cursor-wait'
+                          : 'border-slate-300 bg-slate-50 hover:border-sky-400 hover:bg-sky-50'
+                      }`}>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={handleGcashImagePick}
+                          disabled={gcashImageUploading}
+                          className="hidden"
+                        />
+                        <i className={`fas ${gcashImageUploading ? 'fa-spinner fa-spin text-sky-500' : 'fa-camera text-slate-400'} text-2xl mb-2`}></i>
+                        <span className="text-xs font-medium text-slate-600">
+                          {gcashImageUploading ? 'Uploading…' : 'Tap to take a photo or choose an image'}
+                        </span>
+                        <span className="text-[10px] text-slate-500 mt-0.5">
+                          Guest's GCash confirmation screen — max 5 MB
+                        </span>
+                      </label>
+                    ) : (
+                      <div className="relative rounded border border-slate-200 bg-slate-50 p-2">
+                        <img
+                          src={gcashRefImageUrl}
+                          alt="GCash confirmation screenshot"
+                          className="w-full max-h-56 object-contain rounded bg-white"
+                        />
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-emerald-700">
+                            <i className="fas fa-check-circle mr-1"></i>
+                            Uploaded
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setGcashRefImageUrl('')}
+                            className="text-[11px] text-rose-600 hover:text-rose-700 font-medium"
+                          >
+                            <i className="fas fa-trash-alt mr-1"></i>
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="mt-1 text-xs text-slate-500">
+                      <i className="fas fa-shield-halved mr-1 text-sky-500"></i>
+                      Required evidence for GCash — scanned/photographed at the counter, kept for reconciliation.
+                    </p>
+                  </div>
                 </div>
               )}
               {payMethod !== 'GCash' && <div className="mb-6"></div>}
@@ -1420,7 +1514,8 @@ export default function Billing({ embedded = false }) {
                   || (payMethod !== 'Cash' && parsed > billingOutstanding + 0.009)
                 );
                 const missingRef = payMethod === 'GCash' && gcashRef.trim().length < 1;
-                const disabled = paying || !hasAmt || invalidAmt || missingRef;
+                const missingImage = payMethod === 'GCash' && gcashMode === 'ref' && !gcashRefImageUrl;
+                const disabled = paying || !hasAmt || invalidAmt || missingRef || missingImage || gcashImageUploading;
                 // Amount actually applied to the bill = clamped at outstanding.
                 // Button shows the APPLIED amount so staff see what the system
                 // will record, not what the guest tendered.
