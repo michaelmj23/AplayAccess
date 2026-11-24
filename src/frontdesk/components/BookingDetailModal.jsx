@@ -1105,7 +1105,10 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       const tailId = sorted[sorted.length - 1]?.id;
                       const now = new Date();
                       return sorted.map(e => {
-                        const typeLbl = e.type === 'night' ? 'Night' : e.type === '24hr' ? `24hr × ${e.nights}` : 'Day';
+                        const typeLbl = e.type === 'night' ? 'Night'
+                          : e.type === '24hr'    ? `24hr AM × ${e.nights}`
+                          : e.type === '24hr-pm' ? `24hr PM × ${e.nights}`
+                          : 'Day';
                         const startDate = new Date(String(e.start).replace(' ', 'T'));
                         const canCancel = e.id === tailId
                           && startDate > now
@@ -1394,8 +1397,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                         <div className="space-y-2">
                           {extendOptions.options.map(opt => {
                             const active = extendSelected?.type === opt.type;
-                            // For 24hr, let staff multiply nights client-side.
-                            const nights = active && opt.type === '24hr'
+                            const isMulti = opt.type === '24hr' || opt.type === '24hr-pm';
+                            // For 24hr variants, let staff multiply nights client-side.
+                            const nights = active && isMulti
                               ? Math.max(1, Math.min(30, Number(extendSelected.nights) || 1))
                               : 1;
                             const total = (opt.rate || 0) * nights;
@@ -1409,8 +1413,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                                 >
                                   <div className="flex items-center justify-between">
                                     <span className="text-sm font-semibold text-slate-800">
-                                      {opt.type === 'night' ? 'Night'
-                                        : opt.type === '24hr' ? '24-hour slot'
+                                      {opt.type === 'night'    ? 'Night'
+                                        : opt.type === '24hr'    ? '24-hour slot (AM)'
+                                        : opt.type === '24hr-pm' ? '24-hour slot (PM)'
                                         : 'Day'}
                                     </span>
                                     <span className="text-xs tabular-nums text-slate-700">
@@ -1418,15 +1423,13 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                                     </span>
                                   </div>
                                   <p className="text-[11px] text-slate-500 mt-0.5">
-                                    {opt.type === '24hr' && active
-                                      ? `${fmtDateTime(opt.start)} → ${fmtDateTime(active ? '' : opt.end)}`
-                                      : `${fmtDateTime(opt.start)} → ${fmtDateTime(opt.end)}`}
+                                    {`${fmtDateTime(opt.start)} → ${fmtDateTime(opt.end)}`}
                                     <span className="ml-1 text-slate-400">
                                       · {fmtMoney(opt.rate)} × {nights}
                                     </span>
                                   </p>
                                 </button>
-                                {active && opt.type === '24hr' && (
+                                {active && isMulti && (
                                   <div className="mt-2 flex items-center justify-between rounded bg-amber-50 border border-amber-200 px-2 py-1">
                                     <span className="text-[11px] text-amber-900">
                                       <i className="fas fa-moon mr-1"></i>Nights

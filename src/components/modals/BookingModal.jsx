@@ -553,7 +553,8 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   }, [availability]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived pricing — room rate only, 20% reservation fee ─────────────────
-  const is24hr   = bookingType === "24hr";
+  const is24hr   = bookingType === "24hr" || bookingType === "24hr-pm";
+  const is24hrPm = bookingType === "24hr-pm";
   const baseRate = bookingType === "night"
     ? pricing.overnight_rate
     : is24hr
@@ -1210,7 +1211,8 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   {[
                     { key: "day",   icon: "fa-sun",   label: "Day",    time: "7AM\u20135PM",  disabled: !visitDate || dayPassed || !typeAllowed("day") },
                     { key: "night", icon: "fa-moon",  label: "Night",   time: "6PM\u20136AM",  disabled: !visitDate || !typeAllowed("night") },
-                    { key: "24hr",  icon: "fa-clock", label: "24 Hrs", time: "7AM–next 6AM", disabled: !visitDate || twentyFourPassed || !typeAllowed("24hr") },
+                    { key: "24hr",    icon: "fa-clock", label: "24 Hrs AM", time: "7AM–next 6AM", disabled: !visitDate || twentyFourPassed || !typeAllowed("24hr") },
+                    { key: "24hr-pm", icon: "fa-clock", label: "24 Hrs PM", time: "6PM–next 6PM", disabled: !visitDate || !typeAllowed("24hr-pm") },
                   ].map(opt => {
                     const active = bookingType === opt.key;
                     return (
@@ -1313,8 +1315,11 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   <div className="mt-3 space-y-2">
                     <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-900">
                       <i className="fas fa-circle-info mr-1.5" aria-hidden="true"></i>
-                      You can arrive any time on the selected date. Check-out is 6:00 AM
-                      {nights > 1 ? ` on day ${nights + 1}.` : " the next morning."}
+                      {is24hrPm ? (
+                        <>You can arrive any time from 6:00 PM on the selected date. Check-out is 6:00 PM {nights > 1 ? `on day ${nights + 1}.` : "the next day."}</>
+                      ) : (
+                        <>You can arrive any time on the selected date. Check-out is 6:00 AM {nights > 1 ? `on day ${nights + 1}.` : "the next morning."}</>
+                      )}
                     </div>
 
                     {/* Multi-night stepper. Caps at 14 nights (backend validator
@@ -2586,9 +2591,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
             purple: "bg-purple-100 text-purple-800",
           };
           const typeInfo = {
-            day:    { label: "Day Visit",  icon: "fa-sun",   color: "blue",   checkIn: "7:00 AM", checkOut: "5:00 PM (same day)" },
-            night:  { label: "Night Stay",  icon: "fa-moon",  color: "indigo", checkIn: "6:00 PM", checkOut: "6:00 AM (next day)" },
-            "24hr": { label: "24 Hours",   icon: "fa-clock", color: "purple", checkIn: "Any time (from 7 AM)", checkOut: "6:00 AM (next day)" },
+            day:       { label: "Day Visit",   icon: "fa-sun",   color: "blue",   checkIn: "7:00 AM", checkOut: "5:00 PM (same day)" },
+            night:     { label: "Night Stay",  icon: "fa-moon",  color: "indigo", checkIn: "6:00 PM", checkOut: "6:00 AM (next day)" },
+            "24hr":    { label: "24 Hours AM", icon: "fa-clock", color: "purple", checkIn: "Any time (from 7 AM)", checkOut: "6:00 AM (next day)" },
+            "24hr-pm": { label: "24 Hours PM", icon: "fa-clock", color: "purple", checkIn: "Any time (from 6 PM)", checkOut: "6:00 PM (next day)" },
           }[bookingType] ?? { label: "Day Visit", icon: "fa-sun", color: "blue", checkIn: "7:00 AM", checkOut: "5:00 PM (same day)" };
           const rateLabel = bookingType === "night" ? "Overnight rate" : is24hr ? "24-hour rate" : "Day visit rate";
           return (

@@ -99,8 +99,8 @@ function SlotTag({ bookingType, nights }) {
   const label = {
     day:       'Day',
     night:     'Night',
-    '24hr':    n > 0 ? `24hr × ${n}` : '24hr',
-    '24hr-pm': n > 0 ? `24hr × ${n}` : '24hr',
+    '24hr':    n > 0 ? `24hr AM × ${n}` : '24hr AM',
+    '24hr-pm': n > 0 ? `24hr PM × ${n}` : '24hr PM',
   }[type] ?? 'Day';
   return (
     <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border uppercase tracking-wide ${cls}`}>

@@ -370,7 +370,7 @@ export default function WalkIn({ embedded = false }) {
   // night only applies to 24hr; a leftover 3 from a prior 24hr pick
   // must not survive a switch to Day/Night.
   useEffect(() => {
-    if (form.bookingType !== '24hr' && form.nights !== 1) setField('nights', 1);
+    if (!is24hr && form.nights !== 1) setField('nights', 1);
   }, [form.bookingType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Multi-room checkbox toggled off → drop any staged siblings so
@@ -397,7 +397,8 @@ export default function WalkIn({ embedded = false }) {
   const dayRate       = Number(selectedRoom?.day_rate       ?? 1500);
   const nightRate     = Number(selectedRoom?.overnight_rate ?? 1500);
   const rate24        = Number(selectedRoom?.rate_24hr      ?? 2000);
-  const is24hr        = form.bookingType === '24hr';
+  const is24hr        = form.bookingType === '24hr' || form.bookingType === '24hr-pm';
+  const is24hrPm      = form.bookingType === '24hr-pm';
   const baseRate      = form.bookingType === 'night' ? nightRate : is24hr ? rate24 : dayRate;
   // Multi-night 24hr: per-night rate rolls up for pricing previews.
   // room_rate on the booking row stays per-night; `nights` is sent
@@ -410,8 +411,9 @@ export default function WalkIn({ embedded = false }) {
   function rateForRoom(roomRecord, type) {
     if (!roomRecord) return 0;
     const t = type ?? form.bookingType;
+    // 24hr-pm uses the same per-slot rate column as 24hr (shared pricing).
     if (t === 'night') return Number(roomRecord.overnight_rate ?? 1500);
-    if (t === '24hr')  return Number(roomRecord.rate_24hr      ?? 2000);
+    if (t === '24hr' || t === '24hr-pm') return Number(roomRecord.rate_24hr ?? 2000);
     return Number(roomRecord.day_rate ?? 1500);
   }
 
@@ -422,7 +424,7 @@ export default function WalkIn({ embedded = false }) {
   const additionalRoomRows = form.additionalRooms.map(ar => {
     const room = rooms.find(r => String(r.id) === String(ar.roomId));
     const type = form.bookingType;
-    const n    = type === '24hr' ? effectiveNights : 1;
+    const n    = (type === '24hr' || type === '24hr-pm') ? effectiveNights : 1;
     const qty  = Math.max(1, Number(ar.qty ?? 1));
     return { ar, room, type, nights: n, qty, rate: rateForRoom(room, type) };
   });
@@ -743,17 +745,20 @@ export default function WalkIn({ embedded = false }) {
       {confirmOpen && (() => {
         const selRoom    = rooms.find(r => String(r.id) === String(form.roomId));
         const guestName  = form.fullName.trim();
-        const checkInLabel  = form.bookingType === 'night' ? '6:00 PM'
-                            : form.bookingType === '24hr'  ? 'Any time (from 7 AM)'
+        const checkInLabel  = form.bookingType === 'night'    ? '6:00 PM'
+                            : form.bookingType === '24hr'     ? 'Any time (from 7 AM)'
+                            : form.bookingType === '24hr-pm'  ? 'Any time (from 6 PM)'
                             : '7:00 AM';
-        const checkOutLabel = form.bookingType === 'night' ? '6:00 AM (next day)'
-                            : form.bookingType === '24hr'  ? '6:00 AM (next day)'
+        const checkOutLabel = form.bookingType === 'night'    ? '6:00 AM (next day)'
+                            : form.bookingType === '24hr'     ? '6:00 AM (next day)'
+                            : form.bookingType === '24hr-pm'  ? '6:00 PM (next day)'
                             : '5:00 PM';
         const dateLabel  = form.date ? new Date(form.date + 'T00:00:00').toLocaleDateString('en-PH', {
           weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
         }) : '—';
-        const typeLabel  = form.bookingType === 'night' ? 'Night Stay'
-                         : form.bookingType === '24hr'  ? '24 Hours'
+        const typeLabel  = form.bookingType === 'night'    ? 'Night Stay'
+                         : form.bookingType === '24hr'     ? '24 Hours (AM)'
+                         : form.bookingType === '24hr-pm'  ? '24 Hours (PM)'
                          : 'Day Visit';
 
         // Calculate remaining hours in slot if booking is for today
@@ -761,9 +766,10 @@ export default function WalkIn({ embedded = false }) {
         if (form.date === today) {
           const now = new Date();
           const h = now.getHours() + now.getMinutes() / 60;
-          if (form.bookingType === 'day')        remainingHrs = 17 - h;        // ends 5PM
-          else if (form.bookingType === 'night')  remainingHrs = (h >= 18 ? (24 - h) + 6 : 6 - h);  // ends 6AM
-          else if (form.bookingType === '24hr')   remainingHrs = (24 - h) + 6; // ends 6 AM next day
+          if (form.bookingType === 'day')              remainingHrs = 17 - h;        // ends 5PM
+          else if (form.bookingType === 'night')        remainingHrs = (h >= 18 ? (24 - h) + 6 : 6 - h);  // ends 6AM
+          else if (form.bookingType === '24hr')         remainingHrs = (24 - h) + 6; // ends 6 AM next day
+          else if (form.bookingType === '24hr-pm')      remainingHrs = (h >= 18 ? (24 - h) + 18 : 18 - h); // ends 6 PM next day
         }
         const shortStay = remainingHrs !== null && remainingHrs > 0 && remainingHrs < 4;
 
@@ -898,14 +904,14 @@ export default function WalkIn({ embedded = false }) {
                     <span>{fmtMoney(primaryRoomSubtotal)}</span>
                   </div>
                   {additionalRoomRows.filter(r => r.room).map((r, i) => {
-                    const typeLbl = r.type === 'night' ? 'Night' : r.type === '24hr' ? '24hr' : 'Day';
+                    const typeLbl = r.type === 'night' ? 'Night' : r.type === '24hr' ? '24hr AM' : r.type === '24hr-pm' ? '24hr PM' : 'Day';
                     return (
                       <div key={r.room.id} className="flex justify-between text-slate-700">
                         <span>
                           + {r.room.name}
                           <span className="text-xs text-slate-500 ml-1">
                             · {typeLbl}
-                            {r.type === '24hr' && r.nights > 1
+                            {(r.type === '24hr' || r.type === '24hr-pm') && r.nights > 1
                               ? ` · ${fmtMoney(r.rate)} × ${r.nights} nights`
                               : ''}
                           </span>
@@ -1226,11 +1232,15 @@ export default function WalkIn({ embedded = false }) {
                     </label>
                     <div className="flex gap-2" role="group" aria-labelledby="walkin-booking-type-label">
                       {[
-                        { type: 'day',   icon: 'fa-sun',   label: 'Day',   disabled: !form.date || dayPassed || !typeAllowed('day') },
-                        { type: 'night', icon: 'fa-moon',  label: 'Night', disabled: !form.date || !typeAllowed('night') },
-                        { type: '24hr',  icon: 'fa-clock', label: '24 Hrs', disabled: !form.date || twentyFourPassed || !typeAllowed('24hr') },
+                        { type: 'day',     icon: 'fa-sun',   label: 'Day',       disabled: !form.date || dayPassed || !typeAllowed('day') },
+                        { type: 'night',   icon: 'fa-moon',  label: 'Night',     disabled: !form.date || !typeAllowed('night') },
+                        { type: '24hr',    icon: 'fa-clock', label: '24 Hrs AM', disabled: !form.date || twentyFourPassed || !typeAllowed('24hr') },
+                        { type: '24hr-pm', icon: 'fa-clock', label: '24 Hrs PM', disabled: !form.date || !typeAllowed('24hr-pm') },
                       ].map(opt => {
-                        const active = opt.type === '24hr' ? is24hr : form.bookingType === opt.type;
+                        // Compare directly — is24hr covers both 24hr and 24hr-pm, so
+                        // using it to light up the AM tab would also light up when
+                        // PM is picked.
+                        const active = form.bookingType === opt.type;
                         return (
                           <button key={opt.type} type="button"
                             disabled={opt.disabled}
@@ -1260,8 +1270,11 @@ export default function WalkIn({ embedded = false }) {
                       <div className="mt-3 space-y-2">
                         <div className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
                           <i className="fas fa-circle-info mr-1.5" aria-hidden="true"></i>
-                          Guest may arrive any time on the selected date. Check-out is 6:00 AM
-                          {form.nights > 1 ? ` on day ${form.nights + 1}.` : ' the next morning.'}
+                          {is24hrPm ? (
+                            <>Guest may arrive any time from 6:00 PM on the selected date. Check-out is 6:00 PM {form.nights > 1 ? `on day ${form.nights + 1}.` : 'the next day.'}</>
+                          ) : (
+                            <>Guest may arrive any time on the selected date. Check-out is 6:00 AM {form.nights > 1 ? `on day ${form.nights + 1}.` : 'the next morning.'}</>
+                          )}
                         </div>
 
                         {/* Multi-night stepper. Caps at 14 nights to match
@@ -1364,7 +1377,7 @@ export default function WalkIn({ embedded = false }) {
                         // the defaults computed at line 175-177.
                         const rateFor = (r) => {
                           if (form.bookingType === 'night')  return Number(r.overnight_rate ?? 1500);
-                          if (form.bookingType === '24hr')   return Number(r.rate_24hr      ?? 2000);
+                          if (form.bookingType === '24hr' || form.bookingType === '24hr-pm') return Number(r.rate_24hr ?? 2000);
                           return Number(r.day_rate ?? 1500); // 'day'
                         };
                         // Emoji prefixes live HERE — and only here —
@@ -1590,7 +1603,7 @@ export default function WalkIn({ embedded = false }) {
                             // group (Day cottage + Night pavilion in
                             // the same reservation).
                             bookingType: f.bookingType,
-                            nights: f.bookingType === '24hr' ? f.nights : 1,
+                            nights: (f.bookingType === '24hr' || f.bookingType === '24hr-pm') ? f.nights : 1,
                           },
                         ],
                       }))}
@@ -1662,7 +1675,8 @@ export default function WalkIn({ embedded = false }) {
                     <i className={`fas ${form.bookingType === 'night' ? 'fa-moon' : is24hr ? 'fa-clock' : 'fa-sun'}`}></i>
                     {(() => {
                       if (form.bookingType === 'night') return '6:00 PM → 6:00 AM (next day)';
-                      if (form.bookingType === '24hr')  return '7:00 AM → 6:00 AM (next day)';
+                      if (form.bookingType === '24hr')    return '7:00 AM → 6:00 AM (next day)';
+                      if (form.bookingType === '24hr-pm') return '6:00 PM → 6:00 PM (next day)';
                       return '7:00 AM → 5:00 PM';
                     })()}
                   </div>
@@ -1842,16 +1856,19 @@ export default function WalkIn({ embedded = false }) {
                 {/* Pricing preview */}
                 {(() => {
                   const typeColors = {
-                    day:    { bg: 'bg-sky-50',     border: 'border-sky-200',    text: 'text-sky-800',    sub: 'text-sky-700',    hr: 'border-sky-200'    },
-                    night:  { bg: 'bg-indigo-50',  border: 'border-indigo-200', text: 'text-indigo-800', sub: 'text-indigo-700', hr: 'border-indigo-200' },
-                    '24hr': { bg: 'bg-purple-50',  border: 'border-purple-200', text: 'text-purple-800', sub: 'text-purple-700', hr: 'border-purple-200' },
+                    day:       { bg: 'bg-sky-50',     border: 'border-sky-200',    text: 'text-sky-800',    sub: 'text-sky-700',    hr: 'border-sky-200'    },
+                    night:     { bg: 'bg-indigo-50',  border: 'border-indigo-200', text: 'text-indigo-800', sub: 'text-indigo-700', hr: 'border-indigo-200' },
+                    '24hr':    { bg: 'bg-purple-50',  border: 'border-purple-200', text: 'text-purple-800', sub: 'text-purple-700', hr: 'border-purple-200' },
+                    '24hr-pm': { bg: 'bg-purple-50',  border: 'border-purple-200', text: 'text-purple-800', sub: 'text-purple-700', hr: 'border-purple-200' },
                   };
                   const tc = typeColors[form.bookingType] ?? typeColors.day;
-                  const ciLabel = form.bookingType === 'night' ? '6:00 PM'
-                                : form.bookingType === '24hr'  ? 'Any time (from 7 AM)'
+                  const ciLabel = form.bookingType === 'night'    ? '6:00 PM'
+                                : form.bookingType === '24hr'     ? 'Any time (from 7 AM)'
+                                : form.bookingType === '24hr-pm'  ? 'Any time (from 6 PM)'
                                 : '7:00 AM';
-                  const coLabel = form.bookingType === 'night' ? '6:00 AM (next day)'
-                                : form.bookingType === '24hr'  ? (effectiveNights > 1 ? `6:00 AM (day ${effectiveNights + 1})` : '6:00 AM (next day)')
+                  const coLabel = form.bookingType === 'night'    ? '6:00 AM (next day)'
+                                : form.bookingType === '24hr'     ? (effectiveNights > 1 ? `6:00 AM (day ${effectiveNights + 1})` : '6:00 AM (next day)')
+                                : form.bookingType === '24hr-pm'  ? (effectiveNights > 1 ? `6:00 PM (day ${effectiveNights + 1})` : '6:00 PM (next day)')
                                 : '5:00 PM';
                   const rateLabel = form.bookingType === 'night' ? 'Night rate' : is24hr ? '24 hr rate' : 'Day rate';
                   return (
@@ -1869,14 +1886,14 @@ export default function WalkIn({ embedded = false }) {
                           <span>{fmtMoney(primaryRoomSubtotal)}</span>
                         </div>
                         {additionalRoomRows.filter(r => r.room).map((r) => {
-                          const typeLbl = r.type === 'night' ? 'Night' : r.type === '24hr' ? '24hr' : 'Day';
+                          const typeLbl = r.type === 'night' ? 'Night' : r.type === '24hr' ? '24hr AM' : r.type === '24hr-pm' ? '24hr PM' : 'Day';
                           return (
                             <div key={r.room.id} className="flex justify-between">
                               <span>
                                 + {r.room.name}
                                 <span className="text-xs opacity-70 ml-1">
                                   · {typeLbl}
-                                  {r.type === '24hr' && r.nights > 1
+                                  {(r.type === '24hr' || r.type === '24hr-pm') && r.nights > 1
                                     ? ` · ${fmtMoney(r.rate)} × ${r.nights} nights`
                                     : ''}
                                 </span>
