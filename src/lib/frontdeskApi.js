@@ -170,6 +170,27 @@ export async function collectPayment(bookingId, paymentMethod, entranceFee, opts
   return res.data;
 }
 
+// POST /api/admin/bookings/{id}/counter-xendit-invoice
+// Creates a short-lived (15 min) Xendit GCash invoice for the exact
+// amount (<= outstanding). Returns { invoice_id, invoice_url, amount,
+// expires_at } — the modal opens invoice_url in a new window for the
+// guest to scan and polls counterXenditStatus until paid.
+export async function createCounterXenditInvoice(bookingId, amount) {
+  const res = await api.post(`/api/admin/bookings/${bookingId}/counter-xendit-invoice`, {
+    amount: Number(amount),
+  });
+  return res.data;
+}
+
+// GET /api/admin/payments/counter-status/{invoice_id}
+// Polled by the Collect modal. Returns { state, amount, paid_at,
+// booking_id }. On state='paid' the backend credits the booking's
+// paid_amount idempotently via applyCounterPaymentFromInvoice.
+export async function getCounterXenditStatus(invoiceId) {
+  const res = await api.get(`/api/admin/payments/counter-status/${invoiceId}`);
+  return res.data;
+}
+
 // PATCH /api/admin/bookings/{id}/guests
 export async function updateBookingGuests(bookingId, guests) {
   const res = await api.patch(`/api/admin/bookings/${bookingId}/guests`, { guests });
