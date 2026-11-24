@@ -118,7 +118,7 @@ const ACTION_CONFIG = {
   checkin: {
     label:   'Check In Guest',
     icon:    'fa-door-open',
-    color:   'violet',
+    color:   'emerald',
     heading: 'Check in this guest?',
     desc:    'Ensure the balance and entrance fee have been collected before checking in.',
   },
@@ -224,6 +224,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
   const [editingAmenity,   setEditingAmenity]   = useState(null);
   const [receiptLoading,   setReceiptLoading]   = useState(false);
   const [guestEdit,        setGuestEdit]        = useState(false);
+  // Member list in the group panel is capped at 3 by default so a 6-room
+  // reservation doesn't push the money block + add-ons off-screen.
+  const [showAllGroup,     setShowAllGroup]     = useState(false);
   const [guestCount,       setGuestCount]       = useState(initialBooking.guests ?? 1);
   const [guestLoading,     setGuestLoading]     = useState(false);
   const [promoInput,       setPromoInput]       = useState('');
@@ -874,6 +877,73 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
 
           {/* Booking details grid — single column on phone, two cols at sm+ */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 rounded text-sm mb-4">
+            {/* Money block — pulls grand total out of the "Total Amount"
+                leaf cell and surfaces the full breakdown (room + add-ons /
+                entrance / extensions) so staff see the real figure the
+                guest owes without doing the math in their head. Entrance
+                is tagged (at gate) so staff know where it's collected. */}
+            {(() => {
+              const { amount: entranceAmount } = entranceFeeForBooking(booking, entranceRates);
+              const extensions = Number(booking.extensionsTotal ?? 0);
+              const grand = Number(booking.total ?? 0) + entranceAmount + extensions;
+              const paid = Number(booking.paidAmount ?? booking.reservationFee ?? 0);
+              const balance = Math.max(0, grand - paid);
+              const groupGrand = (Number(booking.groupSize ?? 1) > 1 && Array.isArray(booking.groupSiblings))
+                ? booking.groupSiblings.reduce((s, x) => s + Number(x.total ?? 0), 0)
+                : null;
+              return (
+                <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Room + Add-ons</span>
+                      <span className="font-medium tabular-nums text-slate-800">{fmtMoney(booking.total)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600 flex items-center gap-1">
+                        <i className="fas fa-ticket-alt text-amber-500 text-[10px]"></i>
+                        Entrance fee
+                        <span className="text-[10px] text-amber-600 font-medium">(at gate)</span>
+                      </span>
+                      <span className="font-medium tabular-nums text-slate-800">{fmtMoney(entranceAmount)}</span>
+                    </div>
+                    {extensions > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-600 flex items-center gap-1">
+                          <i className="fas fa-clock-rotate-left text-violet-500 text-[10px]"></i>
+                          Stay extensions
+                        </span>
+                        <span className="font-medium tabular-nums text-violet-700">+{fmtMoney(extensions)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t border-slate-200 pt-1.5 mt-1">
+                      <span className="font-semibold text-slate-800">Grand total</span>
+                      <span className="font-bold tabular-nums text-sky-700 text-base">{fmtMoney(grand)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-500">Paid</span>
+                      <span className="tabular-nums text-emerald-700 font-medium">{fmtMoney(paid)}</span>
+                    </div>
+                    {balance > 0 ? (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-rose-700 font-semibold">Balance due</span>
+                        <span className="tabular-nums text-rose-700 font-bold">{fmtMoney(balance)}</span>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-emerald-700 font-semibold flex items-center gap-1">
+                        <i className="fas fa-check-circle"></i>Fully paid
+                      </div>
+                    )}
+                    {groupGrand != null && (
+                      <div className="pt-1.5 mt-1.5 border-t border-dashed border-slate-200 text-[11px] text-slate-500">
+                        Group total (all {booking.groupSize} rooms):{' '}
+                        <span className="text-slate-700 font-semibold tabular-nums">{fmtMoney(groupGrand)}</span>
+                        <span className="text-slate-400"> (room + add-ons only — entrance & extensions per room)</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
             <div>
               <p className="text-xs text-slate-500">Guest</p>
               <p className="font-medium">{guestName}</p>
@@ -910,10 +980,6 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
               <div><p className="text-xs text-slate-500">Actual Check-out</p>
                 <p className="text-emerald-700 font-medium">{fmtDateTime(booking.checkedOutAt)}</p></div>
             )}
-            <div>
-              <p className="text-xs text-slate-500">Total Amount</p>
-              <p className="font-semibold text-sky-700">{fmtMoney(booking.total)}</p>
-            </div>
             <div><p className="text-xs text-slate-500">Payment Method</p><PayIcon method={booking.paymentMethod} /></div>
             {/* Phase 5 — stay extensions list. Renders when any
                 extensions have been added to this booking. Each
@@ -1101,34 +1167,104 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       {booking.groupSize} rooms total
                     </span>
                   </p>
-                  <ul className="space-y-1">
-                    {booking.groupSiblings.map(s => {
-                      const isSelf = Number(s.bookingId) === Number(booking.bookingId);
-                      return (
-                        <li key={s.bookingId}
-                            className={`flex items-center justify-between text-xs px-2 py-1 rounded ${isSelf ? 'bg-sky-100 font-semibold text-sky-900' : 'text-slate-700 hover:bg-sky-100/40'}`}>
-                          <span className="truncate">
-                            <i className={`fas fa-bed mr-1 text-[10px] ${isSelf ? 'text-sky-700' : 'text-slate-400'}`} aria-hidden="true"></i>
-                            {s.roomName ?? `Room #${s.bookingId}`}
-                            {isSelf && <span className="ml-1 text-[10px] uppercase tracking-wide text-sky-700">(this one)</span>}
+                  {/* Status summary pill — lets staff read the group's
+                      mixed state in one line on 4+ room reservations
+                      without scanning every row. Only renders when the
+                      group spans more than one status. */}
+                  {(() => {
+                    const counts = {};
+                    for (const s of booking.groupSiblings) counts[s.status] = (counts[s.status] || 0) + 1;
+                    const summary = Object.entries(counts);
+                    if (summary.length <= 1) return null;
+                    return (
+                      <p className="text-[11px] text-sky-700/90 mb-2 flex flex-wrap items-center gap-x-1.5">
+                        {summary.map(([k, v], i) => (
+                          <span key={k}>
+                            <span className="font-semibold">{v}</span> {k}
+                            {i < summary.length - 1 && <span className="text-sky-400"> ·</span>}
                           </span>
-                          <span className="flex items-center gap-2 shrink-0">
-                            <span className="text-slate-500 tabular-nums">{fmtMoney(s.total)}</span>
-                            <span className={`inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                              s.status === 'Checked In'  ? 'bg-emerald-100 text-emerald-800' :
-                              s.status === 'Confirmed'   ? 'bg-sky-100 text-sky-800' :
-                              s.status === 'Completed'   ? 'bg-slate-200 text-slate-700' :
-                              s.status === 'Cancelled'   ? 'bg-rose-100 text-rose-700' :
-                              s.status === 'No-Show'     ? 'bg-amber-100 text-amber-800' :
-                              'bg-slate-100 text-slate-700'
-                            }`}>
-                              {s.status}
-                            </span>
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                        ))}
+                      </p>
+                    );
+                  })()}
+                  {(() => {
+                    // Cap member list at 3 so 6-room reservations don't
+                    // push the money block + add-ons off-screen. The
+                    // current room is pinned so staff never lose context.
+                    const cap = 3;
+                    const siblings = booking.groupSiblings;
+                    const selfId = Number(booking.bookingId);
+                    const visible = (showAllGroup || siblings.length <= cap)
+                      ? siblings
+                      : [
+                          ...siblings.filter(s => Number(s.bookingId) === selfId),
+                          ...siblings.filter(s => Number(s.bookingId) !== selfId).slice(0, cap - 1),
+                        ];
+                    const hidden = siblings.length - visible.length;
+                    return (
+                      <>
+                        <ul className="space-y-1">
+                          {visible.map(s => {
+                            const isSelf = Number(s.bookingId) === Number(booking.bookingId);
+                            return (
+                              <li key={s.bookingId}
+                                  className={`flex items-center justify-between text-xs px-2 py-1 rounded ${isSelf ? 'bg-sky-100 font-semibold text-sky-900' : 'text-slate-700 hover:bg-sky-100/40'}`}>
+                                <span className="truncate">
+                                  <i className={`fas fa-bed mr-1 text-[10px] ${isSelf ? 'text-sky-700' : 'text-slate-400'}`} aria-hidden="true"></i>
+                                  {s.roomName ?? `Room #${s.bookingId}`}
+                                  {isSelf && <span className="ml-1 text-[10px] uppercase tracking-wide text-sky-700">(this one)</span>}
+                                </span>
+                                <span className="flex items-center gap-2 shrink-0">
+                                  <span className="text-slate-500 tabular-nums">{fmtMoney(s.total)}</span>
+                                  <span className={`inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                                    s.status === 'Checked In'  ? 'bg-emerald-100 text-emerald-800' :
+                                    s.status === 'Confirmed'   ? 'bg-sky-100 text-sky-800' :
+                                    s.status === 'Completed'   ? 'bg-slate-200 text-slate-700' :
+                                    s.status === 'Cancelled'   ? 'bg-rose-100 text-rose-700' :
+                                    s.status === 'No-Show'     ? 'bg-amber-100 text-amber-800' :
+                                    'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    {s.status}
+                                  </span>
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        {hidden > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAllGroup(true)}
+                            className="mt-1 w-full text-center text-[11px] text-sky-700 hover:text-sky-900 py-1 rounded hover:bg-sky-100/40"
+                          >
+                            Show {hidden} more ▾
+                          </button>
+                        )}
+                        {showAllGroup && siblings.length > cap && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAllGroup(false)}
+                            className="mt-1 w-full text-center text-[11px] text-sky-700 hover:text-sky-900 py-1 rounded hover:bg-sky-100/40"
+                          >
+                            Show less ▴
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
+                  {/* Bulk group actions in a native disclosure. Default
+                      collapsed so the 4-5 bulk buttons don't compete with
+                      the per-room bottom bar — expanded when staff
+                      actually need to act across the whole reservation. */}
+                  <details className="mt-2 [&_.chev]:transition-transform [&[open]_.chev]:rotate-180">
+                    <summary className="cursor-pointer list-none select-none text-xs font-semibold text-sky-900 bg-sky-100 hover:bg-sky-200 px-3 py-2 rounded-lg flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+                      <span className="inline-flex items-center gap-1.5">
+                        <i className="fas fa-layer-group text-sky-700 text-[10px]" aria-hidden="true"></i>
+                        Apply to all {booking.groupSize} rooms
+                      </span>
+                      <i className="fas fa-chevron-down text-[10px] text-sky-700 chev" aria-hidden="true"></i>
+                    </summary>
+                    <div className="space-y-0">
                   {/* Reservation-level bulk check-in. Enabled when
                       any sibling is still Confirmed. The backend
                       handles skipping future-dated / unpaid /
@@ -1300,6 +1436,8 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       </button>
                     )
                   )}
+                    </div>
+                  </details>
                   <p className="mt-2 text-[11px] text-sky-700/80">
                     Per-room actions (transfer, collect balance, no-show) apply only to this room — open the other rooms from the bookings list to act on them.
                   </p>
@@ -1380,14 +1518,11 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
             );
           })()}
 
-          {/* Guest Count + Entrance Fee — shown for active bookings */}
-          {['Pending', 'Confirmed', 'Checked In'].includes(booking.status) && (() => {
-            const { rate, amount } = entranceFeeForBooking(booking, entranceRates);
-            return (
-              <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
-                {/* Guest count editor */}
-                {['Confirmed', 'Checked In'].includes(booking.status) && (
-                  <div className="px-4 py-3 flex items-center justify-between border-b border-amber-200">
+          {/* Guest count editor — entrance fee moved to the money block
+              above so staff see the full grand total in one glance
+              instead of two stacked amber cards. */}
+          {['Confirmed', 'Checked In'].includes(booking.status) && (
+                  <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <i className="fas fa-users text-amber-600"></i>
                       <span className="text-sm font-semibold text-amber-900">Number of Guests</span>
@@ -1455,22 +1590,6 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                     )}
                   </div>
                 )}
-                {/* Entrance fee display */}
-                <div className="px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <i className="fas fa-ticket-alt text-amber-500"></i>
-                    <div>
-                      <p className="text-sm font-semibold text-amber-800">Entrance Fee at Gate</p>
-                      <p className="text-amber-700 text-xs">
-                        {booking.guests ?? 1} pax × ₱{rate}
-                      </p>
-                    </div>
-                  </div>
-                  <p className="font-bold text-amber-800 text-lg">{fmtMoney(amount)}</p>
-                </div>
-              </div>
-            );
-          })()}
 
           {/* Add-ons */}
           <div className="mb-4">
@@ -2051,7 +2170,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                   <button type="button" onClick={() => setPendingAction({ type: 'checkin' })}
                     disabled={actionLoading || futureDated}
                     title={futureDated ? `Scheduled for ${ciLabel} — check in on that day` : undefined}
-                    className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-violet-600 text-white rounded text-sm font-medium hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2">
+                    className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-emerald-600 text-white rounded text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2">
                     <i className="fas fa-door-open mr-1" aria-hidden="true"></i>Check In
                   </button>
                 );
@@ -2078,7 +2197,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
               {booking.status === 'No-Show' && (
                 <button type="button" onClick={() => setPendingAction({ type: 'checkin' })}
                   disabled={actionLoading}
-                  className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-violet-600 text-white rounded text-sm font-medium hover:bg-violet-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2">
+                  className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-emerald-600 text-white rounded text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2">
                   <i className="fas fa-undo mr-1" aria-hidden="true"></i>Reverse No-Show
                 </button>
               )}
