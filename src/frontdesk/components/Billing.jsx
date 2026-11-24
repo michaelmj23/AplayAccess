@@ -603,9 +603,26 @@ export default function Billing({ embedded = false }) {
   // Keep the open detail drawer / payment modal in sync with the polled
   // bookings list — if guest count or amenities change elsewhere, the
   // currently-open booking should reflect the new amounts immediately.
+  //
+  // Group rows need care: the modal may have been opened on the synthesized
+  // group aggregate (isGroup=true, totals summed across siblings). Its
+  // bookingId equals the lead sibling's, so a naive `bookings.find(b.bookingId)`
+  // swaps the aggregate out for a single leaf — the modal's Grand Total,
+  // Paid, and Outstanding visibly drop on the 20s poll. Re-aggregate from
+  // the siblings when the current record is a group.
   useEffect(() => {
-    setSelected(prev => prev ? (bookings.find(b => b.bookingId === prev.bookingId) ?? null) : prev);
-    setBilling(prev  => prev ? (bookings.find(b => b.bookingId === prev.bookingId) ?? null) : prev);
+    const refresh = (prev) => {
+      if (!prev) return prev;
+      if (prev.isGroup && prev.reservationId) {
+        const siblings = bookings.filter(b => b.reservationId === prev.reservationId);
+        if (siblings.length === 0) return null;
+        const collapsed = collapseReservations(siblings);
+        return collapsed[0] ?? null;
+      }
+      return bookings.find(b => b.bookingId === prev.bookingId) ?? null;
+    };
+    setSelected(refresh);
+    setBilling(refresh);
   }, [bookings]);
 
   const today = todayStr();
