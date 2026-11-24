@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { forgotPasswordRequest } from "../lib/authApi.js";
+import { primeCsrf } from "../lib/api.js";
 
 export default function ForgotPassword() {
   const [email, setEmail]         = useState("");
@@ -17,6 +18,10 @@ export default function ForgotPassword() {
     setError("");
     setLoading(true);
     try {
+      // Prime CSRF — stale XSRF cookie would 419 the submit on a
+      // page the user left open for a while. Same pattern as the
+      // Signup / BookingModal fixes.
+      await primeCsrf();
       await forgotPasswordRequest(email);
       setSubmitted(true);
       // 60s cooldown to prevent spam

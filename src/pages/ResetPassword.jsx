@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { resetPasswordRequest } from "../lib/authApi.js";
+import { primeCsrf } from "../lib/api.js";
 import PasswordRequirements, { checkPasswordStrength } from "../components/ui/PasswordRequirements.jsx";
 
 export default function ResetPassword() {
@@ -47,6 +48,10 @@ export default function ResetPassword() {
 
     setLoading(true);
     try {
+      // Prime CSRF — the user usually lands here via an email link
+      // potentially minutes/hours after the XSRF cookie last rotated,
+      // so a fresh token is required or the POST 419s.
+      await primeCsrf();
       const data = await resetPasswordRequest({
         token,
         email,
