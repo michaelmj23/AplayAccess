@@ -1243,98 +1243,68 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                         reason + a specific hint per skip category. The
                         toast was too fleeting for a partial group
                         outcome. */}
-                    {extendResult && (
-                      <div className="space-y-2">
-                        <p className="text-xs text-violet-900 font-semibold">
-                          Group extend — {extendResult.aborted ? 'aborted' : 'result'}
-                        </p>
-                        {extendResult.aborted && (
-                          <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2">
-                            <p className="text-[11px] text-rose-900 font-semibold flex items-center gap-1.5">
-                              <i className="fas fa-ban text-rose-600" aria-hidden="true"></i>
-                              Nothing was extended — all-or-nothing abort
+                    {extendResult && (() => {
+                      const buckets = [
+                        { key: 'type-mismatch',   arr: extendResult.skipped_type_mismatch,   label: 'Slot mismatch',
+                          hint: "Those rooms' chain tips are out of sync. Cancel their latest extension to re-sync." },
+                        { key: 'room-conflict',   arr: extendResult.skipped_room_conflict,   label: 'Room conflict',
+                          hint: 'Those rooms are occupied by another booking during this window.' },
+                        { key: 'addon-conflict',  arr: extendResult.skipped_addon_conflict,  label: 'Add-on pool short',
+                          hint: "Add-on inventory doesn't cover the extended window. Remove the add-on or shorten the extension." },
+                        { key: 'not-checked-in',  arr: extendResult.skipped_not_checked_in,  label: 'Not Checked In',
+                          hint: 'Check in first, then re-run.' },
+                      ].filter(c => Array.isArray(c.arr) && c.arr.length > 0);
+                      const aborted = extendResult.aborted;
+                      const extended = Number(extendResult.extended ?? 0);
+                      return (
+                        <div className="space-y-2">
+                          {/* One banner for the headline + the per-category skips —
+                              no separate "aborted" subhead, no "nothing was extended"
+                              repeat, no 3-line hints. */}
+                          <div className={`rounded border px-3 py-2 ${
+                            aborted ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50'
+                          }`}>
+                            <p className={`text-xs font-semibold flex items-center gap-1.5 ${
+                              aborted ? 'text-rose-900' : 'text-emerald-900'
+                            }`}>
+                              <i className={`fas ${aborted ? 'fa-ban text-rose-600' : 'fa-check-circle text-emerald-600'}`} aria-hidden="true"></i>
+                              {aborted
+                                ? 'Aborted — no rooms extended'
+                                : `${extended} room${extended === 1 ? '' : 's'} extended · +${fmtMoney(Number(extendResult.total_added || 0))}`}
                             </p>
-                            <p className="text-[11px] text-rose-800 mt-0.5 ml-5">
-                              A conflict on one or more rooms stopped the whole operation. No BookingExtension rows were written. Resolve the conflicts below, then re-run.
-                            </p>
-                          </div>
-                        )}
-                        {!extendResult.aborted && Number(extendResult.extended ?? 0) > 0 && (
-                          <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2">
-                            <p className="text-[11px] text-emerald-900 font-semibold flex items-center gap-1.5">
-                              <i className="fas fa-check-circle text-emerald-600" aria-hidden="true"></i>
-                              {extendResult.extended} room{extendResult.extended === 1 ? '' : 's'} extended
-                            </p>
-                            {Array.isArray(extendResult.extended_rooms) && extendResult.extended_rooms.length > 0 && (
+                            {!aborted && Array.isArray(extendResult.extended_rooms) && extendResult.extended_rooms.length > 0 && (
                               <p className="text-[11px] text-emerald-800 mt-0.5 ml-5">
                                 {extendResult.extended_rooms.join(', ')}
                               </p>
                             )}
-                            <p className="text-[11px] text-emerald-800 mt-0.5 ml-5">
-                              +{fmtMoney(Number(extendResult.total_added || 0))} added to group balance
-                            </p>
+                            {buckets.map(c => (
+                              <p key={c.key} className={`text-[11px] mt-1 ${aborted ? 'text-rose-800' : 'text-amber-800'}`}>
+                                <span className="font-semibold">{c.label}:</span> {c.arr.join(', ')}
+                                <span className={`block text-[10px] mt-0.5 ${aborted ? 'text-rose-600' : 'text-amber-600'}`}>
+                                  {c.hint}
+                                </span>
+                              </p>
+                            ))}
                           </div>
-                        )}
-                        {[
-                          {
-                            key: 'not-checked-in',
-                            arr: extendResult.skipped_not_checked_in,
-                            label: 'Not Checked In',
-                            hint: 'Only Checked-In rooms can be extended. Check these rooms in first, then re-run the group extend.',
-                          },
-                          {
-                            key: 'type-mismatch',
-                            arr: extendResult.skipped_type_mismatch,
-                            label: 'Slot mismatch',
-                            hint: "These rooms' current slot can't continue with the chosen type — their end-time is out of sync with the rest of the group (e.g. a sibling was extended individually earlier). Cancel their latest extension to re-sync, or extend them individually with a matching slot.",
-                          },
-                          {
-                            key: 'room-conflict',
-                            arr: extendResult.skipped_room_conflict,
-                            label: 'Room conflict',
-                            hint: 'Another booking already occupies these rooms during the extension window. Transfer the guest to a different room or shorten the extension before retrying.',
-                          },
-                          {
-                            key: 'addon-conflict',
-                            arr: extendResult.skipped_addon_conflict,
-                            label: 'Add-on pool short',
-                            hint: "These rooms' add-ons don't have enough inventory for the extended window. Remove the add-on from the room or shorten the extension before retrying.",
-                          },
-                        ].filter(c => Array.isArray(c.arr) && c.arr.length > 0).map(c => (
-                          <div key={c.key} className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
-                            <p className="text-[11px] text-amber-900 font-semibold flex items-center gap-1.5">
-                              <i className="fas fa-triangle-exclamation text-amber-600" aria-hidden="true"></i>
-                              {c.arr.length} skipped — {c.label}
-                            </p>
-                            <p className="text-[11px] text-amber-900 mt-0.5 ml-5 font-medium">
-                              {c.arr.join(', ')}
-                            </p>
-                            <p className="text-[11px] text-amber-700 mt-0.5 ml-5">{c.hint}</p>
-                          </div>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            // On abort nothing happened, so just dismiss the result
-                            // card and let staff reconcile without losing the modal.
-                            // On a successful run the modal closes so staff can see
-                            // the refreshed list.
-                            if (extendResult.aborted) {
-                              setExtendOpen(false);
-                              setExtendResult(null);
-                            } else {
-                              setExtendOpen(false);
-                              setExtendResult(null);
-                              onClose?.();
-                            }
-                          }}
-                          className="w-full inline-flex items-center justify-center gap-1 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold py-2 px-3 rounded"
-                        >
-                          <i className={`fas ${extendResult.aborted ? 'fa-times' : 'fa-check'} text-[10px]`} aria-hidden="true"></i>
-                          {extendResult.aborted ? 'Close — reconcile and retry' : 'Got it'}
-                        </button>
-                      </div>
-                    )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (aborted) {
+                                setExtendOpen(false);
+                                setExtendResult(null);
+                              } else {
+                                setExtendOpen(false);
+                                setExtendResult(null);
+                                onClose?.();
+                              }
+                            }}
+                            className="w-full inline-flex items-center justify-center gap-1 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold py-2 px-3 rounded"
+                          >
+                            {aborted ? 'Close' : 'Got it'}
+                          </button>
+                        </div>
+                      );
+                    })()}
                     {!extendResult && extendOptionsLoading && (
                       <p className="text-xs text-violet-700">
                         <i className="fas fa-spinner fa-spin mr-1"></i>Loading options…
