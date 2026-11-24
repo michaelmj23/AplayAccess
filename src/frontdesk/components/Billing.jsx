@@ -24,6 +24,62 @@ function calcEntrance(b, entranceRates = FALLBACK_RATES) {
   return (b.guests ?? 1) * rate;
 }
 
+// Collapse items belonging to the same reservation into a single
+// aggregated row. Singles pass through unchanged. Shared by the main
+// billing table, the "Awaiting Payment Collection" list, and the
+// "Upcoming Prepayments" list so staff see one row per reservation
+// everywhere — not one row per sibling for the same guest.
+//
+// Aggregated fields on a group row:
+//   isGroup=true, groupRows=[siblings sorted by bookingId],
+//   roomType="Rohan + Quian" / "Rohan +2 more",
+//   total/paidAmount/entranceFee/extensionsTotal/outstanding are sums,
+//   fullyPaid is AND across siblings, status is the top-priority one.
+// Lead row's fields (checkIn, guests, bookingType, etc.) are spread
+// first — all siblings share them in practice since the booking UI
+// doesn't offer per-sibling slot overrides.
+const PRIORITY = {
+  'Checked In': 1, 'Confirmed': 2, 'Pending': 3,
+  'No-Show': 4, 'Completed': 5, 'Cancelled': 6,
+};
+function collapseReservations(items) {
+  const byRes = new Map();
+  const order = [];
+  for (const b of items) {
+    const isGroupMember = b.reservationId && Number(b.groupSize ?? 1) > 1;
+    const key = isGroupMember ? `res:${b.reservationId}` : `solo:${b.bookingId}`;
+    if (!byRes.has(key)) { byRes.set(key, []); order.push(key); }
+    byRes.get(key).push(b);
+  }
+  return order.map(key => {
+    const xs = byRes.get(key);
+    if (xs.length === 1 && key.startsWith('solo:')) return xs[0];
+    const sorted = [...xs].sort((a, b) => a.bookingId - b.bookingId);
+    const lead = sorted[0];
+    const total           = sorted.reduce((s, x) => s + Number(x.total || 0), 0);
+    const extensionsTotal = sorted.reduce((s, x) => s + Number(x.extensionsTotal || 0), 0);
+    const paidAmount      = sorted.reduce((s, x) => s + Number(x.paidAmount || 0), 0);
+    const entranceFee     = sorted.reduce((s, x) => s + Number(x.entranceFee || 0), 0);
+    const outstanding     = Math.max(0, total + extensionsTotal + entranceFee - paidAmount);
+    const fullyPaid       = sorted.every(x => x.fullyPaid);
+    const names           = sorted.map(x => x.roomType).filter(Boolean);
+    const roomDisplay     = names.length <= 2
+      ? names.join(' + ')
+      : `${names[0]} +${names.length - 1} more`;
+    const topStatus       = sorted
+      .map(x => x.status)
+      .sort((a, b) => (PRIORITY[a] || 99) - (PRIORITY[b] || 99))[0];
+    return {
+      ...lead,
+      isGroup: true,
+      groupRows: sorted,
+      roomType: roomDisplay,
+      total, extensionsTotal, paidAmount, entranceFee, outstanding, fullyPaid,
+      status: topStatus,
+    };
+  });
+}
+
 const todayStr = () => localDateStr();
 
 
@@ -429,6 +485,17 @@ export default function Billing({ embedded = false }) {
   // is here), but staff still needs to find them when a guest arrives
   // early or asks to pre-settle. Collapsed by default.
   const [upcomingOpen, setUpcomingOpen] = useState(false);
+  // Expanded group reservations in the "Awaiting Payment Collection" +
+  // "Upcoming Prepayments" lists. Keyed by reservationId. Each entry
+  // = a group whose per-sibling sub-rows are currently shown.
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  const toggleGroupExpand = (resId) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(resId)) next.delete(resId); else next.add(resId);
+      return next;
+    });
+  };
   const [downloading, setDownloading] = useState(null); // bookingId being downloaded
 
   const [toast, showToast, clearToast, toastType] = useToast();
@@ -626,56 +693,9 @@ export default function Billing({ embedded = false }) {
   }), [searchedTodayAll, sortBy, sortDir, entranceRates]);
 
   // Collapse multi-room reservations to one aggregated row before
-  // pagination — same shape as Bookings.jsx (see 5b2a620). A
-  // multi-room group now shows ONE billing row carrying the group's
-  // aggregated total / paidAmount / entranceFee / outstanding.
-  // Single-room reservations pass through unchanged.
-  const collapsedTodayAll = useMemo(() => {
-    const byRes = new Map();
-    const order = [];
-    for (const b of sortedTodayAll) {
-      const isGroupMember = b.reservationId && Number(b.groupSize ?? 1) > 1;
-      const key = isGroupMember ? `res:${b.reservationId}` : `solo:${b.bookingId}`;
-      if (!byRes.has(key)) {
-        byRes.set(key, []);
-        order.push(key);
-      }
-      byRes.get(key).push(b);
-    }
-    const priority = {
-      'Checked In': 1, 'Confirmed': 2, 'Pending': 3,
-      'No-Show': 4, 'Completed': 5, 'Cancelled': 6,
-    };
-    return order.map(key => {
-      const items = byRes.get(key);
-      if (items.length === 1 && key.startsWith('solo:')) return items[0];
-      const sorted = [...items].sort((a, b) => a.bookingId - b.bookingId);
-      const lead = sorted[0];
-      const total       = sorted.reduce((s, x) => s + Number(x.total || 0), 0);
-      const extensionsTotal = sorted.reduce((s, x) => s + Number(x.extensionsTotal || 0), 0);
-      const paidAmount  = sorted.reduce((s, x) => s + Number(x.paidAmount || 0), 0);
-      // Entrance fee is on the lead row only for multi-room — sum
-      // picks up whichever row carries it, which is correct.
-      const entranceFee = sorted.reduce((s, x) => s + Number(x.entranceFee || 0), 0);
-      const outstanding = Math.max(0, total + extensionsTotal + entranceFee - paidAmount);
-      const fullyPaid   = sorted.every(x => x.fullyPaid);
-      const names = sorted.map(x => x.roomType).filter(Boolean);
-      const roomDisplay = names.length <= 2
-        ? names.join(' + ')
-        : `${names[0]} +${names.length - 1} more`;
-      const topStatus = sorted
-        .map(x => x.status)
-        .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0];
-      return {
-        ...lead,
-        isGroup: true,
-        groupRows: sorted,
-        roomType: roomDisplay,
-        total, extensionsTotal, paidAmount, entranceFee, outstanding, fullyPaid,
-        status: topStatus,
-      };
-    });
-  }, [sortedTodayAll]);
+  // pagination — shared via collapseReservations() with the two
+  // billing sub-lists so staff see one row per reservation everywhere.
+  const collapsedTodayAll = useMemo(() => collapseReservations(sortedTodayAll), [sortedTodayAll]);
 
   // Pagination — same 25/page cap as Bookings. Page resets to 1 on
   // search/sort change so a narrowed list snaps back to the top
@@ -709,7 +729,11 @@ export default function Billing({ embedded = false }) {
       const arrival = b.checkIn?.slice(0, 10);
       return arrival && arrival <= today;
     };
-    const todayConfirmed  = todayAll
+    // Collapse multi-room reservations FIRST so staff see one row per
+    // reservation (not one per sibling). All siblings share check_in in
+    // practice, so billableToday + outstanding apply cleanly at the
+    // group level without stranding any sibling from the card.
+    const todayConfirmed  = collapseReservations(todayAll)
       .filter(b => billableToday(b) && outstandingFor(b) > 0)
       .sort((a, b) => {
         const ao = isOverdue(a), bo = isOverdue(b);
@@ -734,7 +758,9 @@ export default function Billing({ embedded = false }) {
       Math.max(0, Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + calcEntrance(b, entranceRates) - Number(b.paidAmount ?? 0));
     const horizon = new Date(today);
     horizon.setDate(horizon.getDate() + 14);
-    return bookings
+    // Collapse groups first so prepayments land as one row per
+    // reservation (same shape as the today's awaiting list).
+    return collapseReservations(bookings)
       .filter(b => {
         if (b.status !== 'Confirmed') return false;
         const arrival = b.checkIn?.slice(0, 10);
@@ -1205,6 +1231,106 @@ export default function Billing({ embedded = false }) {
                 const cardCls = overdue
                   ? 'flex items-center gap-3 p-4 border border-rose-300 rounded-lg bg-rose-50 cursor-pointer hover:bg-rose-100 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-1'
                   : 'flex items-center gap-3 p-4 border rounded-lg bg-sky-50 cursor-pointer hover:bg-sky-100 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1';
+                // Group card: header shows the group totals + one Collect
+                // for the whole reservation; chevron expands per-sibling
+                // sub-rows. Each sub-row opens that sibling's own detail
+                // drawer (not the collect modal — the group header owns
+                // the collect action).
+                if (b.isGroup) {
+                  const isExpanded = expandedGroups.has(b.reservationId);
+                  return (
+                    <li key={`res-${b.reservationId}`}>
+                      <div className={`rounded-lg border overflow-hidden ${overdue ? 'border-rose-300' : 'border-sky-200'}`}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => toggleGroupExpand(b.reservationId)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroupExpand(b.reservationId); } }}
+                          aria-expanded={isExpanded}
+                          aria-label={`${guestLabel} group of ${b.groupSize} rooms, outstanding ${fmtMoney(toCollect)}${isExpanded ? ' — expanded' : ' — click to expand'}`}
+                          className={`flex items-center gap-3 p-4 cursor-pointer transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1 ${overdue ? 'bg-rose-50 hover:bg-rose-100' : 'bg-sky-50 hover:bg-sky-100'}`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium">{guestLabel}</p>
+                              {overdue && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white">
+                                  <i className="fas fa-triangle-exclamation text-[9px]" aria-hidden="true"></i>OVERDUE
+                                </span>
+                              )}
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-200 text-sky-800 text-[10px] font-semibold">
+                                <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
+                                Group of {b.groupSize}
+                              </span>
+                              <span className="text-[11px] font-mono text-slate-500">{b.reservationResId || b.id}</span>
+                            </div>
+                            <p className="text-sm text-slate-600">{b.roomType}</p>
+                            <p className={`text-xs ${overdue ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
+                              {fmtDateTime(b.checkIn)} → {fmtDateTime(b.checkOut)}
+                              {overdue && ' (past checkout)'}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs text-slate-500">Group Total to Collect</p>
+                            <p className={`font-bold text-lg ${overdue ? 'text-rose-700' : 'text-sky-700'}`}>
+                              {fmtMoney(toCollect)}
+                            </p>
+                            {paid > 0 && (
+                              <p className="text-[11px] text-slate-500">
+                                ({fmtMoney(paid)} paid)
+                              </p>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openCollect(b); }}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              aria-label={`Collect ${fmtMoney(toCollect)} for the whole group reservation ${b.reservationResId || b.id}`}
+                              className="mt-2 inline-flex items-center gap-1 min-h-11 px-4 py-1.5 bg-emerald-600 text-white rounded text-sm font-semibold hover:bg-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
+                            >
+                              <i className="fas fa-hand-holding-usd" aria-hidden="true"></i>Collect
+                            </button>
+                          </div>
+                          <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} text-slate-400 shrink-0`} aria-hidden="true"></i>
+                        </div>
+                        {isExpanded && (
+                          <ul className="border-t border-sky-200 bg-white divide-y divide-slate-100">
+                            {b.groupRows.map(sibling => {
+                              const sPaid  = Number(sibling.paidAmount ?? 0);
+                              const sGrand = Number(sibling.total ?? 0) + Number(sibling.extensionsTotal ?? 0) + calcEntrance(sibling, entranceRates);
+                              const sOut   = Math.max(0, sGrand - sPaid);
+                              return (
+                                <li
+                                  key={sibling.bookingId}
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(e) => { e.stopPropagation(); setSelected(sibling); }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(sibling); } }}
+                                  aria-label={`Open billing detail for ${sibling.roomType} ${sibling.id}`}
+                                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-inset"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <p className="text-sm font-medium text-slate-800">{sibling.roomType} · {sibling.guests} pax</p>
+                                      <span className="text-[11px] font-mono text-slate-500">{sibling.id}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500">{fmtDateTime(sibling.checkIn)} → {fmtDateTime(sibling.checkOut)}</p>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Grand</p>
+                                    <p className="text-sm font-medium text-slate-700 tabular-nums">{fmtMoney(sGrand)}</p>
+                                    <p className={`text-[11px] tabular-nums ${sOut > 0 ? 'text-sky-700 font-semibold' : 'text-emerald-600'}`}>
+                                      {sOut > 0 ? `${fmtMoney(sOut)} due` : '✓ Paid'}
+                                    </p>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
+                    </li>
+                  );
+                }
                 return (
                   <li key={b.bookingId}>
                     {/* role="button" + keydown handler turns the card into
@@ -1306,6 +1432,87 @@ export default function Billing({ embedded = false }) {
                   const toCollect  = Math.max(0, grand - paid);
                   const guestLabel = walkInName(b);
                   const openDetail = () => setSelected(b);
+                  if (b.isGroup) {
+                    const isExpanded = expandedGroups.has(b.reservationId);
+                    return (
+                      <li key={`res-${b.reservationId}`} className="bg-white">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => toggleGroupExpand(b.reservationId)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroupExpand(b.reservationId); } }}
+                          aria-expanded={isExpanded}
+                          aria-label={`${guestLabel} group of ${b.groupSize} rooms, outstanding ${fmtMoney(toCollect)}, arriving ${fmtDate(b.checkIn)}`}
+                          className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-inset"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium text-slate-800">{guestLabel}</p>
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-semibold">
+                                <i className="fas fa-layer-group text-[9px]" aria-hidden="true"></i>
+                                Group of {b.groupSize}
+                              </span>
+                              <span className="text-[11px] font-mono text-slate-500">{b.reservationResId || b.id}</span>
+                            </div>
+                            <p className="text-sm text-slate-600">{b.roomType}</p>
+                            <p className="text-xs text-slate-500">Arrives {fmtDateTime(b.checkIn)}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs text-slate-500">Group Outstanding</p>
+                            <p className="font-bold text-slate-700">{fmtMoney(toCollect)}</p>
+                            {paid > 0 && (
+                              <p className="text-[11px] text-slate-500">({fmtMoney(paid)} paid)</p>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openCollect(b); }}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              aria-label={`Collect ${fmtMoney(toCollect)} for the whole group reservation ${b.reservationResId || b.id}`}
+                              className="mt-2 inline-flex items-center gap-1 min-h-11 px-3 py-1.5 border border-emerald-600 text-emerald-700 bg-white rounded text-sm font-semibold hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
+                            >
+                              <i className="fas fa-hand-holding-usd" aria-hidden="true"></i>Collect Early
+                            </button>
+                          </div>
+                          <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} text-slate-400 shrink-0`} aria-hidden="true"></i>
+                        </div>
+                        {isExpanded && (
+                          <ul className="border-t border-slate-100 divide-y divide-slate-100 bg-slate-50/40">
+                            {b.groupRows.map(sibling => {
+                              const sPaid  = Number(sibling.paidAmount ?? 0);
+                              const sGrand = Number(sibling.total ?? 0) + Number(sibling.extensionsTotal ?? 0) + calcEntrance(sibling, entranceRates);
+                              const sOut   = Math.max(0, sGrand - sPaid);
+                              return (
+                                <li
+                                  key={sibling.bookingId}
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(e) => { e.stopPropagation(); setSelected(sibling); }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(sibling); } }}
+                                  aria-label={`Open billing detail for ${sibling.roomType} ${sibling.id}`}
+                                  className="flex items-center gap-3 px-6 py-2.5 hover:bg-white cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-inset"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <p className="text-sm font-medium text-slate-800">{sibling.roomType} · {sibling.guests} pax</p>
+                                      <span className="text-[11px] font-mono text-slate-500">{sibling.id}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500">{fmtDateTime(sibling.checkIn)} → {fmtDateTime(sibling.checkOut)}</p>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Grand</p>
+                                    <p className="text-sm font-medium text-slate-700 tabular-nums">{fmtMoney(sGrand)}</p>
+                                    <p className={`text-[11px] tabular-nums ${sOut > 0 ? 'text-sky-700 font-semibold' : 'text-emerald-600'}`}>
+                                      {sOut > 0 ? `${fmtMoney(sOut)} due` : '✓ Paid'}
+                                    </p>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </li>
+                    );
+                  }
                   return (
                     <li
                       key={b.bookingId}
