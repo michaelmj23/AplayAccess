@@ -1519,13 +1519,12 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       </>
                     );
                   })()}
-                  {/* Group bulk actions moved out of this panel and into
-                      the bottom bar's "All N rooms" section — one place
-                      for every action, with explicit scope labels so
-                      staff don't confuse "Check Out" (this room) with
-                      "Check out all" (every sibling). */}
+                  {/* Group bulk actions ("Check in all", "Extend all",
+                      etc.) sit alongside per-row actions at the bottom
+                      of the modal. Scope is in the button text itself
+                      ("Check out all" vs "Check Out"). */}
                   <p className="mt-2 text-[11px] text-sky-700/80">
-                    Actions are grouped at the bottom by scope: <strong>This room</strong> affects only {booking.roomType}, <strong>All {booking.groupSize} rooms</strong> affects every sibling.
+                    Actions marked <strong>“all”</strong> below apply to every sibling in this reservation. The rest apply only to {booking.roomType}.
                   </p>
                 </div>
               </div>
@@ -2254,10 +2253,6 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                 if (!anyAction) return null;
                 return (
                   <div>
-                    <p className="text-[11px] text-sky-700 font-semibold uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
-                      <i className="fas fa-layer-group text-sky-500" aria-hidden="true"></i>
-                      All {booking.groupSize} rooms
-                    </p>
                     {/* Inline confirm for mark-no-show-all preempts the
                         button row so the confirm isn't buried mid-row. */}
                     {hasMarkNS && groupMarkNoShowConfirm && (
@@ -2298,7 +2293,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                         </div>
                       </div>
                     )}
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       {hasCheckIn && (
                         <button type="button" onClick={handleGroupCheckIn} disabled={groupCheckInLoading}
                           className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-emerald-600 text-white rounded text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2">
@@ -2345,15 +2340,10 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                   </div>
                 );
               })()}
-              {/* Per-row actions (and Download / Close). Labeled
-                  "This room — <RoomType>" for groups so staff see the
-                  scope at a glance. */}
+              {/* Per-row actions (and Download / Close). Scope is
+                  clear from button copy ("Check out all" vs "Check
+                  Out") so no label row — keeps the bottom bar flat. */}
               <div>
-                {Number(booking.groupSize ?? 1) > 1 && (
-                  <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide mb-1.5">
-                    This room — {booking.roomType}
-                  </p>
-                )}
                 <div className="flex flex-wrap justify-end gap-2">
               {/* Check In is only offered for Confirmed bookings — Pending
                   means payment hasn't been verified yet. Staff must collect
@@ -2444,7 +2434,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                   className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-sky-600 text-white rounded text-sm font-medium hover:bg-sky-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2">
                   {receiptLoading
                     ? <><i className="fas fa-spinner fa-spin mr-1" aria-hidden="true"></i>Downloading...</>
-                    : <><i className="fas fa-file-pdf mr-1" aria-hidden="true"></i>Download Confirmation</>}
+                    : <><i className="fas fa-file-pdf mr-1" aria-hidden="true"></i>Download</>}
                 </button>
               )}
               <button onClick={onClose}
