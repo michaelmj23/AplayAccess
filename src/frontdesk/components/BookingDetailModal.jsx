@@ -1519,212 +1519,13 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       </>
                     );
                   })()}
-                  {/* Bulk group actions in a native disclosure. Default
-                      collapsed so the 4-5 bulk buttons don't compete with
-                      the per-room bottom bar — expanded when staff
-                      actually need to act across the whole reservation. */}
-                  <details className="mt-2 [&_.chev]:transition-transform [&[open]_.chev]:rotate-180">
-                    <summary className="cursor-pointer list-none select-none text-xs font-semibold text-sky-900 bg-sky-100 hover:bg-sky-200 px-3 py-2 rounded-lg flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
-                      <span className="inline-flex items-center gap-1.5">
-                        <i className="fas fa-layer-group text-sky-700 text-[10px]" aria-hidden="true"></i>
-                        Apply to all {booking.groupSize} rooms
-                      </span>
-                      <i className="fas fa-chevron-down text-[10px] text-sky-700 chev" aria-hidden="true"></i>
-                    </summary>
-                    <div className="space-y-0">
-                  {/* Reservation-level bulk check-in. Enabled when
-                      any sibling is still Confirmed. The backend
-                      handles skipping future-dated / unpaid /
-                      already-checked-in / cancelled siblings and
-                      reports them per-category in the toast. */}
-                  {booking.groupSiblings.some(s => s.status === 'Confirmed' || s.status === 'No-Show') && (
-                    <button
-                      type="button"
-                      onClick={handleGroupCheckIn}
-                      disabled={groupCheckInLoading}
-                      className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
-                    >
-                      {groupCheckInLoading ? (
-                        <>
-                          <i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>
-                          Checking in group…
-                        </>
-                      ) : (
-                        <>
-                          <i className="fas fa-user-check text-[10px]" aria-hidden="true"></i>
-                          Check in all
-                        </>
-                      )}
-                    </button>
-                  )}
-                  {/* Reservation-level bulk check-out. Enabled when any
-                      sibling is still Checked In. Unpaid siblings get
-                      skipped per-row by the backend; staff collects
-                      balance via the per-row billing flow then
-                      re-runs. */}
-                  {booking.groupSiblings.some(s => s.status === 'Checked In') && (
-                    <button
-                      type="button"
-                      onClick={handleGroupCheckOut}
-                      disabled={groupCheckOutLoading}
-                      className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
-                    >
-                      {groupCheckOutLoading ? (
-                        <>
-                          <i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>
-                          Checking out group…
-                        </>
-                      ) : (
-                        <>
-                          <i className="fas fa-door-open text-[10px]" aria-hidden="true"></i>
-                          Check out all
-                        </>
-                      )}
-                    </button>
-                  )}
-                  {/* Reservation-level bulk extend. Opens the same
-                      picker as per-room extend but submits to the
-                      group endpoint, which re-validates per sibling
-                      and skips type-mismatches / overlaps with reasons
-                      in the toast summary. Visible only while at least
-                      one sibling is Checked In — matches the per-row
-                      extend visibility guard. */}
-                  {booking.groupSiblings.some(s => s.status === 'Checked In') && (
-                    <button
-                      type="button"
-                      onClick={() => openExtendPicker('group')}
-                      disabled={extendSubmitting}
-                      className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-white border-2 border-violet-300 hover:bg-violet-50 disabled:opacity-50 text-violet-700 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
-                    >
-                      <i className="fas fa-clock-rotate-left text-[10px]" aria-hidden="true"></i>
-                      Extend all
-                    </button>
-                  )}
-                  {/* Reservation-level bulk mark-as-no-show. Visible
-                      when at least one sibling is Confirmed and
-                      Day/Night (24hr siblings are excluded by the
-                      per-row markNoShow guard). Two-step confirm —
-                      marking no-show releases promo counts and flips
-                      multiple rows to a terminal-adjacent state. */}
-                  {booking.groupSiblings.some(s =>
-                    s.status === 'Confirmed'
-                    && (s.bookingType === 'day' || s.bookingType === 'night')
-                  ) && (
-                    groupMarkNoShowConfirm ? (
-                      <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-2">
-                        <p className="text-[11px] text-amber-900 mb-2">
-                          Mark all eligible Day/Night rooms as no-show? Promo credit (if any) is released. Use the reversal action to undo.
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={handleGroupMarkNoShow}
-                            disabled={groupMarkNoShowLoading}
-                            className="flex-1 inline-flex items-center justify-center gap-1 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded"
-                          >
-                            {groupMarkNoShowLoading ? (
-                              <><i className="fas fa-spinner fa-spin text-[10px]"></i>Marking…</>
-                            ) : (
-                              <><i className="fas fa-check text-[10px]"></i>Yes, mark no-show</>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setGroupMarkNoShowConfirm(false)}
-                            disabled={groupMarkNoShowLoading}
-                            className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-[11px] font-semibold py-1.5 px-2 rounded"
-                          >
-                            Keep bookings
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setGroupMarkNoShowConfirm(true)}
-                        className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-white border border-amber-400 hover:bg-amber-50 text-amber-800 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
-                      >
-                        <i className="fas fa-user-slash text-[10px]" aria-hidden="true"></i>
-                        Mark all no-show
-                      </button>
-                    )
-                  )}
-                  {/* Reservation-level bulk no-show reversal.
-                      Visible when any sibling is No-Show. Flips
-                      them back to Confirmed (not Checked In — if
-                      the guest is already at the counter, bulk
-                      check-in handles the No-Show → Checked In path
-                      instead). */}
-                  {booking.groupSiblings.some(s => s.status === 'No-Show') && (
-                    <button
-                      type="button"
-                      onClick={handleGroupRevertNoShow}
-                      disabled={groupRevertNoShowLoading}
-                      className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-amber-100 hover:bg-amber-200 disabled:opacity-50 text-amber-800 border border-amber-300 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
-                    >
-                      {groupRevertNoShowLoading ? (
-                        <>
-                          <i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>
-                          Reversing no-show…
-                        </>
-                      ) : (
-                        <>
-                          <i className="fas fa-rotate-left text-[10px]" aria-hidden="true"></i>
-                          Revert no-show all
-                        </>
-                      )}
-                    </button>
-                  )}
-                  {/* Reservation-level bulk cancel. Visible when any
-                      sibling is still Pending or Confirmed. Rendered
-                      as a two-step confirm (the raw button becomes a
-                      confirm / abort pair) so staff can't fat-finger
-                      an irreversible group cancellation. Checked-In
-                      and Completed siblings get skipped by the backend. */}
-                  {booking.groupSiblings.some(s => s.status === 'Pending' || s.status === 'Confirmed') && (
-                    groupCancelConfirm ? (
-                      <div className="mt-2 rounded-lg bg-rose-50 border border-rose-200 p-2">
-                        <p className="text-[11px] text-rose-800 mb-2">
-                          Cancel all Pending/Confirmed rooms in this reservation? Checked-in rooms stay unchanged. This cannot be undone.
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={handleGroupCancel}
-                            disabled={groupCancelLoading}
-                            className="flex-1 inline-flex items-center justify-center gap-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded"
-                          >
-                            {groupCancelLoading ? (
-                              <><i className="fas fa-spinner fa-spin text-[10px]"></i>Cancelling…</>
-                            ) : (
-                              <><i className="fas fa-check text-[10px]"></i>Yes, cancel group</>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setGroupCancelConfirm(false)}
-                            disabled={groupCancelLoading}
-                            className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 text-[11px] font-semibold py-1.5 px-2 rounded"
-                          >
-                            Keep bookings
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setGroupCancelConfirm(true)}
-                        className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-white border border-rose-300 hover:bg-rose-50 text-rose-700 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
-                      >
-                        <i className="fas fa-ban text-[10px]" aria-hidden="true"></i>
-                        Cancel all
-                      </button>
-                    )
-                  )}
-                    </div>
-                  </details>
+                  {/* Group bulk actions moved out of this panel and into
+                      the bottom bar's "All N rooms" section — one place
+                      for every action, with explicit scope labels so
+                      staff don't confuse "Check Out" (this room) with
+                      "Check out all" (every sibling). */}
                   <p className="mt-2 text-[11px] text-sky-700/80">
-                    Per-room actions (transfer, collect balance, no-show, extend) apply only to this room — open the other rooms from the bookings list to act on them.
+                    Actions are grouped at the bottom by scope: <strong>This room</strong> affects only {booking.roomType}, <strong>All {booking.groupSize} rooms</strong> affects every sibling.
                   </p>
                 </div>
               </div>
@@ -2430,9 +2231,130 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
             document.body
           )}
 
-          {/* Actions — hidden while confirmation is pending */}
+          {/* Actions — hidden while confirmation is pending.
+              Two-tier for group bookings: "All N rooms" first (every
+              sibling), then "This room — <RoomType>" (just the one open
+              in the modal). Singles collapse to a single flat row. */}
           {!pendingAction && (
-            <div className="flex justify-end gap-2 pt-4 border-t">
+            <div className="pt-4 border-t space-y-3">
+              {/* "All N rooms" group bulk actions row. Only renders
+                  when the booking is part of a multi-room reservation
+                  AND at least one bulk action is eligible for the
+                  current sibling-status mix. */}
+              {Number(booking.groupSize ?? 1) > 1 && Array.isArray(booking.groupSiblings) && (() => {
+                const hasCheckIn   = booking.groupSiblings.some(s => s.status === 'Confirmed' || s.status === 'No-Show');
+                const hasCheckOut  = booking.groupSiblings.some(s => s.status === 'Checked In');
+                const hasExtend    = hasCheckOut;
+                const hasMarkNS    = booking.groupSiblings.some(s =>
+                  s.status === 'Confirmed' && (s.bookingType === 'day' || s.bookingType === 'night')
+                );
+                const hasRevertNS  = booking.groupSiblings.some(s => s.status === 'No-Show');
+                const hasCancel    = booking.groupSiblings.some(s => s.status === 'Pending' || s.status === 'Confirmed');
+                const anyAction = hasCheckIn || hasCheckOut || hasExtend || hasMarkNS || hasRevertNS || hasCancel;
+                if (!anyAction) return null;
+                return (
+                  <div>
+                    <p className="text-[11px] text-sky-700 font-semibold uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+                      <i className="fas fa-layer-group text-sky-500" aria-hidden="true"></i>
+                      All {booking.groupSize} rooms
+                    </p>
+                    {/* Inline confirm for mark-no-show-all preempts the
+                        button row so the confirm isn't buried mid-row. */}
+                    {hasMarkNS && groupMarkNoShowConfirm && (
+                      <div className="mb-2 rounded-lg bg-amber-50 border border-amber-200 p-2">
+                        <p className="text-[11px] text-amber-900 mb-2">
+                          Mark all eligible Day/Night rooms as no-show? Promo credit (if any) is released. Use the reversal action to undo.
+                        </p>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={handleGroupMarkNoShow} disabled={groupMarkNoShowLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded">
+                            {groupMarkNoShowLoading
+                              ? <><i className="fas fa-spinner fa-spin text-[10px]"></i>Marking…</>
+                              : <><i className="fas fa-check text-[10px]"></i>Yes, mark no-show</>}
+                          </button>
+                          <button type="button" onClick={() => setGroupMarkNoShowConfirm(false)} disabled={groupMarkNoShowLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-[11px] font-semibold py-1.5 px-2 rounded">
+                            Keep bookings
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {hasCancel && groupCancelConfirm && (
+                      <div className="mb-2 rounded-lg bg-rose-50 border border-rose-200 p-2">
+                        <p className="text-[11px] text-rose-800 mb-2">
+                          Cancel all Pending/Confirmed rooms in this reservation? Checked-in rooms stay unchanged. This cannot be undone.
+                        </p>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={handleGroupCancel} disabled={groupCancelLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded">
+                            {groupCancelLoading
+                              ? <><i className="fas fa-spinner fa-spin text-[10px]"></i>Cancelling…</>
+                              : <><i className="fas fa-check text-[10px]"></i>Yes, cancel group</>}
+                          </button>
+                          <button type="button" onClick={() => setGroupCancelConfirm(false)} disabled={groupCancelLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 text-[11px] font-semibold py-1.5 px-2 rounded">
+                            Keep bookings
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {hasCheckIn && (
+                        <button type="button" onClick={handleGroupCheckIn} disabled={groupCheckInLoading}
+                          className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-emerald-600 text-white rounded text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2">
+                          {groupCheckInLoading
+                            ? <><i className="fas fa-spinner fa-spin mr-1" aria-hidden="true"></i>Checking in…</>
+                            : <><i className="fas fa-user-check mr-1" aria-hidden="true"></i>Check in all</>}
+                        </button>
+                      )}
+                      {hasCheckOut && (
+                        <button type="button" onClick={handleGroupCheckOut} disabled={groupCheckOutLoading}
+                          className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2">
+                          {groupCheckOutLoading
+                            ? <><i className="fas fa-spinner fa-spin mr-1" aria-hidden="true"></i>Checking out…</>
+                            : <><i className="fas fa-door-open mr-1" aria-hidden="true"></i>Check out all</>}
+                        </button>
+                      )}
+                      {hasExtend && (
+                        <button type="button" onClick={() => openExtendPicker('group')} disabled={extendSubmitting}
+                          className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-white border border-violet-400 text-violet-700 rounded text-sm font-medium hover:bg-violet-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2">
+                          <i className="fas fa-clock-rotate-left mr-1" aria-hidden="true"></i>Extend all
+                        </button>
+                      )}
+                      {hasMarkNS && !groupMarkNoShowConfirm && (
+                        <button type="button" onClick={() => setGroupMarkNoShowConfirm(true)}
+                          className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-white border border-amber-400 text-amber-800 rounded text-sm font-medium hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2">
+                          <i className="fas fa-user-slash mr-1" aria-hidden="true"></i>Mark all no-show
+                        </button>
+                      )}
+                      {hasRevertNS && (
+                        <button type="button" onClick={handleGroupRevertNoShow} disabled={groupRevertNoShowLoading}
+                          className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 rounded text-sm font-medium disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2">
+                          {groupRevertNoShowLoading
+                            ? <><i className="fas fa-spinner fa-spin mr-1" aria-hidden="true"></i>Reversing…</>
+                            : <><i className="fas fa-rotate-left mr-1" aria-hidden="true"></i>Revert no-show all</>}
+                        </button>
+                      )}
+                      {hasCancel && !groupCancelConfirm && (
+                        <button type="button" onClick={() => setGroupCancelConfirm(true)}
+                          className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-white border border-rose-300 text-rose-700 rounded text-sm font-medium hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2">
+                          <i className="fas fa-ban mr-1" aria-hidden="true"></i>Cancel all
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+              {/* Per-row actions (and Download / Close). Labeled
+                  "This room — <RoomType>" for groups so staff see the
+                  scope at a glance. */}
+              <div>
+                {Number(booking.groupSize ?? 1) > 1 && (
+                  <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide mb-1.5">
+                    This room — {booking.roomType}
+                  </p>
+                )}
+                <div className="flex flex-wrap justify-end gap-2">
               {/* Check In is only offered for Confirmed bookings — Pending
                   means payment hasn't been verified yet. Staff must collect
                   payment first (which moves the booking to Confirmed), then
@@ -2528,6 +2450,8 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
               <button onClick={onClose}
                 type="button"
                 className="px-3 py-2.5 min-h-11 border border-slate-200 rounded text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400">Close</button>
+                </div>
+              </div>
             </div>
           )}
       </div>
