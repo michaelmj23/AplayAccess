@@ -1082,15 +1082,11 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                 and the amount added to the balance. */}
             {Array.isArray(booking.extensions) && booking.extensions.length > 0 && (
               <div className="col-span-2">
-                <div className="rounded-xl border-2 border-violet-200 bg-violet-50/60 p-3">
-                  <p className="text-xs font-semibold text-violet-900 flex items-center gap-1.5 mb-2">
-                    <i className="fas fa-clock-rotate-left text-violet-600" aria-hidden="true"></i>
-                    Stay extensions
-                    <span className="ml-auto text-[11px] text-violet-700 font-normal">
-                      +{fmtMoney(booking.extensionsTotal ?? booking.extensions.reduce((s, e) => s + Number(e.total || 0), 0))} total
-                    </span>
-                  </p>
-                  <ul className="space-y-1">
+                {/* Tighter card: p-3 -> p-2, no header row (money block
+                    already surfaces the "Stay extensions +PHP X" line),
+                    just the per-row list with the cancel X on the tail. */}
+                <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-2">
+                  <ul className="space-y-0.5">
                     {(() => {
                       // Sort by end so the tail (cancellable candidate)
                       // is unambiguous. The X button only shows on the
@@ -1556,7 +1552,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       ) : (
                         <>
                           <i className="fas fa-user-check text-[10px]" aria-hidden="true"></i>
-                          Check in all eligible rooms
+                          Check in all
                         </>
                       )}
                     </button>
@@ -1581,7 +1577,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       ) : (
                         <>
                           <i className="fas fa-door-open text-[10px]" aria-hidden="true"></i>
-                          Check out all eligible rooms
+                          Check out all
                         </>
                       )}
                     </button>
@@ -1601,7 +1597,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-white border-2 border-violet-300 hover:bg-violet-50 disabled:opacity-50 text-violet-700 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
                     >
                       <i className="fas fa-clock-rotate-left text-[10px]" aria-hidden="true"></i>
-                      Extend all eligible rooms
+                      Extend all
                     </button>
                   )}
                   {/* Reservation-level bulk mark-as-no-show. Visible
@@ -1649,7 +1645,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                         className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-white border border-amber-400 hover:bg-amber-50 text-amber-800 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
                       >
                         <i className="fas fa-user-slash text-[10px]" aria-hidden="true"></i>
-                        Mark all eligible rooms as no-show
+                        Mark all no-show
                       </button>
                     )
                   )}
@@ -1674,7 +1670,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       ) : (
                         <>
                           <i className="fas fa-rotate-left text-[10px]" aria-hidden="true"></i>
-                          Reverse no-show on all eligible rooms
+                          Revert no-show all
                         </>
                       )}
                     </button>
@@ -1721,7 +1717,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                         className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-white border border-rose-300 hover:bg-rose-50 text-rose-700 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
                       >
                         <i className="fas fa-ban text-[10px]" aria-hidden="true"></i>
-                        Cancel all eligible rooms
+                        Cancel all
                       </button>
                     )
                   )}
