@@ -784,7 +784,13 @@ export default function Billing({ embedded = false }) {
       showToast('Enter a valid amount greater than 0.', 'error');
       return;
     }
-    if (parsedAmount > billingOutstanding + 0.009) {
+    // Cash lets staff type the amount TENDERED (what the guest
+    // handed over). Anything above outstanding becomes change the
+    // staff hands back — the system only records the applied
+    // portion (= outstanding). GCash still requires an exact amount
+    // because the guest pays a specific figure via QR / Maya; no
+    // physical change-making at the counter.
+    if (payMethod !== 'Cash' && parsedAmount > billingOutstanding + 0.009) {
       showToast(`Amount cannot exceed outstanding balance (${fmtMoney(billingOutstanding)}).`, 'error');
       return;
     }
@@ -805,7 +811,13 @@ export default function Billing({ embedded = false }) {
     try {
       const ef = calcEntrance(billing, entranceRates);
       const opts = {};
-      if (parsedAmount != null) opts.amount = parsedAmount;
+      // Clamp what we send to the backend at outstanding. If staff
+      // typed P1000 for a P400 bill (cash), opts.amount stays at
+      // P400 — the P600 difference is physical change, not
+      // revenue. paid_amount never exceeds grand_total.
+      if (parsedAmount != null) {
+        opts.amount = Math.min(parsedAmount, billingOutstanding);
+      }
       if (payMethod === 'GCash') opts.gcashRef = gcashRef.trim();
 
       if (billing.isGroup) {
@@ -1022,13 +1034,15 @@ export default function Billing({ embedded = false }) {
                 );
               })()}
 
-              {/* Payment amount — partial payments allowed. Blank
-                  defaults to full outstanding (the common case).
-                  A typed value must be > 0 and ≤ outstanding. */}
+              {/* Payment amount. For CASH the field represents amount
+                  tendered (what the guest handed over) — staff can
+                  type more than the balance and the system shows the
+                  change due below. For GCash the field is exact — QR
+                  payments don't involve physical change. */}
               <div className="mb-4">
                 <div className="flex items-baseline justify-between mb-1">
                   <label htmlFor="collect-amount" className="block text-sm font-medium text-slate-700">
-                    Amount to Collect
+                    {payMethod === 'Cash' ? 'Amount Tendered' : 'Amount to Collect'}
                   </label>
                   <button
                     type="button"
@@ -1046,19 +1060,45 @@ export default function Billing({ embedded = false }) {
                     inputMode="decimal"
                     min="0.01"
                     step="0.01"
-                    max={billingOutstanding}
-                    placeholder={`${billingOutstanding.toFixed(2)} (leave blank for full balance)`}
+                    max={payMethod === 'Cash' ? undefined : billingOutstanding}
+                    placeholder={payMethod === 'Cash'
+                      ? `${billingOutstanding.toFixed(2)} — or more (change will show below)`
+                      : `${billingOutstanding.toFixed(2)} (leave blank for full balance)`
+                    }
                     value={amountInput}
                     onChange={(e) => setAmountInput(e.target.value)}
                     className="w-full pl-7 pr-3 py-2.5 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
                   />
                 </div>
-                {amountInput.trim() !== '' && Number(amountInput) > 0 && Number(amountInput) < billingOutstanding - 0.009 && (
-                  <p className="mt-1 text-xs text-amber-700">
-                    <i className="fas fa-info-circle mr-1"></i>
-                    Partial payment — remaining balance of {fmtMoney(billingOutstanding - Number(amountInput))} stays due.
-                  </p>
-                )}
+                {(() => {
+                  const typed = amountInput.trim() === '' ? null : Number(amountInput);
+                  if (typed == null || !Number.isFinite(typed) || typed <= 0) return null;
+                  // Over-tender (cash only): show change due.
+                  if (payMethod === 'Cash' && typed > billingOutstanding + 0.009) {
+                    const change = typed - billingOutstanding;
+                    return (
+                      <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 flex items-center justify-between">
+                        <span className="text-xs text-emerald-800 font-semibold flex items-center gap-1">
+                          <i className="fas fa-coins text-emerald-600"></i>
+                          Change due
+                        </span>
+                        <span className="text-base font-bold text-emerald-700 tabular-nums">
+                          {fmtMoney(change)}
+                        </span>
+                      </div>
+                    );
+                  }
+                  // Partial payment (under outstanding): remaining-balance note.
+                  if (typed < billingOutstanding - 0.009) {
+                    return (
+                      <p className="mt-1 text-xs text-amber-700">
+                        <i className="fas fa-info-circle mr-1"></i>
+                        Partial payment — remaining balance of {fmtMoney(billingOutstanding - typed)} stays due.
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               {/* Payment method */}
@@ -1113,9 +1153,19 @@ export default function Billing({ embedded = false }) {
               {(() => {
                 const parsed = amountInput.trim() === '' ? null : Number(amountInput);
                 const hasAmt = parsed != null && Number.isFinite(parsed) && parsed > 0;
-                const invalidAmt = parsed != null && (!Number.isFinite(parsed) || parsed <= 0 || parsed > billingOutstanding + 0.009);
+                // Over-tender is valid for cash — it's not an "invalid amount",
+                // it just produces change. GCash still rejects over-pay.
+                const invalidAmt = parsed != null && (
+                  !Number.isFinite(parsed)
+                  || parsed <= 0
+                  || (payMethod !== 'Cash' && parsed > billingOutstanding + 0.009)
+                );
                 const missingRef = payMethod === 'GCash' && gcashRef.trim().length < 1;
                 const disabled = paying || !hasAmt || invalidAmt || missingRef;
+                // Amount actually applied to the bill = clamped at outstanding.
+                // Button shows the APPLIED amount so staff see what the system
+                // will record, not what the guest tendered.
+                const appliedAmt = hasAmt ? Math.min(parsed, billingOutstanding) : 0;
                 return (
                   <div className="flex justify-end gap-3">
                     <button onClick={() => setBilling(null)}
@@ -1127,7 +1177,7 @@ export default function Billing({ embedded = false }) {
                       type="button"
                       className="inline-flex items-center gap-1 min-h-11 px-4 py-2.5 bg-emerald-600 text-white rounded text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1">
                       <i className="fas fa-check" aria-hidden="true"></i>
-                      {paying ? 'Processing...' : hasAmt ? `Collect ${fmtMoney(parsed)}` : 'Collect'}
+                      {paying ? 'Processing...' : hasAmt ? `Collect ${fmtMoney(appliedAmt)}` : 'Collect'}
                     </button>
                   </div>
                 );
@@ -1143,13 +1193,23 @@ export default function Billing({ embedded = false }) {
       {billing && (() => {
         const parsed  = Number(amountInput);
         const hasAmt  = Number.isFinite(parsed) && parsed > 0;
+        // amount = amount applied to the bill (what we actually record).
+        // tendered = what the staff typed (only matters when CASH + over).
         const amount  = hasAmt ? Math.min(parsed, billingOutstanding) : 0;
+        const tendered = hasAmt ? parsed : amount;
+        const change  = payMethod === 'Cash' && tendered > billingOutstanding + 0.009
+          ? tendered - billingOutstanding
+          : 0;
         const isFull  = hasAmt && amount >= billingOutstanding - 0.009;
         const remain  = Math.max(0, billingOutstanding - amount);
         const willAutoCheckIn = isFull && !billing.isGroup && billing.status === 'Confirmed';
         const parts = [];
-        parts.push(`Collect ${fmtMoney(amount)} from ${billing.guest}`);
-        parts.push(`for ${billing.id} via ${payMethod}${payMethod === 'GCash' ? ` (ref ${gcashRef.trim()})` : ''}.`);
+        if (change > 0) {
+          parts.push(`Tendered ${fmtMoney(tendered)} — apply ${fmtMoney(amount)} to ${billing.id}, hand back ${fmtMoney(change)} change via Cash.`);
+        } else {
+          parts.push(`Collect ${fmtMoney(amount)} from ${billing.guest}`);
+          parts.push(`for ${billing.id} via ${payMethod}${payMethod === 'GCash' ? ` (ref ${gcashRef.trim()})` : ''}.`);
+        }
         if (!isFull) parts.push(`Remaining balance: ${fmtMoney(remain)}.`);
         if (willAutoCheckIn) parts.push('Guest will be checked in automatically.');
         parts.push('This cannot be undone.');
