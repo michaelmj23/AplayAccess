@@ -99,6 +99,17 @@ export async function extendReservation(reservationId, payload) {
   return res.data;
 }
 
+// DELETE /api/admin/bookings/{id}/extensions/{extensionId}
+// Cancel the tail extension. Backend guards: only tail, must not
+// have started yet, booking status Checked In. Returns
+// {removed_total, overpayment, booking} — overpayment > 0 means
+// staff collected cash for this extension already and needs to
+// reconcile (refund / credit) at checkout.
+export async function cancelExtension(bookingId, extensionId) {
+  const res = await api.delete(`/api/admin/bookings/${bookingId}/extensions/${extensionId}`);
+  return res.data;
+}
+
 // POST /api/admin/reservations/{id}/collect-payment
 // Group / reservation-level collect-payment. Walks each sibling with
 // outstanding > 0 and brings paid_amount up to that sibling's own

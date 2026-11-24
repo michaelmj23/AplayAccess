@@ -15,6 +15,7 @@ import {
   getExtensionOptions,
   createExtension,
   extendReservation,
+  cancelExtension,
 } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import { applyPromoToBooking } from '../../lib/adminApi';
@@ -471,6 +472,11 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
   // for 'group' re-validates per sibling and skips any whose chain
   // tip doesn't accept the chosen slot type.
   const [extendScope, setExtendScope] = useState('room');
+  // { id, label, amount } when the staff clicks the X next to an
+  // extension row. Two-step confirm because it writes to the
+  // ledger and may leave the booking overpaid.
+  const [cancelExtPending, setCancelExtPending] = useState(null);
+  const [cancelExtLoading, setCancelExtLoading] = useState(false);
 
   async function openExtendPicker(scope = 'room') {
     setExtendOpen(true);
@@ -490,6 +496,27 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       setExtendError(err?.response?.data?.message || 'Could not load extension options.');
     } finally {
       setExtendOptionsLoading(false);
+    }
+  }
+
+  async function handleCancelExtension() {
+    if (!cancelExtPending) return;
+    setCancelExtLoading(true);
+    try {
+      const res = await cancelExtension(booking.bookingId, cancelExtPending.id);
+      const over = Number(res?.overpayment ?? 0);
+      const msg = over > 0
+        ? `Extension cancelled. Guest overpaid by ${fmtMoney(over)} — refund or credit at checkout.`
+        : 'Extension cancelled.';
+      showToast?.(msg);
+      onReload?.();
+      refreshNotifications?.();
+      setCancelExtPending(null);
+      onClose?.();
+    } catch (err) {
+      showToast?.(err?.response?.data?.message || 'Could not cancel the extension.');
+    } finally {
+      setCancelExtLoading(false);
     }
   }
 
@@ -1031,25 +1058,105 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                     </span>
                   </p>
                   <ul className="space-y-1">
-                    {booking.extensions.map(e => {
-                      const typeLbl = e.type === 'night' ? 'Night' : e.type === '24hr' ? `24hr × ${e.nights}` : 'Day';
-                      return (
-                        <li key={e.id}
-                            className="flex items-center justify-between text-xs px-2 py-1 rounded text-slate-700">
-                          <span className="truncate">
-                            <i className="fas fa-plus mr-1 text-[10px] text-violet-400" aria-hidden="true"></i>
-                            {typeLbl}
-                            <span className="ml-1 text-[11px] text-slate-500">
-                              {fmtDateTime(e.start)} → {fmtDateTime(e.end)}
-                            </span>
-                          </span>
-                          <span className="tabular-nums text-slate-700 font-medium shrink-0">
-                            +{fmtMoney(e.total)}
-                          </span>
-                        </li>
+                    {(() => {
+                      // Sort by end so the tail (cancellable candidate)
+                      // is unambiguous. The X button only shows on the
+                      // tail that hasn't started yet — matches the
+                      // backend guards (tail-only + start > now).
+                      const sorted = [...booking.extensions].sort(
+                        (a, b) => new Date(String(a.end).replace(' ', 'T'))
+                                - new Date(String(b.end).replace(' ', 'T'))
                       );
-                    })}
+                      const tailId = sorted[sorted.length - 1]?.id;
+                      const now = new Date();
+                      return sorted.map(e => {
+                        const typeLbl = e.type === 'night' ? 'Night' : e.type === '24hr' ? `24hr × ${e.nights}` : 'Day';
+                        const startDate = new Date(String(e.start).replace(' ', 'T'));
+                        const canCancel = e.id === tailId
+                          && startDate > now
+                          && booking.status === 'Checked In';
+                        return (
+                          <li key={e.id}
+                              className="flex items-center justify-between text-xs px-2 py-1 rounded text-slate-700">
+                            <span className="truncate">
+                              <i className="fas fa-plus mr-1 text-[10px] text-violet-400" aria-hidden="true"></i>
+                              {typeLbl}
+                              <span className="ml-1 text-[11px] text-slate-500">
+                                {fmtDateTime(e.start)} → {fmtDateTime(e.end)}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1 shrink-0">
+                              <span className="tabular-nums text-slate-700 font-medium">
+                                +{fmtMoney(e.total)}
+                              </span>
+                              {canCancel && (
+                                <button
+                                  type="button"
+                                  onClick={() => setCancelExtPending({
+                                    id: e.id,
+                                    label: `${typeLbl} (${fmtDateTime(e.start)} → ${fmtDateTime(e.end)})`,
+                                    amount: Number(e.total),
+                                  })}
+                                  disabled={cancelExtLoading}
+                                  className="w-7 h-7 inline-flex items-center justify-center rounded text-rose-600 hover:bg-rose-50 hover:text-rose-800 text-[10px] disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                                  aria-label={`Cancel ${typeLbl} extension`}
+                                  title="Cancel this extension (only the most recent one that hasn't started yet)"
+                                >
+                                  <i className="fas fa-times" aria-hidden="true"></i>
+                                </button>
+                              )}
+                            </span>
+                          </li>
+                        );
+                      });
+                    })()}
                   </ul>
+                  {/* Inline confirm — fires when staff clicks the X.
+                      Previews the overpayment the cancel will create
+                      so staff know to reconcile at checkout. */}
+                  {cancelExtPending && (() => {
+                    const paid = Number(booking.paidAmount ?? 0);
+                    const grand = Number(booking.total ?? 0) + Number(booking.entranceFee ?? 0) + Number(booking.extensionsTotal ?? 0);
+                    const futureGrand = grand - Number(cancelExtPending.amount ?? 0);
+                    const futureOverpay = Math.max(0, paid - futureGrand);
+                    return (
+                      <div className="mt-2 rounded-lg bg-rose-50 border border-rose-200 p-2">
+                        <p className="text-[11px] text-rose-900 mb-1">
+                          Cancel the <span className="font-semibold">{cancelExtPending.label}</span> extension?
+                          Removes <span className="font-semibold">{fmtMoney(cancelExtPending.amount)}</span> from the balance.
+                        </p>
+                        {futureOverpay > 0 && (
+                          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
+                            <i className="fas fa-triangle-exclamation mr-1" aria-hidden="true"></i>
+                            Guest has paid {fmtMoney(paid)} which exceeds the new grand total — overpaid by
+                            {' '}<span className="font-semibold">{fmtMoney(futureOverpay)}</span>. Refund or credit at checkout.
+                          </p>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCancelExtension}
+                            disabled={cancelExtLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded"
+                          >
+                            {cancelExtLoading ? (
+                              <><i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>Cancelling…</>
+                            ) : (
+                              <><i className="fas fa-times text-[10px]" aria-hidden="true"></i>Yes, cancel extension</>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCancelExtPending(null)}
+                            disabled={cancelExtLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 text-[11px] font-semibold py-1.5 px-2 rounded"
+                          >
+                            Keep extension
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )}
