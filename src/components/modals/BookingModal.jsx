@@ -8,6 +8,7 @@ import { api } from "../../lib/api.js";
 import { validatePromo } from "../../lib/adminApi.js";
 import { fmtDateTime } from "../../lib/format";
 import { savePendingPayment, clearPendingPayment } from "../../hooks/usePendingPayment.js";
+import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import VerifyEmailModal from "./VerifyEmailModal.jsx";
 import useFocusTrap from "../../hooks/useFocusTrap.js";
@@ -798,15 +799,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         guestToken:  resumeBooking.guestToken ?? null,
       };
 
-      const pw = 600, ph = 700;
-      const pl = Math.round(window.screen.width  / 2 - pw / 2);
-      const pt = Math.round(window.screen.height / 2 - ph / 2);
-      const popup = window.open(
-        checkoutUrl,
-        "paymongo_checkout",
-        `width=${pw},height=${ph},left=${pl},top=${pt},resizable=yes,scrollbars=yes`
-      );
-
       savePendingPayment({
         bookingId:  resumeBooking.bookingId,
         resId:      resumeBooking.resId ?? null,
@@ -816,14 +808,14 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         expiresAt:  new Date(Date.now() + PAYMENT_WINDOW_SECONDS * 1000).toISOString(),
       });
 
+      // No popup — the QR + "Open Xendit Page" button now live inline
+      // in the modal's payment panel. Desktop users scan the QR with
+      // their phone; mobile users tap the button (same checkoutUrl).
+      // Existing polling + postMessage listener continue to work:
+      // postMessage fires if the guest went through the button path
+      // and PaymentReturn ran; polling catches everyone else.
       const bId = resumeBooking.guestToken ?? resumeBooking.bookingId;
-      if (!popup || popup.closed) {
-        const tab = window.open(checkoutUrl, '_blank');
-        setPaymentPopup({ bookingId: bId, checkoutUrl, popup: tab });
-        setTimeLeft(PAYMENT_WINDOW_SECONDS);
-        return;
-      }
-      setPaymentPopup({ bookingId: bId, checkoutUrl, popup });
+      setPaymentPopup({ bookingId: bId, checkoutUrl, popup: null });
       setTimeLeft(PAYMENT_WINDOW_SECONDS);
     } catch (err) {
       const msg = err?.response?.data?.message
@@ -961,16 +953,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         ? await createGuestPaymentLink(guestToken, effectivePaymentOption === "full")
         : await createPaymentLink(raw.id, effectivePaymentOption === "full");
 
-      // Open PayMongo in a small centered popup so the main page stays visible
-      const pw = 600, ph = 700;
-      const pl = Math.round(window.screen.width  / 2 - pw / 2);
-      const pt = Math.round(window.screen.height / 2 - ph / 2);
-      const popup = window.open(
-        checkout_url,
-        "paymongo_checkout",
-        `width=${pw},height=${ph},left=${pl},top=${pt},resizable=yes,scrollbars=yes`
-      );
-
       // Persist a pending-payment context so the floating banner can
       // offer a resume path if the guest closes this modal / tab while
       // the booking is still Pending. Cleared on successful payment,
@@ -985,15 +967,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         expiresAt:  new Date(Date.now() + PAYMENT_WINDOW_SECONDS * 1000).toISOString(),
       });
 
-      if (!popup || popup.closed) {
-        // Popup blocked — open in a new tab instead of redirecting away
-        const tab = window.open(checkout_url, '_blank');
-        setPaymentPopup({ bookingId, checkoutUrl: checkout_url, popup: tab });
-        setTimeLeft(PAYMENT_WINDOW_SECONDS);
-        return;
-      }
-
-      setPaymentPopup({ bookingId, checkoutUrl: checkout_url, popup });
+      // No popup — the QR + "Open Xendit Page" button now live inline
+      // in the modal's payment panel. Desktop users scan the QR with
+      // their phone; mobile users tap the button. Existing polling +
+      // postMessage listener keep working: polling catches payments
+      // regardless of how the guest navigated to Xendit.
+      setPaymentPopup({ bookingId, checkoutUrl: checkout_url, popup: null });
       setTimeLeft(PAYMENT_WINDOW_SECONDS);
     } catch (err) {
       const msg =
@@ -2432,121 +2411,46 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
             </div>
           )}
 
-          {/* Payment popup states — show regardless of step */}
+          {/* Payment panel — shown once the Xendit invoice exists.
+              Primary UX: inline QR of the invoice URL — desktop guests
+              scan with phone, phone opens Xendit page, pay via GCash.
+              Mobile-guest fallback: "Open Xendit Page" button beneath
+              the QR launches the same URL in a new tab. Verifying
+              branch stays for the post-cancel-redirect flow. */}
           {paymentPopup && (
-            paymentPopup.popup ? (
-              /* Popup is open — show waiting state with countdown.
-                 aria-live so screen-reader users hear "Waiting for
-                 payment…" instead of just having content silently
-                 swap in beneath their cursor. */
-              <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 py-4 bg-blue-50 border border-blue-200 rounded-md mt-4">
-                <i className="fas fa-spinner fa-spin text-blue-600 text-2xl" aria-hidden="true"></i>
-                <p className="text-sm font-medium text-blue-800">Waiting for payment in the checkout window…</p>
-                {timeLeft !== null && timeLeft <= PAYMENT_WARNING_SECONDS ? (
-                  <div className="w-full max-w-sm mx-4 bg-red-50 border border-red-300 rounded-md px-3 py-2 flex items-center gap-3">
-                    <i className="fas fa-exclamation-triangle text-red-600"></i>
-                    <div className="flex-1 text-xs text-red-800">
-                      <p className="font-semibold">Cancelling in {timeLeft}s</p>
-                      <p>Still paying? Keep this booking open.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setTimeLeft(PAYMENT_WINDOW_SECONDS)}
-                      className="px-4 py-2.5 min-h-11 bg-red-600 text-white rounded-md text-xs font-semibold hover:bg-red-700 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
-                    >
-                      Keep
-                    </button>
-                  </div>
-                ) : timeLeft !== null && (
-                  <p className="text-xs font-semibold text-blue-700 tabular-nums" aria-live="polite">
-                    <i className="fas fa-clock mr-1" aria-hidden="true"></i>
-                    Expires in {String(Math.floor(timeLeft / 60)).padStart(2, "0")}:{String(timeLeft % 60).padStart(2, "0")}
-                  </p>
-                )}
-                <div className="flex gap-2 flex-wrap justify-center">
-                  <button
-                    type="button"
-                    onClick={() => { try { paymentPopup.popup?.focus(); } catch { /* ignore */ } }}
-                    className="px-4 py-2.5 min-h-11 border border-blue-400 text-blue-700 rounded-md text-sm font-medium hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                  >
-                    <i className="fas fa-external-link-alt mr-1" aria-hidden="true"></i>Bring to front
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const bId = paymentPopup.bookingId;
-                      try { paymentPopup.popup?.close(); } catch { /* ignore */ }
-                      setPaymentPopup(null);
-                      setTimeLeft(null);
-                      clearPendingPayment();
-                      if (bId) {
-                        (guestMode ? cancelGuestBooking(bId) : cancelBooking(bId)).catch(() => {});
-                      }
-                      setError("Booking cancelled.");
-                    }}
-                    className="px-4 py-2.5 min-h-11 border border-red-300 text-red-700 rounded-md text-sm font-medium hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : paymentPopup.verifying ? (
-              /* Cancel URL received — verifying with PayMongo before giving up */
+            paymentPopup.verifying ? (
               <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 py-4 bg-yellow-50 border border-yellow-200 rounded-md mt-4">
                 <i className="fas fa-spinner fa-spin text-yellow-600 text-2xl" aria-hidden="true"></i>
-                <p className="text-sm font-medium text-yellow-800">Verifying payment with PayMongo…</p>
+                <p className="text-sm font-medium text-yellow-800">Verifying payment with Xendit…</p>
                 <p className="text-xs text-gray-700">Please wait — do not close this window.</p>
               </div>
             ) : (
-              /* Popup was closed — still verifying / offer to reopen */
-              <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 py-4 bg-amber-50 border border-amber-200 rounded-md mt-4">
-                <i className="fas fa-spinner fa-spin text-amber-600 text-2xl" aria-hidden="true"></i>
-                <p className="text-sm font-medium text-amber-800">Verifying payment…</p>
-                <p className="text-xs text-amber-800">If you completed payment, please wait. Otherwise, reopen the window.</p>
-                {timeLeft !== null && timeLeft <= PAYMENT_WARNING_SECONDS ? (
-                  <div className="w-full max-w-sm mx-4 bg-red-50 border border-red-300 rounded-md px-3 py-2 flex items-center gap-3">
-                    <i className="fas fa-exclamation-triangle text-red-600" aria-hidden="true"></i>
-                    <div className="flex-1 text-xs text-red-800">
-                      <p className="font-semibold">Cancelling in {timeLeft}s</p>
-                      <p>Still paying? Keep this booking open.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setTimeLeft(PAYMENT_WINDOW_SECONDS)}
-                      className="px-4 py-2.5 min-h-11 bg-red-600 text-white rounded-md text-xs font-semibold hover:bg-red-700 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
-                    >
-                      Keep
-                    </button>
-                  </div>
-                ) : timeLeft !== null && (
-                  <p className="text-xs font-semibold text-amber-700 tabular-nums" aria-live="polite">
-                    <i className="fas fa-clock mr-1" aria-hidden="true"></i>
-                    Time remaining: {String(Math.floor(timeLeft / 60)).padStart(2, "0")}:{String(timeLeft % 60).padStart(2, "0")}
-                  </p>
-                )}
+              <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 py-4 px-3 bg-sky-50 border border-sky-200 rounded-md mt-4">
+                <p className="text-sm font-semibold text-sky-900">
+                  <i className="fas fa-qrcode mr-1" aria-hidden="true"></i>
+                  Scan to pay with GCash
+                </p>
+                <div className="bg-white p-3 rounded shadow-inner border border-sky-100">
+                  <QRCodeSVG
+                    value={paymentPopup.checkoutUrl}
+                    size={200}
+                    level="M"
+                    includeMargin={false}
+                  />
+                </div>
+                <p className="text-[11px] text-sky-800 text-center leading-snug max-w-xs">
+                  Scan the QR with your phone camera. On mobile? Tap <b>Open Payment Page</b> below.
+                </p>
                 <div className="flex gap-2 flex-wrap justify-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const { checkoutUrl, bookingId } = paymentPopup;
-                      const pw = 600, ph = 700;
-                      const pl = Math.round(window.screen.width  / 2 - pw / 2);
-                      const pt = Math.round(window.screen.height / 2 - ph / 2);
-                      const newPopup = window.open(
-                        checkoutUrl, "paymongo_checkout",
-                        `width=${pw},height=${ph},left=${pl},top=${pt},resizable=yes,scrollbars=yes`
-                      );
-                      if (!newPopup || newPopup.closed) {
-                        const tab = window.open(checkoutUrl, '_blank');
-                        setPaymentPopup({ bookingId, checkoutUrl, popup: tab });
-                        return;
-                      }
-                      setPaymentPopup({ bookingId, checkoutUrl, popup: newPopup });
-                    }}
-                    className="px-4 py-2.5 min-h-11 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  <a
+                    href={paymentPopup.checkoutUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-1 px-4 py-2.5 min-h-11 bg-sky-600 text-white rounded-md text-sm font-medium hover:bg-sky-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
                   >
-                    <i className="fas fa-redo mr-1" aria-hidden="true"></i>Reopen Payment Window
-                  </button>
+                    <i className="fas fa-external-link-alt" aria-hidden="true"></i>
+                    Open Payment Page
+                  </a>
                   <button
                     type="button"
                     onClick={() => {
@@ -2564,6 +2468,31 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     Cancel Booking
                   </button>
                 </div>
+                {timeLeft !== null && timeLeft <= PAYMENT_WARNING_SECONDS ? (
+                  <div className="w-full max-w-sm mx-2 bg-red-50 border border-red-300 rounded-md px-3 py-2 flex items-center gap-3">
+                    <i className="fas fa-exclamation-triangle text-red-600" aria-hidden="true"></i>
+                    <div className="flex-1 text-xs text-red-800">
+                      <p className="font-semibold">Cancelling in {timeLeft}s</p>
+                      <p>Still paying? Keep this booking open.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTimeLeft(PAYMENT_WINDOW_SECONDS)}
+                      className="px-4 py-2.5 min-h-11 bg-red-600 text-white rounded-md text-xs font-semibold hover:bg-red-700 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
+                    >
+                      Keep
+                    </button>
+                  </div>
+                ) : timeLeft !== null && (
+                  <p className="text-xs font-semibold text-sky-700 tabular-nums" aria-live="polite">
+                    <i className="fas fa-clock mr-1" aria-hidden="true"></i>
+                    Expires in {String(Math.floor(timeLeft / 60)).padStart(2, "0")}:{String(timeLeft % 60).padStart(2, "0")}
+                  </p>
+                )}
+                <p className="text-[10px] text-sky-700/70 flex items-center gap-1">
+                  <i className="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                  Waiting for payment confirmation…
+                </p>
               </div>
             )
           )}
