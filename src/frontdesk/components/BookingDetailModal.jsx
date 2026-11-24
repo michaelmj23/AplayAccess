@@ -477,12 +477,20 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
   // ledger and may leave the booking overpaid.
   const [cancelExtPending, setCancelExtPending] = useState(null);
   const [cancelExtLoading, setCancelExtLoading] = useState(false);
+  // Post-group-extend result. Holds the backend summary so the
+  // picker can render a per-sibling breakdown — which rooms got
+  // extended and which were skipped with the reason — instead of
+  // throwing a fleeting toast and closing. Null while the picker
+  // is pre-submit; set when the group submit returns (whether
+  // partial or full success).
+  const [extendResult, setExtendResult] = useState(null);
 
   async function openExtendPicker(scope = 'room') {
     setExtendOpen(true);
     setExtendError('');
     setExtendSelected(null);
     setExtendOptions(null);
+    setExtendResult(null);
     setExtendScope(scope);
     setExtendOptionsLoading(true);
     try {
@@ -527,15 +535,39 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     try {
       if (extendScope === 'group' && booking.reservationId) {
         const res = await extendReservation(booking.reservationId, extendSelected);
-        showToast?.(res.message || `Group extend: ${res.summary?.extended ?? 0} room(s) extended.`);
+        const summary = res?.summary || {};
+        const extended = Number(summary.extended ?? 0);
+        const skippedCount =
+          (summary.skipped_not_checked_in?.length ?? 0) +
+          (summary.skipped_type_mismatch?.length ?? 0) +
+          (summary.skipped_room_conflict?.length ?? 0) +
+          (summary.skipped_addon_conflict?.length ?? 0);
+        // Always refresh the parent list so extended siblings reflect
+        // their new check_out / balance. Then decide whether to keep
+        // the picker open: if ANY rooms were skipped, hold the picker
+        // on a result screen so staff see exactly which rooms didn't
+        // take and why — a toast alone is too fleeting for a partial
+        // group outcome.
+        onReload?.();
+        refreshNotifications?.();
+        if (skippedCount > 0) {
+          setExtendResult({ scope: 'group', ...summary, message: res.message });
+          // Keep extendOpen; staff dismisses via the Close button
+          // on the result card so they've seen the detail.
+          return;
+        }
+        // Full success — toast the one-liner and close as before.
+        showToast?.(res.message || `Group extend: ${extended} room(s) extended.`);
+        setExtendOpen(false);
+        onClose?.();
       } else {
         await createExtension(booking.bookingId, extendSelected);
         showToast?.('Stay extended.');
+        onReload?.();
+        refreshNotifications?.();
+        setExtendOpen(false);
+        onClose?.();
       }
-      onReload?.();
-      refreshNotifications?.();
-      setExtendOpen(false);
-      onClose?.();
     } catch (err) {
       setExtendError(err?.response?.data?.message || 'Could not extend the stay.');
     } finally {
@@ -1197,24 +1229,96 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                               : 'Extend stay')}
                       </p>
                       <button type="button"
-                        onClick={() => setExtendOpen(false)}
+                        onClick={() => { setExtendOpen(false); setExtendResult(null); }}
                         disabled={extendSubmitting}
                         className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-100"
                       >
                         Close
                       </button>
                     </div>
-                    {extendOptionsLoading && (
+                    {/* Post-group-extend result. Rendered INSTEAD of the
+                        options picker so staff see exactly which rooms
+                        got extended and which were skipped, with the
+                        reason + a specific hint per skip category. The
+                        toast was too fleeting for a partial group
+                        outcome. */}
+                    {extendResult && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-violet-900 font-semibold">Group extend — result</p>
+                        {Number(extendResult.extended ?? 0) > 0 && (
+                          <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2">
+                            <p className="text-[11px] text-emerald-900 font-semibold flex items-center gap-1.5">
+                              <i className="fas fa-check-circle text-emerald-600" aria-hidden="true"></i>
+                              {extendResult.extended} room{extendResult.extended === 1 ? '' : 's'} extended
+                            </p>
+                            {Array.isArray(extendResult.extended_rooms) && extendResult.extended_rooms.length > 0 && (
+                              <p className="text-[11px] text-emerald-800 mt-0.5 ml-5">
+                                {extendResult.extended_rooms.join(', ')}
+                              </p>
+                            )}
+                            <p className="text-[11px] text-emerald-800 mt-0.5 ml-5">
+                              +{fmtMoney(Number(extendResult.total_added || 0))} added to group balance
+                            </p>
+                          </div>
+                        )}
+                        {[
+                          {
+                            key: 'not-checked-in',
+                            arr: extendResult.skipped_not_checked_in,
+                            label: 'Not Checked In',
+                            hint: 'Only Checked-In rooms can be extended. Check these rooms in first, then re-run the group extend.',
+                          },
+                          {
+                            key: 'type-mismatch',
+                            arr: extendResult.skipped_type_mismatch,
+                            label: 'Slot mismatch',
+                            hint: "These rooms' current slot can't continue with the chosen type — their end-time is out of sync with the rest of the group (e.g. a sibling was extended individually earlier). Cancel their latest extension to re-sync, or extend them individually with a matching slot.",
+                          },
+                          {
+                            key: 'room-conflict',
+                            arr: extendResult.skipped_room_conflict,
+                            label: 'Room conflict',
+                            hint: 'Another booking already occupies these rooms during the extension window. Transfer the guest to a different room or shorten the extension before retrying.',
+                          },
+                          {
+                            key: 'addon-conflict',
+                            arr: extendResult.skipped_addon_conflict,
+                            label: 'Add-on pool short',
+                            hint: "These rooms' add-ons don't have enough inventory for the extended window. Remove the add-on from the room or shorten the extension before retrying.",
+                          },
+                        ].filter(c => Array.isArray(c.arr) && c.arr.length > 0).map(c => (
+                          <div key={c.key} className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
+                            <p className="text-[11px] text-amber-900 font-semibold flex items-center gap-1.5">
+                              <i className="fas fa-triangle-exclamation text-amber-600" aria-hidden="true"></i>
+                              {c.arr.length} skipped — {c.label}
+                            </p>
+                            <p className="text-[11px] text-amber-900 mt-0.5 ml-5 font-medium">
+                              {c.arr.join(', ')}
+                            </p>
+                            <p className="text-[11px] text-amber-700 mt-0.5 ml-5">{c.hint}</p>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => { setExtendOpen(false); setExtendResult(null); onClose?.(); }}
+                          className="w-full inline-flex items-center justify-center gap-1 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold py-2 px-3 rounded"
+                        >
+                          <i className="fas fa-check text-[10px]" aria-hidden="true"></i>
+                          Got it
+                        </button>
+                      </div>
+                    )}
+                    {!extendResult && extendOptionsLoading && (
                       <p className="text-xs text-violet-700">
                         <i className="fas fa-spinner fa-spin mr-1"></i>Loading options…
                       </p>
                     )}
-                    {extendError && !extendOptionsLoading && (
+                    {!extendResult && extendError && !extendOptionsLoading && (
                       <p className="text-xs text-rose-600 mb-2">
                         <i className="fas fa-triangle-exclamation mr-1"></i>{extendError}
                       </p>
                     )}
-                    {extendOptions && (
+                    {!extendResult && extendOptions && (
                       <>
                         <p className="text-[11px] text-slate-600 mb-2">
                           Current end: <span className="font-medium text-slate-800">{fmtDateTime(extendOptions.current?.endsAt)}</span>.
