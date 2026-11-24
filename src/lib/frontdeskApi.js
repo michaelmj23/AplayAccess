@@ -88,6 +88,17 @@ export async function createExtension(bookingId, payload) {
   return res.data;
 }
 
+// POST /api/admin/reservations/{id}/extensions
+// Reservation-level bulk extend. Applies the chosen slot to every
+// Checked-In sibling; backend skips type-mismatches, room overlaps,
+// and add-on shortages with per-category reasons in the summary.
+// Each extended sibling writes its own BookingExtension row so
+// revenue analytics pick it up the same way as per-room extends.
+export async function extendReservation(reservationId, payload) {
+  const res = await api.post(`/api/admin/reservations/${reservationId}/extensions`, payload);
+  return res.data;
+}
+
 // POST /api/admin/reservations/{id}/collect-payment
 // Group / reservation-level collect-payment. Walks each sibling with
 // outstanding > 0 and brings paid_amount up to that sibling's own

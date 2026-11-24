@@ -14,6 +14,7 @@ import {
   markNoShowReservation,
   getExtensionOptions,
   createExtension,
+  extendReservation,
 } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import { applyPromoToBooking } from '../../lib/adminApi';
@@ -464,12 +465,19 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
   const [extendSelected, setExtendSelected] = useState(null); // {type, nights}
   const [extendSubmitting, setExtendSubmitting] = useState(false);
   const [extendError, setExtendError] = useState('');
+  // 'room' = extend this booking only. 'group' = extend every
+  // Checked-In sibling in the reservation. The picker loads options
+  // from the current booking's chain tip either way; the backend
+  // for 'group' re-validates per sibling and skips any whose chain
+  // tip doesn't accept the chosen slot type.
+  const [extendScope, setExtendScope] = useState('room');
 
-  async function openExtendPicker() {
+  async function openExtendPicker(scope = 'room') {
     setExtendOpen(true);
     setExtendError('');
     setExtendSelected(null);
     setExtendOptions(null);
+    setExtendScope(scope);
     setExtendOptionsLoading(true);
     try {
       const res = await getExtensionOptions(booking.bookingId);
@@ -490,8 +498,13 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setExtendSubmitting(true);
     setExtendError('');
     try {
-      await createExtension(booking.bookingId, extendSelected);
-      showToast?.('Stay extended.');
+      if (extendScope === 'group' && booking.reservationId) {
+        const res = await extendReservation(booking.reservationId, extendSelected);
+        showToast?.(res.message || `Group extend: ${res.summary?.extended ?? 0} room(s) extended.`);
+      } else {
+        await createExtension(booking.bookingId, extendSelected);
+        showToast?.('Stay extended.');
+      }
       onReload?.();
       refreshNotifications?.();
       setExtendOpen(false);
@@ -1028,18 +1041,28 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                 {!extendOpen ? (
                   <button
                     type="button"
-                    onClick={openExtendPicker}
+                    onClick={() => openExtendPicker('room')}
                     className="w-full inline-flex items-center justify-center gap-2 bg-white border-2 border-violet-300 hover:bg-violet-50 text-violet-700 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
                   >
                     <i className="fas fa-clock-rotate-left text-[10px]" aria-hidden="true"></i>
-                    Extend stay
+                    {/* Scope-explicit label when the booking is part of
+                        a group — "Extend stay" alone reads as the whole
+                        reservation and misleads staff. Singles keep
+                        the shorter label. */}
+                    {Number(booking.groupSize ?? 1) > 1
+                      ? `Extend this room's stay (${booking.roomType})`
+                      : 'Extend stay'}
                   </button>
                 ) : (
                   <div className="rounded-xl border-2 border-violet-200 bg-violet-50/40 p-3">
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-xs font-semibold text-violet-900">
                         <i className="fas fa-clock-rotate-left mr-1 text-violet-600"></i>
-                        Extend stay
+                        {extendScope === 'group'
+                          ? `Extend all eligible rooms in this reservation`
+                          : (Number(booking.groupSize ?? 1) > 1
+                              ? `Extend ${booking.roomType} only`
+                              : 'Extend stay')}
                       </p>
                       <button type="button"
                         onClick={() => setExtendOpen(false)}
@@ -1067,6 +1090,21 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                             <span className="ml-1 text-rose-600">No valid continuation from this slot.</span>
                           )}
                         </p>
+                        {extendScope === 'group' && Array.isArray(booking.groupSiblings) && (() => {
+                          // Count eligible siblings up-front so staff
+                          // sees "N of M" scope before confirming.
+                          // Backend re-validates per sibling and skips
+                          // type-mismatches / overlaps with reasons in
+                          // the response summary.
+                          const eligible = booking.groupSiblings.filter(s => s.status === 'Checked In').length;
+                          return (
+                            <p className="text-[11px] text-violet-700 bg-violet-100 rounded px-2 py-1 mb-2">
+                              <i className="fas fa-layer-group mr-1" aria-hidden="true"></i>
+                              Applies to {eligible} Checked-In room{eligible === 1 ? '' : 's'} of {booking.groupSize} in this reservation.
+                              Siblings whose current slot can't accept this type will be skipped.
+                            </p>
+                          );
+                        })()}
                         <div className="space-y-2">
                           {extendOptions.options.map(opt => {
                             const active = extendSelected?.type === opt.type;
@@ -1313,6 +1351,24 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                           Check out all eligible rooms
                         </>
                       )}
+                    </button>
+                  )}
+                  {/* Reservation-level bulk extend. Opens the same
+                      picker as per-room extend but submits to the
+                      group endpoint, which re-validates per sibling
+                      and skips type-mismatches / overlaps with reasons
+                      in the toast summary. Visible only while at least
+                      one sibling is Checked In — matches the per-row
+                      extend visibility guard. */}
+                  {booking.groupSiblings.some(s => s.status === 'Checked In') && (
+                    <button
+                      type="button"
+                      onClick={() => openExtendPicker('group')}
+                      disabled={extendSubmitting}
+                      className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-white border-2 border-violet-300 hover:bg-violet-50 disabled:opacity-50 text-violet-700 text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
+                    >
+                      <i className="fas fa-clock-rotate-left text-[10px]" aria-hidden="true"></i>
+                      Extend all eligible rooms
                     </button>
                   )}
                   {/* Reservation-level bulk mark-as-no-show. Visible
