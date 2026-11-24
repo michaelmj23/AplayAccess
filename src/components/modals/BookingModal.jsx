@@ -1624,13 +1624,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                         onClick={() => onSelect(r)}
                         disabled={disabled}
                         className={`w-full text-left flex items-center gap-3 rounded-xl border-2 p-3 transition-all ${
-                          // Extra right padding on mobile reserves a
-                          // 44px column for the absolutely-positioned
-                          // eye icon button below — keeps the eye from
-                          // sitting on top of the price text. md+ wipes
-                          // the extra padding since the eye is hidden
-                          // on those breakpoints.
-                          !disabled && r.image ? "max-md:pr-14" : ""
+                          // Right padding reserves a 56px column for the
+                          // absolutely-positioned eye icon button below.
+                          // Applies on every breakpoint now that the eye
+                          // is visible desktop + mobile (used to be
+                          // md:hidden with a hover popover).
+                          !disabled && r.image ? "pr-14" : ""
                         } ${
                           disabled
                             ? "bg-gray-50 border-gray-200 opacity-60 cursor-not-allowed"
