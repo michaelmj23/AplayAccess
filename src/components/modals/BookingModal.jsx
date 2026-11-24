@@ -1570,10 +1570,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                         aria-label={`${r.name}, ${r.capacity_label || `up to ${r.capacity} guests`}, ${disabled ? 'booked for this slot' : `${fmtRate(price)} for ${typeWord}`}`}
                         tabIndex={disabled ? -1 : (selected || (!roomId && availableFlat[0]?.id === r.id) ? 0 : -1)}
                         onClick={() => onSelect(r)}
-                        onMouseEnter={(e) => positionPreview(e, r, disabled)}
-                        onMouseLeave={() => { setPreviewRoom(null); setPreviewPos(null); }}
-                        onFocus={(e) => positionPreview(e, r, disabled)}
-                        onBlur={() => { setPreviewRoom(null); setPreviewPos(null); }}
                         disabled={disabled}
                         className={`w-full text-left flex items-center gap-3 rounded-xl border-2 p-3 transition-all ${
                           // Extra right padding on mobile reserves a
@@ -1649,18 +1645,21 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                           <i className="fas fa-check-circle text-blue-500 text-lg ml-1 shrink-0" aria-hidden="true"></i>
                         )}
                       </button>
-                      {/* Mobile-only "see photo" eye button — opens a
-                          fullscreen lightbox of the room image. Sits
-                          outside the card <button> as a sibling because
-                          HTML doesn't allow nesting buttons. Skipped
-                          for cards without an image and for booked
-                          (disabled) cards. */}
+                      {/* "See photo" eye button — opens a fullscreen
+                          lightbox on click. Shown on every breakpoint
+                          now (used to be md:hidden with a hover popover
+                          on desktop); the hover popover was intrusive,
+                          so the click-to-view pattern is the single
+                          entry point. Sits outside the card <button>
+                          as a sibling because HTML doesn't allow
+                          nesting buttons. Skipped for cards without
+                          an image and for booked (disabled) cards. */}
                       {!disabled && r.image && (
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); setLightboxRoom(r); }}
                           aria-label={`View ${r.name} photo`}
-                          className="md:hidden absolute right-1.5 bottom-1.5 z-10 w-11 h-11 inline-flex items-center justify-center rounded-full bg-white/95 ring-1 ring-slate-300 shadow-sm text-slate-700 hover:text-slate-900 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                          className="absolute right-1.5 bottom-1.5 z-10 w-9 h-9 md:w-10 md:h-10 inline-flex items-center justify-center rounded-full bg-white/95 ring-1 ring-slate-300 shadow-sm text-slate-700 hover:text-slate-900 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                         >
                           <i className="fas fa-eye text-sm" aria-hidden="true"></i>
                         </button>
