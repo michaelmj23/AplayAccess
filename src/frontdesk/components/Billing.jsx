@@ -1201,7 +1201,7 @@ export default function Billing({ embedded = false }) {
                   </label>
                   <button
                     type="button"
-                    onClick={() => setAmountInput(String(billingOutstanding.toFixed(2)))}
+                    onClick={() => setAmountInput(String(Math.round(billingOutstanding)))}
                     className="text-xs text-sky-600 hover:text-sky-700 underline underline-offset-2"
                   >
                     Full balance ({fmtMoney(billingOutstanding)})
@@ -1213,12 +1213,12 @@ export default function Billing({ embedded = false }) {
                     id="collect-amount"
                     type="number"
                     inputMode="decimal"
-                    min="0.01"
-                    step="0.01"
+                    min="1"
+                    step="1"
                     max={payMethod === 'Cash' ? undefined : billingOutstanding}
                     placeholder={payMethod === 'Cash'
-                      ? `${billingOutstanding.toFixed(2)} — or more (change will show below)`
-                      : `${billingOutstanding.toFixed(2)} (leave blank for full balance)`
+                      ? `${Math.round(billingOutstanding)} — or more (change will show below)`
+                      : `${Math.round(billingOutstanding)} (leave blank for full balance)`
                     }
                     value={amountInput}
                     onChange={(e) => setAmountInput(e.target.value)}
