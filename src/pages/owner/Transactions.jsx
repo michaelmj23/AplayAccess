@@ -4,6 +4,7 @@ import { Helmet } from "react-helmet-async";
 import { Bar } from "react-chartjs-2";
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from "chart.js";
 import { getAdminBookings, getAnalyticsOverview } from "../../lib/adminApi.js";
+import { downloadStaffReceipt } from "../../lib/frontdeskApi.js";
 import Toast, { useToast } from "../../components/ui/Toast";
 import { printHtml } from "../../lib/print.js";
 
@@ -117,6 +118,33 @@ export default function OwnerTransactions() {
   const [allBookings, setAllBookings] = useState([]);
   const [overview,    setOverview]    = useState(null);
   const [loading,     setLoading]     = useState(true);
+  // bookingId currently being downloaded — drives the spinner on the
+  // per-row Receipt button so staff see which row is in flight.
+  const [receiptDownloading, setReceiptDownloading] = useState(null);
+
+  // Receipt download — hits the staff receipt endpoint (owner/admin
+  // both land on /api/admin/bookings/{id}/receipt), streams the PDF,
+  // and triggers a client-side save with the res_id-based filename
+  // every other download site uses.
+  async function handleDownloadReceipt(bookingId, resId) {
+    if (!bookingId || receiptDownloading) return;
+    setReceiptDownloading(bookingId);
+    try {
+      const blob = await downloadStaffReceipt(bookingId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${resId ?? bookingId}-booking-confirmation.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast('Failed to download confirmation. Please try again.', 'error');
+    } finally {
+      setReceiptDownloading(null);
+    }
+  }
 
   const [search,      setSearch]      = useState("");
   const [searchField, setSearchField] = useState("guest");
@@ -445,16 +473,17 @@ export default function OwnerTransactions() {
                   </th>
                 ))}
                 <th className="px-6 py-3 text-left">Payment</th>
+                <th className="px-6 py-3 text-right">Receipt</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-10 text-center text-slate-400">Loading...</td>
+                  <td colSpan={9} className="px-6 py-10 text-center text-slate-400">Loading...</td>
                 </tr>
               ) : currentRows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-10 text-center text-slate-400">No transactions found.</td>
+                  <td colSpan={9} className="px-6 py-10 text-center text-slate-400">No transactions found.</td>
                 </tr>
               ) : currentRows.map((b) => (
                 <tr key={b.bookingId} role="button" tabIndex={0} onClick={() => navigate("/owner/transactions")} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate("/owner/transactions"); }}} className="hover:bg-slate-50 cursor-pointer">
@@ -515,13 +544,34 @@ export default function OwnerTransactions() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-slate-500">{b.paymentMethod || "—"}</td>
+                  <td className="px-6 py-4 text-right">
+                    {/* Receipt gate matches the staff ReceiptController:
+                        Pending bookings never produced a confirmation,
+                        and Cancelled rows with zero collected have
+                        nothing to document. The backend returns 422 for
+                        either case anyway; hiding the button here
+                        matches the UX in Billing's drawer. */}
+                    {b.status !== 'Pending' && !(b.status === 'Cancelled' && collectedAmt(b) <= 0) && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleDownloadReceipt(b.bookingId, b.id); }}
+                        disabled={receiptDownloading === b.bookingId}
+                        title="Download booking confirmation (PDF)"
+                        aria-label={`Download booking confirmation PDF for ${b.id}`}
+                        className="inline-flex items-center justify-center gap-1.5 min-h-9 px-3 py-1.5 border border-sky-300 text-sky-700 rounded-md text-xs font-medium hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                      >
+                        <i className={`fas ${receiptDownloading === b.bookingId ? 'fa-spinner fa-spin' : 'fa-file-pdf'}`} aria-hidden="true"></i>
+                        PDF
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
             {!loading && currentRows.length > 0 && (
               <tfoot className="bg-slate-50 border-t-2 border-slate-300 text-sm font-semibold">
                 <tr>
-                  {/* 8 columns: Booking ID · Check-in · Guest · Room · Discount · Amount · Status · Payment */}
+                  {/* 9 columns: Booking ID · Check-in · Guest · Room · Discount · Amount · Status · Payment · Receipt */}
                   <td colSpan={4} className="px-6 py-3 text-slate-700">
                     Page total ({currentRows.length} rows)
                   </td>
@@ -531,6 +581,7 @@ export default function OwnerTransactions() {
                   <td className="px-6 py-3 text-slate-900">
                     {fmt(currentRows.reduce((s, b) => s + collectedAmt(b), 0))}
                   </td>
+                  <td />
                   <td />
                   <td />
                 </tr>
@@ -635,6 +686,23 @@ export default function OwnerTransactions() {
                           <p>{b.paymentMethod || '—'}</p>
                         </div>
                       </div>
+
+                      {/* Receipt PDF — same gate as the desktop column.
+                          Stops propagation so the whole-card click doesn't
+                          fire alongside the download. */}
+                      {b.status !== 'Pending' && !(b.status === 'Cancelled' && collected <= 0) && (
+                        <div className="mt-3 pt-3 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleDownloadReceipt(b.bookingId, b.id); }}
+                            disabled={receiptDownloading === b.bookingId}
+                            className="w-full inline-flex items-center justify-center gap-2 min-h-11 px-3 py-2 border border-sky-300 text-sky-700 rounded-lg text-xs font-medium hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                          >
+                            <i className={`fas ${receiptDownloading === b.bookingId ? 'fa-spinner fa-spin' : 'fa-file-pdf'}`} aria-hidden="true"></i>
+                            Download Receipt (PDF)
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </li>
                 );
