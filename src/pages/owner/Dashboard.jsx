@@ -699,7 +699,7 @@ export default function OwnerDashboard() {
         title="Monthly Revenue"
         value={fmt(revThisMonth)}
         basis="Stay-based"
-        basisDetail="Sum of money collected across bookings whose stay (check-in date) falls in this month. A reservation paid today for a future stay credits next month, not today."
+        basisDetail="Revenue from stays happening this month. If a guest paid today for next month, it shows up next month."
         scope={`${new Date().toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}`}
         breakdown={[
           { label: 'Completed stays', amount: fmt(monthlyRevByStatus.completed) },

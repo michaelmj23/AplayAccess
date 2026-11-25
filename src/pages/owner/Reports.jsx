@@ -751,7 +751,7 @@ export default function OwnerReports() {
         title="Total Revenue"
         value={fmt(revenue)}
         basis="Stay-based"
-        basisDetail="Sum of money collected across bookings whose stay (check-in date) falls in the selected period. Includes forfeited reservation fees from cancellations."
+        basisDetail="Revenue from stays in this period, forfeited deposits included. Counts by when they stay, not when they paid."
         scope={`Monthly tab · ${period || 'current period'}`}
         breakdown={[
           { label: 'From active bookings', amount: fmt(activeRevenue), hint: `${active.length} booking${active.length === 1 ? '' : 's'}` },
@@ -768,7 +768,7 @@ export default function OwnerReports() {
         title="Revenue This Month"
         value={fmt(revThisMonth)}
         basis="Cash-based"
-        basisDetail="Money the resort actually received this month, grouped by payment date (paid_at). A booking paid today for a future stay credits today's month; a booking paid last month but checking in this month credits last month."
+        basisDetail="Cash that came in this month, whenever the stay is. A deposit for next month still counts today."
         scope={`${new Date().toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}`}
         breakdown={[
           { label: 'Received this month', amount: fmt(revThisMonth) },

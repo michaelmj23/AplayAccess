@@ -942,7 +942,7 @@ export default function OwnerTransactions() {
         title="Revenue Collected"
         value={fmt(totalRevenue)}
         basis="Cash-collected (all time)"
-        basisDetail="Every peso the resort has actually received, grouped by the status of the booking it funded. This differs from Owner Dashboard's Monthly Revenue, which is grouped by stay date."
+        basisDetail="All the cash we've ever taken in, split by where each booking ended up. Dashboard's Monthly Revenue splits by stay date instead — same money, different angle."
         scope="All bookings · lifetime"
         breakdown={[
           { label: 'Completed stays', amount: fmt(collected.completed) },

@@ -1040,7 +1040,7 @@ export default function Billing({ embedded = false }) {
         title="Overdue Collections"
         value={overdueCollections.count.toString()}
         basis="Overdue"
-        basisDetail="Checked-In guests whose scheduled checkout has already passed and still owe money. The chase-now subset of Pending Collection — these guests may leave without settling."
+        basisDetail="Guests who are past checkout and still haven't paid in full. Chase these first before they walk out."
         scope={`Today · ${fmtMoney(overdueCollections.sum)} owed total`}
         breakdown={[
           { label: 'Guests past checkout + still owing', amount: overdueCollections.count.toString(), hint: 'Each one needs follow-up' },

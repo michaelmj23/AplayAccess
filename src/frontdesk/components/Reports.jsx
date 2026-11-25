@@ -537,7 +537,7 @@ export default function Reports() {
             title="Revenue"
             value={fmtMoney(totalRevenue)}
             basis="Stay-based"
-            basisDetail="Sum of money collected across bookings whose check-in date matches this report date. Includes forfeited reservation fees from cancellations so the total matches what the resort actually kept."
+            basisDetail="What we collected on bookings that checked in this day. Forfeited deposits are in there too."
             scope={`Arrival date · ${reportDateLabel}`}
             breakdown={[
               { label: 'From active bookings', amount: fmtMoney(activeRev), hint: `${activeDateBookings.length} booking${activeDateBookings.length === 1 ? '' : 's'}` },

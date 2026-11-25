@@ -377,7 +377,7 @@ export default function Dashboard() {
         title="Pending Collection"
         value={fmt(pendingCollection)}
         basis="Outstanding"
-        basisDetail="Sum of unpaid balances for guests the counter can collect from today — Checked-In rows + today's Confirmed arrivals. No-Show and Cancelled bookings are excluded (forfeited deposits count as revenue, not pending)."
+        basisDetail="What's still owed today — guests already here plus the ones coming in. No-shows and cancellations aren't in here; their forfeited deposits count as revenue instead."
         scope={`Today · ${pendingCheckedInCount + pendingArrivingCount} booking${(pendingCheckedInCount + pendingArrivingCount) === 1 ? '' : 's'}`}
         breakdown={[
           { label: 'Checked-In (still owes)', amount: fmt(pendingCheckedIn), hint: `${pendingCheckedInCount} booking${pendingCheckedInCount === 1 ? '' : 's'}` },
