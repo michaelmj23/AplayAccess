@@ -386,6 +386,37 @@ function BillingDetailDrawer({ booking: b, onClose, onCollect, onDownloadReceipt
             );
           })()}
 
+          {/* GCash proof — Cloudinary image of the guest's confirmation
+              screenshot captured at the counter. Owner-side audit evidence
+              for reconciling against the resort's GCash wallet. Tap to
+              open the full-size image in a new tab. */}
+          {b.gcashRefImageUrl && (
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase mb-1">
+                <i className="fas fa-mobile-alt text-sky-500 mr-1"></i>
+                GCash Proof
+              </p>
+              <a
+                href={b.gcashRefImageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block rounded border border-slate-200 bg-slate-50 p-1 hover:border-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                title="Click to view full-size"
+              >
+                <img
+                  src={b.gcashRefImageUrl}
+                  alt="GCash confirmation screenshot"
+                  className="h-40 object-contain rounded bg-white"
+                  loading="lazy"
+                />
+                <p className="text-[10px] text-slate-500 text-center mt-1">
+                  <i className="fas fa-external-link-alt mr-1"></i>
+                  Tap to view full size
+                </p>
+              </a>
+            </div>
+          )}
+
           {/* Special requests */}
           {b.specialRequests && (
             <div>

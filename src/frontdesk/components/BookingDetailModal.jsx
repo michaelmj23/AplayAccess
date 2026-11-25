@@ -1082,6 +1082,36 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                 <p className="text-emerald-700 font-medium">{fmtDateTime(booking.checkedOutAt)}</p></div>
             )}
             <div><p className="text-xs text-slate-500">Payment Method</p><PayIcon method={booking.paymentMethod} /></div>
+            {/* GCash proof — Cloudinary image of the guest's confirmation
+                screenshot captured at the counter. Clickable thumbnail
+                opens the full-size image in a new tab. Spans both grid
+                columns so the preview isn't awkwardly cramped. */}
+            {booking.gcashRefImageUrl && (
+              <div className="col-span-2">
+                <p className="text-xs text-slate-500 mb-1">
+                  <i className="fas fa-mobile-alt text-sky-500 mr-1"></i>
+                  GCash Proof
+                </p>
+                <a
+                  href={booking.gcashRefImageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block rounded border border-slate-200 bg-slate-50 p-1 hover:border-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                  title="Click to view full-size"
+                >
+                  <img
+                    src={booking.gcashRefImageUrl}
+                    alt="GCash confirmation screenshot"
+                    className="h-32 object-contain rounded bg-white"
+                    loading="lazy"
+                  />
+                  <p className="text-[10px] text-slate-500 text-center mt-1">
+                    <i className="fas fa-external-link-alt mr-1"></i>
+                    Tap to view full size
+                  </p>
+                </a>
+              </div>
+            )}
             {/* Phase 5 — stay extensions list. Renders when any
                 extensions have been added to this booking. Each
                 row shows the slot the extension added, its window,
