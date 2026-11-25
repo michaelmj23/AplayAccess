@@ -7,6 +7,7 @@ import { Helmet } from 'react-helmet-async';
 import Sidebar from './Layout/Sidebar';
 import { api } from '../../lib/api';
 import { getFdRooms, getFdBookings, createWalkInBooking, addonAvailabilityForSlot } from '../../lib/frontdeskApi';
+import { uploadFile } from '../../lib/uploadApi';
 import { validatePromo, getAdminGuests } from '../../lib/adminApi';
 import Toast, { useToast } from '../../components/ui/Toast';
 import Modal from '../../components/modals/Modal';
@@ -47,6 +48,13 @@ const EMPTY_FORM = {
   fullName: '', phone: '', email: '',
   roomId: '', date: todayStr(),
   payMethod: 'Cash', notes: '',
+  // GCash evidence — required when payMethod === 'GCash'. gcashRef is
+  // the typed reference number (reconciliation lookup key),
+  // gcashRefImageUrl is a Cloudinary URL of the guest's confirmation
+  // screenshot (audit evidence). Same contract as the Billing Manual
+  // Ref flow. Uploads to aplaya/gcash-refs/YYYY/MM/DD/ at submit time.
+  gcashRef: '',
+  gcashRefImageUrl: '',
   bookingType: 'day', // 'day' | 'night' | '24hr'
   // Multi-night count — only applies when bookingType === '24hr'.
   // Day and Night stay single-slot (backend rejects nights>1 for
@@ -90,6 +98,9 @@ export default function WalkIn({ embedded = false }) {
   const [formError, setFormError]         = useState('');
   const [form, setForm]                   = useState(EMPTY_FORM);
   const [wiStep, setWiStep]               = useState(1);
+  // Transient upload state for the GCash screenshot — kept outside
+  // `form` so it resets even on draft restores.
+  const [gcashImageUploading, setGcashImageUploading] = useState(false);
   const [showWiNotes, setShowWiNotes]     = useState(false);
   const [toast, showToast, clearToast, toastType] = useToast();
 
@@ -589,6 +600,17 @@ export default function WalkIn({ embedded = false }) {
       setFormError(`This room only supports: ${allowedTypes.join(', ')}.`); return;
     }
     if (!form.roomId) { setFormError('Please select a room.'); return; }
+    if (form.payMethod === 'GCash') {
+      if (!form.gcashRef.trim()) {
+        setFormError('GCash reference number is required.'); return;
+      }
+      if (!form.gcashRefImageUrl) {
+        setFormError('GCash confirmation screenshot is required.'); return;
+      }
+      if (gcashImageUploading) {
+        setFormError('Please wait for the screenshot upload to finish.'); return;
+      }
+    }
     const selRoom = rooms.find(r => String(r.id) === String(form.roomId));
     if (availability !== null && (!selRoom || availability[String(selRoom.id)] !== true)) {
       setFormError('This room is not available for the selected date and booking type.'); return;
@@ -673,6 +695,13 @@ export default function WalkIn({ embedded = false }) {
         promo_code:        promoResult ? promoInput.trim().toUpperCase() : null,
         discount:          promoDiscount,
       };
+      // GCash evidence rides alongside payment_method for both single
+      // and multi-room walk-ins. Backend validates both are present
+      // when method=gcash and mirrors them onto every sibling.
+      if (form.payMethod === 'GCash') {
+        payload.gcash_ref            = form.gcashRef.trim();
+        payload.gcash_ref_image_url  = form.gcashRefImageUrl;
+      }
       // Multi-room branch: expand primary + each sibling by their
       // qty so cottages/pavilions with quantity > 1 become multiple
       // rooms[] entries sharing the same room_id. Backend handles
@@ -1645,7 +1674,17 @@ export default function WalkIn({ embedded = false }) {
                         { value: 'GCash', icon: 'fa-mobile-alt',      color: 'text-sky-500'  },
                           ].map(opt => (
                         <button key={opt.value} type="button"
-                          onClick={() => setField('payMethod', opt.value)}
+                          onClick={() => {
+                            setField('payMethod', opt.value);
+                            // Clear GCash evidence when switching back to Cash so a
+                            // stale ref/image from an aborted GCash entry can't
+                            // tag along on the Cash submit (backend ignores them
+                            // but the UI shouldn't persist them either).
+                            if (opt.value !== 'GCash') {
+                              setField('gcashRef', '');
+                              setField('gcashRefImageUrl', '');
+                            }
+                          }}
                           className={`flex-1 flex items-center justify-center gap-1.5 py-2 border-2 rounded-lg text-xs font-medium transition-colors ${
                             form.payMethod === opt.value
                               ? 'border-sky-500 bg-sky-50 text-sky-700'
@@ -1659,6 +1698,102 @@ export default function WalkIn({ embedded = false }) {
                     </div>
                   </div>
                 </div>
+
+                {/* GCash evidence — ref number + confirmation screenshot.
+                    Both required for a GCash walk-in: ref is the lookup
+                    key for reconciling against the resort's GCash wallet,
+                    image is the audit evidence. Mirrors the Billing Manual
+                    Ref UX. */}
+                {form.payMethod === 'GCash' && (
+                  <div className="mt-3 p-3 border border-sky-200 bg-sky-50 rounded-lg space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        GCash Reference Number <span className="text-rose-600">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={form.gcashRef}
+                        onChange={(e) => setField('gcashRef', e.target.value)}
+                        placeholder="e.g. 1234 567 8901"
+                        className="w-full px-3 py-2 border border-slate-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                        autoComplete="off"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Confirmation Screenshot <span className="text-rose-600">*</span>
+                      </label>
+                      {!form.gcashRefImageUrl ? (
+                        <label className={`flex flex-col items-center justify-center w-full py-5 border-2 border-dashed rounded cursor-pointer transition-colors ${
+                          gcashImageUploading
+                            ? 'border-sky-300 bg-white cursor-wait'
+                            : 'border-slate-300 bg-white hover:border-sky-400'
+                        }`}>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            disabled={gcashImageUploading}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              if (!file) return;
+                              if (!file.type.startsWith('image/')) {
+                                setFormError('Please select an image file.');
+                                return;
+                              }
+                              if (file.size > 5 * 1024 * 1024) {
+                                setFormError('Image must be 5 MB or smaller.');
+                                return;
+                              }
+                              setFormError('');
+                              setGcashImageUploading(true);
+                              try {
+                                const url = await uploadFile(file, 'gcash-refs');
+                                setField('gcashRefImageUrl', url);
+                              } catch (err) {
+                                setFormError(err?.response?.data?.message || 'Failed to upload image.');
+                              } finally {
+                                setGcashImageUploading(false);
+                              }
+                            }}
+                            className="hidden"
+                          />
+                          <i className={`fas ${gcashImageUploading ? 'fa-spinner fa-spin text-sky-500' : 'fa-camera text-slate-400'} text-xl mb-1`}></i>
+                          <span className="text-xs font-medium text-slate-600">
+                            {gcashImageUploading ? 'Uploading…' : 'Tap to take a photo or choose an image'}
+                          </span>
+                          <span className="text-[10px] text-slate-500 mt-0.5">
+                            Guest's GCash confirmation — max 5 MB
+                          </span>
+                        </label>
+                      ) : (
+                        <div className="rounded border border-slate-200 bg-white p-2">
+                          <img
+                            src={form.gcashRefImageUrl}
+                            alt="GCash confirmation screenshot"
+                            className="w-full max-h-48 object-contain rounded"
+                          />
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-emerald-700">
+                              <i className="fas fa-check-circle mr-1"></i>
+                              Uploaded
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setField('gcashRefImageUrl', '')}
+                              className="text-[11px] text-rose-600 hover:text-rose-700 font-medium"
+                            >
+                              <i className="fas fa-trash-alt mr-1"></i>
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 </>)}
 
                 {/* ═══ STEP 2 — Extras & Summary ═══ */}
