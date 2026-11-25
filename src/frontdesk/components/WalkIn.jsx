@@ -1699,101 +1699,6 @@ export default function WalkIn({ embedded = false }) {
                   </div>
                 </div>
 
-                {/* GCash evidence — ref number + confirmation screenshot.
-                    Both required for a GCash walk-in: ref is the lookup
-                    key for reconciling against the resort's GCash wallet,
-                    image is the audit evidence. Mirrors the Billing Manual
-                    Ref UX. */}
-                {form.payMethod === 'GCash' && (
-                  <div className="mt-3 p-3 border border-sky-200 bg-sky-50 rounded-lg space-y-3">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        GCash Reference Number <span className="text-rose-600">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={form.gcashRef}
-                        onChange={(e) => setField('gcashRef', e.target.value)}
-                        placeholder="e.g. 1234 567 8901"
-                        className="w-full px-3 py-2 border border-slate-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-                        autoComplete="off"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        Confirmation Screenshot <span className="text-rose-600">*</span>
-                      </label>
-                      {!form.gcashRefImageUrl ? (
-                        <label className={`flex flex-col items-center justify-center w-full py-5 border-2 border-dashed rounded cursor-pointer transition-colors ${
-                          gcashImageUploading
-                            ? 'border-sky-300 bg-white cursor-wait'
-                            : 'border-slate-300 bg-white hover:border-sky-400'
-                        }`}>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            disabled={gcashImageUploading}
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              e.target.value = '';
-                              if (!file) return;
-                              if (!file.type.startsWith('image/')) {
-                                setFormError('Please select an image file.');
-                                return;
-                              }
-                              if (file.size > 5 * 1024 * 1024) {
-                                setFormError('Image must be 5 MB or smaller.');
-                                return;
-                              }
-                              setFormError('');
-                              setGcashImageUploading(true);
-                              try {
-                                const url = await uploadFile(file, 'gcash-refs');
-                                setField('gcashRefImageUrl', url);
-                              } catch (err) {
-                                setFormError(err?.response?.data?.message || 'Failed to upload image.');
-                              } finally {
-                                setGcashImageUploading(false);
-                              }
-                            }}
-                            className="hidden"
-                          />
-                          <i className={`fas ${gcashImageUploading ? 'fa-spinner fa-spin text-sky-500' : 'fa-camera text-slate-400'} text-xl mb-1`}></i>
-                          <span className="text-xs font-medium text-slate-600">
-                            {gcashImageUploading ? 'Uploading…' : 'Tap to take a photo or choose an image'}
-                          </span>
-                          <span className="text-[10px] text-slate-500 mt-0.5">
-                            Guest's GCash confirmation — max 5 MB
-                          </span>
-                        </label>
-                      ) : (
-                        <div className="rounded border border-slate-200 bg-white p-2">
-                          <img
-                            src={form.gcashRefImageUrl}
-                            alt="GCash confirmation screenshot"
-                            className="w-full max-h-48 object-contain rounded"
-                          />
-                          <div className="mt-2 flex items-center justify-between gap-2">
-                            <span className="text-[11px] text-emerald-700">
-                              <i className="fas fa-check-circle mr-1"></i>
-                              Uploaded
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setField('gcashRefImageUrl', '')}
-                              className="text-[11px] text-rose-600 hover:text-rose-700 font-medium"
-                            >
-                              <i className="fas fa-trash-alt mr-1"></i>
-                              Remove
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
                 </>)}
 
                 {/* ═══ STEP 2 — Extras & Summary ═══ */}
@@ -2065,6 +1970,107 @@ export default function WalkIn({ embedded = false }) {
                     </div>
                   );
                 })()}
+
+                {/* GCash evidence — ref number + confirmation screenshot.
+                    Placed AFTER the total so staff show the guest the
+                    exact grand total (including amenities + entrance),
+                    guest pays that amount through GCash, then staff
+                    captures the proof. Mirrors the Billing Manual Ref
+                    contract — both required to submit. */}
+                {form.payMethod === 'GCash' && (
+                  <div className="mt-4 p-3 border border-sky-200 bg-sky-50 rounded-lg space-y-3">
+                    <p className="text-xs font-semibold text-sky-900">
+                      <i className="fas fa-mobile-alt mr-1"></i>
+                      GCash Payment Evidence
+                    </p>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        GCash Reference Number <span className="text-rose-600">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={form.gcashRef}
+                        onChange={(e) => setField('gcashRef', e.target.value)}
+                        placeholder="e.g. 1234 567 8901"
+                        className="w-full px-3 py-2 border border-slate-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                        autoComplete="off"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Confirmation Screenshot <span className="text-rose-600">*</span>
+                      </label>
+                      {!form.gcashRefImageUrl ? (
+                        <label className={`flex flex-col items-center justify-center w-full py-5 border-2 border-dashed rounded cursor-pointer transition-colors ${
+                          gcashImageUploading
+                            ? 'border-sky-300 bg-white cursor-wait'
+                            : 'border-slate-300 bg-white hover:border-sky-400'
+                        }`}>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            disabled={gcashImageUploading}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              if (!file) return;
+                              if (!file.type.startsWith('image/')) {
+                                setFormError('Please select an image file.');
+                                return;
+                              }
+                              if (file.size > 5 * 1024 * 1024) {
+                                setFormError('Image must be 5 MB or smaller.');
+                                return;
+                              }
+                              setFormError('');
+                              setGcashImageUploading(true);
+                              try {
+                                const url = await uploadFile(file, 'gcash-refs');
+                                setField('gcashRefImageUrl', url);
+                              } catch (err) {
+                                setFormError(err?.response?.data?.message || 'Failed to upload image.');
+                              } finally {
+                                setGcashImageUploading(false);
+                              }
+                            }}
+                            className="hidden"
+                          />
+                          <i className={`fas ${gcashImageUploading ? 'fa-spinner fa-spin text-sky-500' : 'fa-camera text-slate-400'} text-xl mb-1`}></i>
+                          <span className="text-xs font-medium text-slate-600">
+                            {gcashImageUploading ? 'Uploading…' : 'Tap to take a photo or choose an image'}
+                          </span>
+                          <span className="text-[10px] text-slate-500 mt-0.5">
+                            Guest's GCash confirmation — max 5 MB
+                          </span>
+                        </label>
+                      ) : (
+                        <div className="rounded border border-slate-200 bg-white p-2">
+                          <img
+                            src={form.gcashRefImageUrl}
+                            alt="GCash confirmation screenshot"
+                            className="w-full max-h-48 object-contain rounded"
+                          />
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-emerald-700">
+                              <i className="fas fa-check-circle mr-1"></i>
+                              Uploaded
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setField('gcashRefImageUrl', '')}
+                              className="text-[11px] text-rose-600 hover:text-rose-700 font-medium"
+                            >
+                              <i className="fas fa-trash-alt mr-1"></i>
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 </>)}
               </div>
