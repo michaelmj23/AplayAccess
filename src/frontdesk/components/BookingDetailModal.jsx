@@ -366,7 +366,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       const msg = err?.response?.data?.message
         || err?.response?.data?.error
         || 'Action failed. Please try again.';
-      showToast?.(msg);
+      showToast?.(msg, 'error');
     } finally {
       setActionLoading(false);
     }
@@ -397,9 +397,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       const freshEntrance   = backendEntrance > 0
         ? backendEntrance
         : res.guests * (ENTRANCE_RATES[booking.bookingType ?? 'day'] ?? 50);
-      showToast?.(`Guest count updated to ${res.guests}. Entrance fee: ${fmtMoney(freshEntrance)}.`);
+      showToast?.(`Guest count updated to ${res.guests}. Entrance fee: ${fmtMoney(freshEntrance)}.`, 'success');
     } catch {
-      showToast?.('Failed to update guest count.');
+      showToast?.('Failed to update guest count.', 'error');
     } finally {
       setGuestLoading(false);
     }
@@ -417,7 +417,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupCheckInLoading(true);
     try {
       const res = await checkInReservation(booking.reservationId);
-      showToast?.(res.message || `Group check-in: ${res.summary?.checked_in ?? 0} room(s) checked in.`);
+      showToast?.(res.message || `Group check-in: ${res.summary?.checked_in ?? 0} room(s) checked in.`, 'success');
       // The call touched multiple bookings — hand back control to the
       // parent to refresh the whole list so each sibling row reflects
       // its new state. The modal closes afterwards; staff reopens any
@@ -427,7 +427,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       onClose?.();
     } catch (err) {
       const msg = err?.response?.data?.message || 'Group check-in failed.';
-      showToast?.(msg);
+      showToast?.(msg, 'error');
     } finally {
       setGroupCheckInLoading(false);
     }
@@ -443,13 +443,13 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupCheckOutLoading(true);
     try {
       const res = await checkOutReservation(booking.reservationId);
-      showToast?.(res.message || `Group check-out: ${res.summary?.checked_out ?? 0} room(s) checked out.`);
+      showToast?.(res.message || `Group check-out: ${res.summary?.checked_out ?? 0} room(s) checked out.`, 'success');
       onReload?.();
       refreshNotifications?.();
       onClose?.();
     } catch (err) {
       const msg = err?.response?.data?.message || 'Group check-out failed.';
-      showToast?.(msg);
+      showToast?.(msg, 'error');
     } finally {
       setGroupCheckOutLoading(false);
     }
@@ -522,13 +522,13 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       } else {
         msg = 'Extension cancelled.';
       }
-      showToast?.(msg);
+      showToast?.(msg, 'success');
       onReload?.();
       refreshNotifications?.();
       setCancelExtPending(null);
       onClose?.();
     } catch (err) {
-      showToast?.(err?.response?.data?.message || 'Could not cancel the extension.');
+      showToast?.(err?.response?.data?.message || 'Could not cancel the extension.', 'error');
     } finally {
       setCancelExtLoading(false);
     }
@@ -555,12 +555,12 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
           setExtendResult({ scope: 'group', aborted: false, ...summary, message: res.message });
           return;
         }
-        showToast?.(res.message || `Group extend: ${extended} room(s) extended.`);
+        showToast?.(res.message || `Group extend: ${extended} room(s) extended.`, 'success');
         setExtendOpen(false);
         onClose?.();
       } else {
         await createExtension(booking.bookingId, extendSelected);
-        showToast?.('Stay extended.');
+        showToast?.('Stay extended.', 'success');
         onReload?.();
         refreshNotifications?.();
         setExtendOpen(false);
@@ -595,14 +595,14 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupMarkNoShowLoading(true);
     try {
       const res = await markNoShowReservation(booking.reservationId);
-      showToast?.(res.message || `Group no-show: ${res.summary?.marked ?? 0} room(s) marked.`);
+      showToast?.(res.message || `Group no-show: ${res.summary?.marked ?? 0} room(s) marked.`, 'success');
       onReload?.();
       refreshNotifications?.();
       setGroupMarkNoShowConfirm(false);
       onClose?.();
     } catch (err) {
       const msg = err?.response?.data?.message || 'Group no-show failed.';
-      showToast?.(msg);
+      showToast?.(msg, 'error');
     } finally {
       setGroupMarkNoShowLoading(false);
     }
@@ -620,13 +620,13 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupRevertNoShowLoading(true);
     try {
       const res = await revertNoShowReservation(booking.reservationId);
-      showToast?.(res.message || `Group reversal: ${res.summary?.reverted ?? 0} room(s) restored.`);
+      showToast?.(res.message || `Group reversal: ${res.summary?.reverted ?? 0} room(s) restored.`, 'success');
       onReload?.();
       refreshNotifications?.();
       onClose?.();
     } catch (err) {
       const msg = err?.response?.data?.message || 'Group no-show reversal failed.';
-      showToast?.(msg);
+      showToast?.(msg, 'error');
     } finally {
       setGroupRevertNoShowLoading(false);
     }
@@ -643,14 +643,14 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupCancelLoading(true);
     try {
       const res = await cancelReservation(booking.reservationId);
-      showToast?.(res.message || `Group cancel: ${res.summary?.cancelled ?? 0} room(s) cancelled.`);
+      showToast?.(res.message || `Group cancel: ${res.summary?.cancelled ?? 0} room(s) cancelled.`, 'success');
       onReload?.();
       refreshNotifications?.();
       setGroupCancelConfirm(false);
       onClose?.();
     } catch (err) {
       const msg = err?.response?.data?.message || 'Group cancel failed.';
-      showToast?.(msg);
+      showToast?.(msg, 'error');
     } finally {
       setGroupCancelLoading(false);
     }
@@ -665,7 +665,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       const code = res.data.promo_code;
       applyUpdate({ promoCode: code, discount: res.data.discount, total: res.data.total });
       setPromoInput('');
-      showToast?.(`Promo code "${code}" applied. Discount: ${fmtMoney(res.data.discount)}`);
+      showToast?.(`Promo code "${code}" applied. Discount: ${fmtMoney(res.data.discount)}`, 'success');
     } catch (err) {
       setPromoError(err?.response?.data?.message || 'Invalid promo code.');
     } finally {
@@ -695,7 +695,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       setAddingAmenity(null);
       refreshAddonAvailability();
     } catch (err) {
-      showToast?.(err?.response?.data?.message || 'Failed to add add-on.');
+      showToast?.(err?.response?.data?.message || 'Failed to add add-on.', 'error');
     } finally { setAmenityLoading(false); }
   }
 
@@ -724,9 +724,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       onUpdated?.(updated);
       setEditingAmenity(null);
       refreshAddonAvailability();
-      showToast?.(`Updated ${updatedRow.name} to qty ${updatedRow.qty}.`);
+      showToast?.(`Updated ${updatedRow.name} to qty ${updatedRow.qty}.`, 'success');
     } catch (err) {
-      showToast?.(err?.response?.data?.message || 'Failed to update add-on.');
+      showToast?.(err?.response?.data?.message || 'Failed to update add-on.', 'error');
     } finally { setAmenityLoading(false); }
   }
 
@@ -741,7 +741,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      showToast?.('Failed to download confirmation.');
+      showToast?.('Failed to download confirmation.', 'error');
     } finally {
       setReceiptLoading(false);
     }
@@ -825,9 +825,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       const toastMsg = delta > 0
         ? `Transferred to ${newRoomName}. +₱${delta.toLocaleString('en-PH', { minimumFractionDigits: 2 })} due at counter.`
         : `Guest transferred to ${newRoomName}.`;
-      showToast?.(toastMsg);
+      showToast?.(toastMsg, 'success');
     } catch (err) {
-      showToast?.(err?.response?.data?.message ?? 'Transfer failed. Room may be occupied.');
+      showToast?.(err?.response?.data?.message ?? 'Transfer failed. Room may be occupied.', 'error');
     } finally {
       setTransferring(false);
     }

@@ -670,8 +670,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       ? pricing.entrance_fee_24hr
       : pricing.entrance_fee_day;
   const estimatedEntrance  = entranceRate; // 1 pax; scales at check-in
-  const grandEstimate      = discountedTotal + estimatedEntrance;
-  const resortBalance      = balanceDue + estimatedEntrance;
 
   async function applyPromo() {
     const code = promoInput.trim();
@@ -1242,11 +1240,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                           </p>
                           <p className="text-[11px] mt-0.5 opacity-80">
                             {totalRooms} {totalRooms === 1 ? "room" : "rooms"} · {slotLabel}
-                            {Number(estimatedEntrance) > 0 && " · entrance incl."}
                           </p>
                         </div>
                         <p className="text-2xl md:text-3xl font-extrabold tabular-nums shrink-0">
-                          {formatPHP(grandEstimate)}
+                          {formatPHP(discountedTotal)}
                         </p>
                       </div>
                       {/* Mini breakdown so the number isn't a black box.
@@ -1275,13 +1272,13 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                             <span className="font-semibold tabular-nums">−{formatPHP(discount)}</span>
                           </span>
                         )}
-                        {Number(estimatedEntrance) > 0 && (
-                          <span className="inline-flex items-baseline gap-1">
-                            <span className="opacity-70">Entrance (est)</span>
-                            <span className="font-semibold tabular-nums">+{formatPHP(estimatedEntrance)}</span>
-                          </span>
-                        )}
                       </div>
+                      {Number(estimatedEntrance) > 0 && (
+                        <p className="px-4 pb-3 -mt-1 text-[10.5px] opacity-75">
+                          <i className="fas fa-ticket-alt mr-1" aria-hidden="true"></i>
+                          Entrance fee (₱{entranceRate}/pax) collected separately at the gate.
+                        </p>
+                      )}
                     </div>
                   );
                 })()}
@@ -2187,24 +2184,13 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     <span className="font-medium">+ {formatPHP(optionalTotal)}</span>
                   </div>
                 )}
-                {/* Entrance fee — first-class line, not fine print.
-                    Displayed before the payment-schedule math so the
-                    grand total estimate accurately reflects EVERYTHING
-                    the guest will pay across the three collection
-                    points (online / counter / gate). */}
-                <div className="flex justify-between mb-1 text-sm text-amber-800 border-t border-blue-200 pt-2 mt-2">
-                  <span className="flex items-center gap-1.5">
-                    <i className="fas fa-ticket-alt text-[11px]"></i>
-                    Entrance fee (₱{entranceRate}/pax · paid at gate):
-                  </span>
-                  <span>{formatPHP(estimatedEntrance)}<span className="text-[10px] text-amber-600 ml-1">est.</span></span>
-                </div>
                 <div className="flex justify-between items-baseline mt-2 pt-2 border-t-2 border-blue-300">
-                  <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Estimated Grand Total</span>
-                  <span className="text-2xl font-extrabold tabular-nums text-blue-800">{formatPHP(grandEstimate)}</span>
+                  <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Room Total</span>
+                  <span className="text-2xl font-extrabold tabular-nums text-blue-800">{formatPHP(discountedTotal)}</span>
                 </div>
-                <p className="mt-1 text-[11px] text-gray-600">
-                  Entrance fee scales with the actual number of guests at check-in.
+                <p className="mt-1 text-[11px] text-amber-700">
+                  <i className="fas fa-ticket-alt mr-1" aria-hidden="true"></i>
+                  Entrance fee (₱{entranceRate}/pax) will be collected separately at the gate upon arrival — not included above.
                 </p>
 
                 {/* Payment schedule — breaks the cost across the three
@@ -2231,11 +2217,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   )}
                   <div className="flex justify-between text-sm mt-1">
                     <span className="text-amber-700">Entrance fee at gate</span>
-                    <span className="font-medium text-amber-700">{formatPHP(estimatedEntrance)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm mt-2 pt-2 border-t border-blue-100 font-semibold">
-                    <span className="text-gray-800">Total to pay at resort</span>
-                    <span className="text-gray-900">{formatPHP(resortBalance)}</span>
+                    <span className="font-medium text-amber-700">₱{entranceRate}/pax</span>
                   </div>
                 </div>
               </div>
@@ -2657,34 +2639,23 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                       <span className="font-medium">+ {formatPHP(optionalTotal)}</span>
                     </div>
                   )}
-                  {/* Entrance fee line in the final confirmation.
-                      Previously this just said "₱0.00 — Fully Paid" for
-                      full-payment bookings, which was misleading — the
-                      entrance fee is ALWAYS owed at the gate regardless
-                      of how the room was paid. */}
-                  <div className="flex justify-between text-amber-800">
-                    <span className="flex items-center gap-1.5">
-                      <i className="fas fa-ticket-alt text-[11px]"></i>
-                      Entrance fee (₱{entranceRate}/pax · gate)
-                    </span>
-                    <span>{formatPHP(estimatedEntrance)}<span className="text-[10px] text-amber-600 ml-1">est.</span></span>
-                  </div>
                   <div className="flex justify-between font-semibold text-gray-800 pt-1 border-t border-blue-100">
-                    <span>Estimated Grand Total</span>
-                    <span className="text-gray-900">{formatPHP(grandEstimate)}</span>
+                    <span>Room Total</span>
+                    <span className="text-gray-900">{formatPHP(discountedTotal)}</span>
                   </div>
                   <div className="border-t border-blue-300 pt-2 flex justify-between font-bold text-blue-800 text-base">
                     <span>{paymentOption === "full" ? "Online Now (Room Only)" : "Reservation Fee (Pay Now)"}</span>
                     <span>{formatPHP(amountDue)}</span>
                   </div>
-                  <div className="flex justify-between text-gray-700">
-                    <span>Still to pay at resort</span>
-                    <span className="font-medium text-gray-900 tabular-nums">{formatPHP(resortBalance)}</span>
-                  </div>
-                  <p className="text-[11px] text-gray-700">
-                    {balanceDue > 0
-                      ? <>Includes {formatPHP(balanceDue)} room balance + {formatPHP(estimatedEntrance)} gate entrance.</>
-                      : <>Room is fully settled online; only the entrance fee remains at the gate.</>}
+                  {balanceDue > 0 && (
+                    <div className="flex justify-between text-gray-700">
+                      <span>Room balance at resort</span>
+                      <span className="font-medium text-gray-900 tabular-nums">{formatPHP(balanceDue)}</span>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-amber-700 pt-1 border-t border-blue-100">
+                    <i className="fas fa-ticket-alt mr-1" aria-hidden="true"></i>
+                    Entrance fee (₱{entranceRate}/pax) will be collected separately at the gate upon arrival.
                   </p>
                 </div>
 
@@ -2698,8 +2669,8 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 }`}>
                   <i className={`fas ${paymentOption === "full" ? "fa-check-circle text-emerald-600" : "fa-bookmark text-blue-500"}`}></i>
                   {paymentOption === "full"
-                    ? `Paying full room online — only the ₱${entranceRate}/pax entrance fee will be collected at the gate`
-                    : `Reserve only — ${formatPHP(resortBalance)} balance (room + entrance) due at resort`}
+                    ? `Paying full room online — entrance fee (₱${entranceRate}/pax) will be collected at the gate`
+                    : `Reserve only — ${formatPHP(balanceDue)} room balance due at counter, plus entrance fee at the gate`}
                 </div>
 
                 {/* Payment note */}
