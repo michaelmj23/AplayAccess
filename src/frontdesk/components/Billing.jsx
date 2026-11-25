@@ -764,7 +764,7 @@ export default function Billing({ embedded = false }) {
   // there past their slot). Same isOverdue rule the main-table sort
   // uses (fb69c53), kept here so both surfaces agree on what counts
   // as overdue.
-  const { todayConfirmed, todayCompleted, todayCancelled, revenueToday } = useMemo(() => {
+  const { todayConfirmed, todayCompleted, todayCancelled, revenueToday, overdueCollections } = useMemo(() => {
     const outstandingFor = b =>
       Math.max(0, Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + calcEntrance(b, entranceRates) - Number(b.paidAmount ?? 0));
     // "Awaiting payment collection" is strictly what the counter can
@@ -795,7 +795,21 @@ export default function Billing({ embedded = false }) {
     const todayCancelled  = todayAll.filter(b => b.status === 'Cancelled');
     // Revenue = paid_amount (backend-maintained single source of truth).
     const revenueToday = todayAll.reduce((s, b) => s + Number(b.paidAmount ?? 0), 0);
-    return { todayConfirmed, todayCompleted, todayCancelled, revenueToday };
+    // Overdue Collections — Checked-In bookings past their scheduled
+    // check-out time that still owe money. The "chase now, before they
+    // walk out" slice of Pending Collection. No-Show / Cancelled never
+    // qualify (a forfeited deposit is revenue, not a collectible).
+    const now = new Date();
+    const overdueCollections = todayAll.reduce((acc, b) => {
+      if (b.status !== 'Checked In') return acc;
+      if (!b.checkOut) return acc;
+      const co = new Date(String(b.checkOut).replace(' ', 'T'));
+      if (isNaN(co.getTime()) || co >= now) return acc;
+      const o = outstandingFor(b);
+      if (o <= 0) return acc;
+      return { count: acc.count + 1, sum: acc.sum + o };
+    }, { count: 0, sum: 0 });
+    return { todayConfirmed, todayCompleted, todayCancelled, revenueToday, overdueCollections };
   }, [todayAll, entranceRates, today]);
 
   // Future-arrival bookings that already have an outstanding balance.
@@ -1363,15 +1377,21 @@ export default function Billing({ embedded = false }) {
               <h3 className="text-2xl font-bold">{loading ? '—' : todayCompleted.length}</h3>
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow p-5 flex items-center">
-            <div className="p-3 rounded-full bg-purple-100 text-purple-600 mr-4">
-              <i className="fas fa-peso-sign text-xl"></i>
+          <div className={`bg-white rounded-lg shadow p-5 flex items-center ${!loading && overdueCollections.count > 0 ? 'ring-2 ring-rose-200' : ''}`}>
+            <div className={`p-3 rounded-full mr-4 ${!loading && overdueCollections.count > 0 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>
+              <i className="fas fa-triangle-exclamation text-xl"></i>
             </div>
             <div>
-              <p className="text-slate-500 text-sm">Revenue Today</p>
-              <h3 className="text-xl font-bold">
-                {loading ? '—' : fmtMoney(revenueToday)}
+              <p className="text-slate-500 text-sm">Overdue Collections</p>
+              <h3 className={`text-xl font-bold ${!loading && overdueCollections.count > 0 ? 'text-rose-700' : ''}`}>
+                {loading ? '—' : overdueCollections.count}
               </h3>
+              {!loading && overdueCollections.count > 0 && (
+                <p className="text-xs text-rose-600 font-medium">{fmtMoney(overdueCollections.sum)} owed · past checkout</p>
+              )}
+              {!loading && overdueCollections.count === 0 && (
+                <p className="text-xs text-slate-400">No one past checkout</p>
+              )}
             </div>
           </div>
         </div>

@@ -66,7 +66,7 @@ export default function Dashboard() {
   // ── derived metrics ─────────────────────────────────────────────────────────
   const today = todayStr();
 
-  const { todayBookings, arriving, checkedIn, completed, walkIns, todayRevenue, overdueCheckouts } = useMemo(() => {
+  const { todayBookings, arriving, checkedIn, completed, walkIns, pendingCollection, overdueCheckouts } = useMemo(() => {
     // "Today" includes bookings checking in today AND any still-Checked-In
     // stays from earlier days — so an overnight guest who arrived at
     // 11:50 PM yesterday doesn't disappear from the dashboard at 12:01 AM.
@@ -101,10 +101,17 @@ export default function Dashboard() {
     // card it used to populate now surfaces overdueCheckouts instead.
     const walkIns        = todayBookings.filter(b => b.source === 'walk-in' || b.source === 'walkin');
 
-    // Today's revenue = SUM(paidAmount). paidAmount is the backend's single
-    // source of truth for money actually collected — consistent with the
-    // Billing page's revenueToday and the owner Revenue Collected KPI.
-    const todayRevenue = todayBookings.reduce((sum, b) => sum + Number(b.paidAmount ?? 0), 0);
+    // Pending Collection = SUM(outstanding) over bookings the counter can
+    // actually collect from right now: Checked-In guests + today's
+    // arriving Confirmed rows. No-Show / Cancelled are explicitly excluded
+    // (forfeited deposits are revenue, not collectible balances) — same
+    // contract the Billing "Overdue Collections" tile uses.
+    const pendingCollection = todayBookings.reduce((sum, b) => {
+      if (b.status === 'No-Show' || b.status === 'Cancelled') return sum;
+      const grand       = Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + Number(b.entranceFee ?? 0);
+      const outstanding = Math.max(0, grand - Number(b.paidAmount ?? 0));
+      return sum + outstanding;
+    }, 0);
 
     // Overdue checkouts — checked in but checkout time has passed. This is
     // the KPI-actionable state front desk can actually do something about
@@ -114,7 +121,7 @@ export default function Dashboard() {
       return new Date(b.checkOut.replace(' ', 'T')) < now;
     });
 
-    return { todayBookings, arriving, checkedIn, completed, walkIns, todayRevenue, overdueCheckouts };
+    return { todayBookings, arriving, checkedIn, completed, walkIns, pendingCollection, overdueCheckouts };
   }, [bookings, today]);
 
   // Occupancy. Exclude pseudo-room categories from both numerator and
@@ -203,7 +210,7 @@ export default function Dashboard() {
               return [
                 { label: 'Occupancy',          value: `${occupancyPct}%`,                    bg: 'bg-sky-100',     text: 'text-sky-600',     icon: 'fa-chart-pie',     sub: `${occupiedRooms} / ${totalRooms} rooms` },
                 { label: 'Available Rooms',     value: availableRooms,                        bg: 'bg-emerald-100', text: 'text-emerald-600', icon: 'fa-door-open'      },
-                { label: "Today's Revenue",     value: `₱${todayRevenue.toLocaleString()}`,   bg: 'bg-teal-100',    text: 'text-teal-600',    icon: 'fa-peso-sign'      },
+                { label: 'Pending Collection',  value: `₱${pendingCollection.toLocaleString()}`, bg: 'bg-teal-100',    text: 'text-teal-600',    icon: 'fa-hand-holding-dollar', sub: 'Outstanding at the counter' },
                 { label: 'Arriving Today',      value: arriving.length,                       bg: 'bg-indigo-100',  text: 'text-indigo-600',  icon: 'fa-plane-arrival',  sub: 'Confirmed' },
                 { label: 'Walk-ins Today',      value: walkIns.length,                        bg: 'bg-amber-100',   text: 'text-amber-600',   icon: 'fa-walking'        },
                 overdueCard,
