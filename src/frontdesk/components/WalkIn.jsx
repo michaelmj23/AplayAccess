@@ -6,8 +6,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import Sidebar from './Layout/Sidebar';
 import { api } from '../../lib/api';
-import { getFdRooms, getFdBookings, createWalkInBooking, addonAvailabilityForSlot } from '../../lib/frontdeskApi';
+import { getFdRooms, getFdBookings, createWalkInBooking, addonAvailabilityForSlot, getCounterXenditStatus } from '../../lib/frontdeskApi';
 import { uploadFile } from '../../lib/uploadApi';
+import { QRCodeSVG } from 'qrcode.react';
 import { validatePromo, getAdminGuests } from '../../lib/adminApi';
 import Toast, { useToast } from '../../components/ui/Toast';
 import Modal from '../../components/modals/Modal';
@@ -55,6 +56,11 @@ const EMPTY_FORM = {
   // Ref flow. Uploads to aplaya/gcash-refs/YYYY/MM/DD/ at submit time.
   gcashRef: '',
   gcashRefImageUrl: '',
+  // GCash sub-mode: 'ref' = manual (type ref + upload screenshot of
+  // the guest's GCash confirmation), 'qr' = inline Xendit QR (resort
+  // generates an invoice, guest scans, webhook credits). 'qr' is the
+  // default when GCash is picked — matches the Billing Collect UX.
+  gcashMode: 'qr',
   // Cash tender — required when payMethod === 'Cash'. String so an
   // empty input can be distinguished from a typed 0. Must be >=
   // grand total at submit time; change due renders live below the
@@ -108,6 +114,12 @@ export default function WalkIn({ embedded = false }) {
   // Transient upload state for the GCash screenshot — kept outside
   // `form` so it resets even on draft restores.
   const [gcashImageUploading, setGcashImageUploading] = useState(false);
+  // Counter Xendit QR flow — only used when form.gcashMode === 'qr'.
+  // When qrInvoice is non-null the form is locked (rows already exist
+  // as Pending in the DB) and the body swaps to the QR panel. Status
+  // polls every 3s until paid / failed; on paid the modal closes.
+  const [qrInvoice, setQrInvoice]         = useState(null);
+  const [qrGenerating, setQrGenerating]   = useState(false);
   const [showWiNotes, setShowWiNotes]     = useState(false);
   const [toast, showToast, clearToast, toastType] = useToast();
 
@@ -607,7 +619,7 @@ export default function WalkIn({ embedded = false }) {
       setFormError(`This room only supports: ${allowedTypes.join(', ')}.`); return;
     }
     if (!form.roomId) { setFormError('Please select a room.'); return; }
-    if (form.payMethod === 'GCash') {
+    if (form.payMethod === 'GCash' && form.gcashMode === 'ref') {
       if (!form.gcashRef.trim()) {
         setFormError('GCash reference number is required.'); return;
       }
@@ -777,6 +789,116 @@ export default function WalkIn({ embedded = false }) {
   // Confirm-step ack for short stays (wizard UI). No row-action handlers
   // here anymore — those moved to the Bookings page.
   const [shortStayAck, setShortStayAck] = useState(false);
+
+  // Scan-QR submit. Same validation as handleCreate (which already
+  // skips the GCash manual-ref checks when gcashMode==='qr'), then
+  // POSTs with prepay=true. Response includes {invoice}; we stash it
+  // and the polling effect below picks up state === 'paid'.
+  async function handleGenerateQr() {
+    // Reuse handleCreate's gating (which now also validates roomId,
+    // tender, etc.) by calling it manually — but it opens the confirm
+    // modal via setConfirmOpen(true), which we DON'T want in QR mode.
+    // Re-run its core guards inline instead. This duplicates a few
+    // lines but keeps the control flow obvious.
+    setFormError('');
+    if (!form.fullName.trim()) { setFormError('Guest name is required.'); return; }
+    if (!form.roomId) { setFormError('Please select a room.'); return; }
+    if (form.payMethod !== 'GCash' || form.gcashMode !== 'qr') return;
+
+    setSubmitting(true);
+    setQrGenerating(true);
+    try {
+      // Build the same payload shape handleConfirmCreate builds —
+      // promoResult / multi-room branch / amenities — but with
+      // prepay=true appended so the backend lands the rows as Pending
+      // and returns a Xendit invoice.
+      const checkInTime = form.bookingType === 'night'
+        ? '18:00:00'
+        : form.bookingType === '24hr-pm'
+          ? '18:00:00'
+          : (form.bookingType === '24hr' ? `${String(form.check_in_hour ?? 7).padStart(2,'0')}:00:00` : '07:00:00');
+      const checkIn = `${form.date}T${checkInTime}`;
+      const guestName = form.fullName.trim();
+      const effectiveNights = form.bookingType === '24hr' ? Math.max(1, Number(form.nights) || 1) : 1;
+      const amenities = visibleAddons
+        .filter(a => Number(addonQtys[a.id] || 0) > 0)
+        .map(a => ({ name: a.name, qty: Number(addonQtys[a.id]) }));
+      const multiRoom = form.additionalRooms.length > 0;
+
+      const payload = {
+        guest_name:        guestName,
+        guest_phone:       form.phone.trim(),
+        guest_email:       form.email.trim() || undefined,
+        check_in:          checkIn,
+        guests:            Number(form.guests || 1),
+        payment_method:    'gcash',
+        prepay:            true,
+        special_requests:  form.notes.trim() || undefined,
+        booking_type:      form.bookingType,
+        nights:            effectiveNights,
+        promo_code:        promoResult ? promoInput.trim().toUpperCase() : null,
+        discount:          promoDiscount,
+      };
+      if (multiRoom) {
+        const primary = { room_id: Number(form.roomId), type: form.bookingType, nights: effectiveNights, amenities };
+        const extras = form.additionalRooms.flatMap(r =>
+          Array.from({ length: Math.max(1, Number(r.qty) || 1) }).map(() => ({
+            room_id: Number(r.roomId), type: r.type || form.bookingType, nights: r.type === '24hr' ? Math.max(1, Number(r.nights) || 1) : 1, amenities: []
+          }))
+        );
+        const expandedPrimary = Array.from({ length: Math.max(1, Number(form.primaryQty) || 1) }).map(() => primary);
+        payload.rooms = [...expandedPrimary, ...extras];
+      } else {
+        payload.room_id  = Number(form.roomId);
+        payload.amenities = amenities;
+      }
+
+      const res = await createWalkInBooking(payload);
+      if (!res?.invoice?.invoice_id || !res?.invoice?.invoice_url) {
+        throw new Error('Gateway returned no invoice.');
+      }
+      setQrInvoice({ ...res.invoice, state: 'pending' });
+    } catch (err) {
+      setFormError(
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to generate GCash QR. The room may already be booked.'
+      );
+    } finally {
+      setSubmitting(false);
+      setQrGenerating(false);
+    }
+  }
+
+  // Scan-QR polling. Runs every 3s while qrInvoice.state === 'pending',
+  // stops once the backend reports 'paid' (success; close modal + go
+  // to Bookings) or 'failed' (expired/declined; let staff dismiss).
+  useEffect(() => {
+    if (!qrInvoice?.invoice_id) return;
+    if (qrInvoice.state !== 'pending') return;
+    let cancelled = false;
+    const id = setInterval(async () => {
+      try {
+        const data = await getCounterXenditStatus(qrInvoice.invoice_id);
+        if (cancelled) return;
+        if (data.state === 'paid') {
+          setQrInvoice(prev => prev ? { ...prev, state: 'paid' } : prev);
+          showToast('Walk-in paid. Booking confirmed.', 'success');
+          setTimeout(() => {
+            setFormOpen(false);
+            closeWizard();
+            setQrInvoice(null);
+            navigate(bookingsPath);
+          }, 1500);
+        } else if (data.state === 'failed') {
+          setQrInvoice(prev => prev ? { ...prev, state: 'failed' } : prev);
+        }
+      } catch {
+        // Transient poll error — wait for next tick.
+      }
+    }, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [qrInvoice?.invoice_id, qrInvoice?.state]);
 
   // ─── render ───────────────────────────────────────────────────────────────────
   return (
@@ -1716,6 +1838,36 @@ export default function WalkIn({ embedded = false }) {
                         </button>
                       ))}
                     </div>
+                    {/* GCash sub-mode — same as Billing Collect modal.
+                        Scan QR mode creates the walk-in as Pending and
+                        opens a Xendit invoice; Manual Ref mode collects
+                        a typed reference + screenshot. */}
+                    {form.payMethod === 'GCash' && (
+                      <div className="mt-2 grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded">
+                        <button
+                          type="button"
+                          onClick={() => setField('gcashMode', 'qr')}
+                          className={`py-1.5 rounded text-[11px] font-medium transition-colors ${
+                            form.gcashMode === 'qr'
+                              ? 'bg-white text-sky-700 shadow-sm'
+                              : 'text-slate-600 hover:text-slate-800'
+                          }`}
+                        >
+                          <i className="fas fa-qrcode mr-1"></i>Scan QR
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setField('gcashMode', 'ref')}
+                          className={`py-1.5 rounded text-[11px] font-medium transition-colors ${
+                            form.gcashMode === 'ref'
+                              ? 'bg-white text-sky-700 shadow-sm'
+                              : 'text-slate-600 hover:text-slate-800'
+                          }`}
+                        >
+                          <i className="fas fa-keyboard mr-1"></i>Manual Ref
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2058,8 +2210,9 @@ export default function WalkIn({ embedded = false }) {
                     exact grand total (including amenities + entrance),
                     guest pays that amount through GCash, then staff
                     captures the proof. Mirrors the Billing Manual Ref
-                    contract — both required to submit. */}
-                {form.payMethod === 'GCash' && (
+                    contract — both required to submit. Scan-QR mode
+                    uses the inline QR panel below instead. */}
+                {form.payMethod === 'GCash' && form.gcashMode === 'ref' && (
                   <div className="mt-4 p-3 border border-sky-200 bg-sky-50 rounded-lg space-y-3">
                     <p className="text-xs font-semibold text-sky-900">
                       <i className="fas fa-mobile-alt mr-1"></i>
@@ -2154,6 +2307,61 @@ export default function WalkIn({ embedded = false }) {
                   </div>
                 )}
 
+                {/* GCash Scan-QR panel. Shown only after staff clicks
+                    "Generate GCash QR" in the footer — before that, the
+                    body renders normally (amenities, total). Once an
+                    invoice exists the Pending booking is already in the
+                    DB; staff cannot edit the form, only wait or cancel. */}
+                {form.payMethod === 'GCash' && form.gcashMode === 'qr' && qrInvoice && (
+                  <div className={`mt-4 p-4 rounded border ${
+                    qrInvoice.state === 'paid' ? 'border-emerald-300 bg-emerald-50'
+                    : qrInvoice.state === 'failed' ? 'border-rose-300 bg-rose-50'
+                    : 'border-sky-300 bg-sky-50'
+                  }`}>
+                    {qrInvoice.state === 'pending' && (
+                      <>
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-sm font-semibold text-sky-900">
+                            <i className="fas fa-spinner fa-spin mr-1"></i>
+                            Waiting for guest to pay…
+                          </span>
+                          <span className="text-xs text-sky-700 font-mono">{fmtMoney(qrInvoice.amount)}</span>
+                        </div>
+                        <div className="flex justify-center mb-3">
+                          <div className="bg-white p-3 rounded shadow-inner border border-sky-100">
+                            <QRCodeSVG
+                              value={qrInvoice.invoice_url}
+                              size={200}
+                              level="M"
+                              includeMargin={false}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-center text-sky-800 mb-3 leading-snug">
+                          Guest scans this QR with their phone camera, then taps the link to open the Xendit page and pays via GCash.
+                        </p>
+                        <p className="text-[10px] text-sky-700/80 font-mono break-all text-center">
+                          Invoice: {qrInvoice.invoice_id}
+                        </p>
+                      </>
+                    )}
+                    {qrInvoice.state === 'paid' && (
+                      <div className="text-center py-2">
+                        <i className="fas fa-check-circle text-emerald-600 text-2xl"></i>
+                        <p className="mt-1 text-sm font-semibold text-emerald-900">Payment received.</p>
+                        <p className="text-xs text-emerald-700">Closing…</p>
+                      </div>
+                    )}
+                    {qrInvoice.state === 'failed' && (
+                      <div className="text-center py-2">
+                        <i className="fas fa-exclamation-triangle text-rose-600 text-xl"></i>
+                        <p className="mt-1 text-sm font-semibold text-rose-900">Invoice expired or failed.</p>
+                        <p className="text-xs text-rose-700">The Pending booking will auto-cancel at 30 minutes. Close this dialog and try again.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 </>)}
               </div>
             </div>
@@ -2177,17 +2385,39 @@ export default function WalkIn({ embedded = false }) {
                   Next <i className="fas fa-arrow-right" aria-hidden="true"></i>
                 </button>
               </>) : (<>
-                <button type="button" onClick={() => { setWiStep(1); document.getElementById('walkin-scroll')?.scrollTo(0, 0); }}
-                  className="flex-1 inline-flex items-center justify-center min-h-11 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2">
-                  <i className="fas fa-arrow-left mr-1" aria-hidden="true"></i>Back
-                </button>
-                <button type="button"
-                  onClick={handleCreate}
-                  disabled={submitting}
-                  className="flex-1 inline-flex items-center justify-center min-h-11 px-4 py-2.5 bg-brand hover:bg-brand-dark text-white rounded-xl text-sm font-bold gap-2 disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
-                  <i className="fas fa-eye" aria-hidden="true"></i>
-                  {submitting ? 'Creating...' : 'Review & Confirm'}
-                </button>
+                {qrInvoice ? (
+                  /* QR invoice in flight — Pending rows exist in the DB
+                     and are being watched by the poller. Only safe exit
+                     is Close; cancel-expired will sweep the Pending row
+                     at 30 min if the guest never pays. */
+                  <button type="button"
+                    onClick={() => { setFormOpen(false); setFormError(''); closeWizard(); setQrInvoice(null); }}
+                    className="flex-1 inline-flex items-center justify-center min-h-11 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2">
+                    Close
+                  </button>
+                ) : (<>
+                  <button type="button" onClick={() => { setWiStep(1); document.getElementById('walkin-scroll')?.scrollTo(0, 0); }}
+                    className="flex-1 inline-flex items-center justify-center min-h-11 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2">
+                    <i className="fas fa-arrow-left mr-1" aria-hidden="true"></i>Back
+                  </button>
+                  {form.payMethod === 'GCash' && form.gcashMode === 'qr' ? (
+                    <button type="button"
+                      onClick={handleGenerateQr}
+                      disabled={submitting || qrGenerating}
+                      className="flex-1 inline-flex items-center justify-center min-h-11 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-sm font-bold gap-2 disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2">
+                      <i className={`fas ${qrGenerating ? 'fa-spinner fa-spin' : 'fa-qrcode'}`} aria-hidden="true"></i>
+                      {qrGenerating ? 'Generating…' : 'Generate GCash QR'}
+                    </button>
+                  ) : (
+                    <button type="button"
+                      onClick={handleCreate}
+                      disabled={submitting}
+                      className="flex-1 inline-flex items-center justify-center min-h-11 px-4 py-2.5 bg-brand hover:bg-brand-dark text-white rounded-xl text-sm font-bold gap-2 disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
+                      <i className="fas fa-eye" aria-hidden="true"></i>
+                      {submitting ? 'Creating...' : 'Review & Confirm'}
+                    </button>
+                  )}
+                </>)}
               </>)}
             </div>
           </div>
