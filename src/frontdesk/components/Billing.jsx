@@ -4,9 +4,8 @@ import Sidebar from './Layout/Sidebar';
 import Modal from '../../components/modals/Modal.jsx';
 import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx';
 import useFocusTrap from '../../hooks/useFocusTrap.js';
-import { getFdBookings, collectPayment, collectReservationPayment, downloadStaffReceipt, createCounterXenditInvoice, createCounterXenditInvoiceForReservation, getCounterXenditStatus } from '../../lib/frontdeskApi';
+import { getFdBookings, collectPayment, collectReservationPayment, downloadStaffReceipt } from '../../lib/frontdeskApi';
 import { uploadFile } from '../../lib/uploadApi';
-import { QRCodeSVG } from 'qrcode.react';
 import { api } from '../../lib/api';
 import Toast, { useToast } from '../../components/ui/Toast';
 import PaymentCell from '../../components/ui/PaymentPill';
@@ -479,19 +478,6 @@ export default function Billing({ embedded = false }) {
   // Not sent to backend for Cash. Backend persists to paymongo_payment_id
   // so the receipt's "GCash Ref" row keeps working.
   const [gcashRef, setGcashRef] = useState('');
-  // Counter-Xendit GCash flow. gcashMode='qr' shows the Generate-QR panel
-  // (Xendit invoice + hosted page); 'ref' shows the manual-ref input
-  // (legacy static-QR + reference typing). Only applies when
-  // payMethod === 'GCash'. Solo bookings only in v1 — groups fall back
-  // to 'ref' because the invoice has to cover the aggregate and the
-  // credit path doesn't yet distribute across siblings.
-  const [gcashMode, setGcashMode]     = useState('qr');
-  // When a QR invoice is in flight, this holds { invoice_id, invoice_url,
-  // amount, expires_at, state } — null when no invoice is open. Modal
-  // polls getCounterXenditStatus every 3s while non-null and in state
-  // 'pending'. Replaced by paid/expired state to unlock the body.
-  const [qrInvoice, setQrInvoice]     = useState(null);
-  const [qrGenerating, setQrGenerating] = useState(false);
   // Manual-ref GCash evidence: Cloudinary URL of the guest's confirmation
   // screenshot. Required alongside gcashRef when Manual Ref is submitted.
   // Image is uploaded immediately on file-pick so the collect submit
@@ -967,12 +953,6 @@ export default function Billing({ embedded = false }) {
     setPayMethod('Cash');
     setAmountInput('');
     setGcashRef('');
-    // Default to QR for both solo and group bookings. Group invoices
-    // are created against the reservation id; the backend splits the
-    // paid amount proportionally across every eligible sibling.
-    setGcashMode('qr');
-    setQrInvoice(null);
-    setQrGenerating(false);
     setGcashRefImageUrl('');
     setGcashImageUploading(false);
   }
@@ -1002,86 +982,6 @@ export default function Billing({ embedded = false }) {
       setGcashImageUploading(false);
     }
   }
-
-  // Counter-Xendit QR: create a short-lived invoice for the staff-entered
-  // amount (defaults to full outstanding), then render the Xendit invoice
-  // URL as an inline QR right inside the modal — no new tab. The guest
-  // scans the on-screen QR with their phone's camera, which opens the
-  // Xendit hosted page on their phone where they complete via GCash.
-  // The polling effect below detects when the backend marks it paid.
-  async function handleGenerateQr() {
-    if (!billing) return;
-    const typed = Number(amountInput);
-    const amt = (!amountInput.trim() || !Number.isFinite(typed) || typed <= 0)
-      ? billingOutstanding
-      : Math.min(typed, billingOutstanding);
-    if (amt < 1) {
-      showToast('Nothing to collect — balance is already settled.', 'error');
-      return;
-    }
-    setQrGenerating(true);
-    try {
-      const inv = billing.isGroup
-        ? await createCounterXenditInvoiceForReservation(billing.reservationId, amt)
-        : await createCounterXenditInvoice(billing.bookingId, amt);
-      if (!inv?.invoice_url || !inv?.invoice_id) {
-        throw new Error('Gateway returned no invoice URL.');
-      }
-      setQrInvoice({ ...inv, state: 'pending' });
-    } catch (err) {
-      const msg = err?.response?.data?.message || err?.message || 'Failed to generate QR.';
-      showToast(msg, 'error');
-    } finally {
-      setQrGenerating(false);
-    }
-  }
-
-  function handleCancelQr() {
-    // We don't void the Xendit invoice — it'll expire on its own in
-    // 15 min. Just clear the UI state so staff can regenerate or
-    // switch to Manual Ref.
-    setQrInvoice(null);
-  }
-
-  // Poll counter-status every 3s while a QR invoice is in flight.
-  // Stops once state is 'paid' or 'failed', or on expiry. On paid:
-  // close the modal and let the normal 20s bookings poll pick up
-  // the credited paid_amount — but also force an immediate refresh
-  // for snappier UX.
-  useEffect(() => {
-    if (!qrInvoice?.invoice_id) return;
-    if (qrInvoice.state !== 'pending') return;
-    let cancelled = false;
-    const id = setInterval(async () => {
-      try {
-        const data = await getCounterXenditStatus(qrInvoice.invoice_id);
-        if (cancelled) return;
-        if (data.state === 'paid') {
-          setQrInvoice(prev => prev ? { ...prev, state: 'paid' } : prev);
-          showToast('GCash payment received.', 'success');
-          // Refresh bookings list immediately so the modal's billing
-          // state reflects the credited paid_amount, then close.
-          try {
-            const from = (() => {
-              const d = new Date(); d.setDate(d.getDate() - 7);
-              return localDateStr(d);
-            })();
-            const fresh = await getFdBookings({ from });
-            setBookings(fresh);
-          } catch {}
-          setTimeout(() => {
-            setBilling(null);
-            setQrInvoice(null);
-          }, 1500);
-        } else if (data.state === 'failed') {
-          setQrInvoice(prev => prev ? { ...prev, state: 'failed' } : prev);
-        }
-      } catch {
-        // Transient poll error — just wait for next tick.
-      }
-    }, 3000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [qrInvoice?.invoice_id, qrInvoice?.state]);
 
   // Outstanding for the collect-payment modal = grand total - paid_amount.
   // Uses backend-maintained paidAmount so it correctly reflects staged
@@ -1279,140 +1179,13 @@ export default function Billing({ embedded = false }) {
                 </div>
               </div>
 
-              {/* GCash sub-mode picker — Generate QR (Xendit, auto-verified)
-                  vs. Manual Ref (legacy static-QR + reference typing).
-                  Both solo and group bookings support Generate QR. */}
+              {/* GCash — guest scans the resort's static GCash QR
+                  on their own phone, pays, then shows staff the
+                  confirmation. Staff types the reference number and
+                  uploads a screenshot of that confirmation. Both are
+                  required: ref is the reconciliation lookup key,
+                  image is the audit evidence. */}
               {payMethod === 'GCash' && (
-                <div className="mb-3">
-                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded">
-                    <button
-                      type="button"
-                      onClick={() => { setGcashMode('qr'); setGcashRef(''); }}
-                      disabled={!!qrInvoice && qrInvoice.state === 'pending'}
-                      className={`py-1.5 rounded text-xs font-medium transition-colors ${
-                        gcashMode === 'qr'
-                          ? 'bg-white text-sky-700 shadow-sm'
-                          : 'text-slate-600 hover:text-slate-800'
-                      } disabled:opacity-60 disabled:cursor-not-allowed`}
-                    >
-                      <i className="fas fa-qrcode mr-1"></i>
-                      Generate QR
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setGcashMode('ref'); setQrInvoice(null); }}
-                      disabled={!!qrInvoice && qrInvoice.state === 'pending'}
-                      className={`py-1.5 rounded text-xs font-medium transition-colors ${
-                        gcashMode === 'ref'
-                          ? 'bg-white text-sky-700 shadow-sm'
-                          : 'text-slate-600 hover:text-slate-800'
-                      } disabled:opacity-60 disabled:cursor-not-allowed`}
-                    >
-                      <i className="fas fa-keyboard mr-1"></i>
-                      Manual Ref
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* GCash — Generate QR panel. Renders the Xendit invoice
-                  URL as an inline QR code right inside the modal. Guest
-                  scans the on-screen QR with their phone's camera, which
-                  opens the Xendit hosted page on their phone where they
-                  complete payment via GCash. We poll status every 3s
-                  until the webhook / active fetch credits the booking. */}
-              {payMethod === 'GCash' && gcashMode === 'qr' && (
-                <div className="mb-6">
-                  {!qrInvoice && (
-                    <div className="rounded border border-sky-200 bg-sky-50 p-3">
-                      <p className="text-xs text-sky-900 mb-2">
-                        <i className="fas fa-info-circle mr-1"></i>
-                        Click <b>Generate GCash QR</b>. A QR will appear below — turn the screen to the guest so they can scan it with their phone.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={handleGenerateQr}
-                        disabled={qrGenerating || billingOutstanding < 1}
-                        className="w-full inline-flex items-center justify-center gap-2 py-2.5 bg-sky-600 text-white rounded text-sm font-semibold hover:bg-sky-700 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-                      >
-                        <i className={`fas ${qrGenerating ? 'fa-spinner fa-spin' : 'fa-qrcode'}`}></i>
-                        {qrGenerating ? 'Generating…' : `Generate GCash QR (${fmtMoney(amountInput.trim() === '' ? billingOutstanding : Math.min(Number(amountInput) || 0, billingOutstanding))})`}
-                      </button>
-                    </div>
-                  )}
-                  {qrInvoice && (
-                    <div className={`rounded border p-4 ${
-                      qrInvoice.state === 'paid' ? 'border-emerald-300 bg-emerald-50'
-                      : qrInvoice.state === 'failed' ? 'border-rose-300 bg-rose-50'
-                      : 'border-sky-300 bg-sky-50'
-                    }`}>
-                      {qrInvoice.state === 'pending' && (
-                        <>
-                          <div className="flex items-center justify-between mb-3">
-                            <span className="text-sm font-semibold text-sky-900">
-                              <i className="fas fa-spinner fa-spin mr-1"></i>
-                              Waiting for guest to pay…
-                            </span>
-                            <span className="text-xs text-sky-700 font-mono">{fmtMoney(qrInvoice.amount)}</span>
-                          </div>
-                          <div className="flex justify-center mb-3">
-                            <div className="bg-white p-3 rounded shadow-inner border border-sky-100">
-                              <QRCodeSVG
-                                value={qrInvoice.invoice_url}
-                                size={200}
-                                level="M"
-                                includeMargin={false}
-                              />
-                            </div>
-                          </div>
-                          <p className="text-[11px] text-center text-sky-800 mb-3 leading-snug">
-                            Guest scans this QR with their phone camera, then taps the link to open the Xendit page and pays via GCash.
-                          </p>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={handleCancelQr}
-                              className="flex-1 inline-flex items-center justify-center gap-1 py-2 border border-slate-300 bg-white text-slate-600 rounded text-xs font-medium hover:bg-slate-50"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                          <p className="mt-2 text-[10px] text-sky-700/80 font-mono break-all text-center">
-                            Invoice: {qrInvoice.invoice_id}
-                          </p>
-                        </>
-                      )}
-                      {qrInvoice.state === 'paid' && (
-                        <div className="text-center py-2">
-                          <i className="fas fa-check-circle text-emerald-600 text-2xl"></i>
-                          <p className="mt-1 text-sm font-semibold text-emerald-900">Payment received.</p>
-                          <p className="text-xs text-emerald-700">Closing…</p>
-                        </div>
-                      )}
-                      {qrInvoice.state === 'failed' && (
-                        <div className="text-center py-2">
-                          <i className="fas fa-exclamation-triangle text-rose-600 text-xl"></i>
-                          <p className="mt-1 text-sm font-semibold text-rose-900">Invoice expired or failed.</p>
-                          <button
-                            type="button"
-                            onClick={() => setQrInvoice(null)}
-                            className="mt-2 inline-flex items-center gap-1 py-1.5 px-3 border border-rose-300 bg-white text-rose-700 rounded text-xs font-medium hover:bg-rose-100"
-                          >
-                            Try again
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* GCash — Manual Ref (legacy static-QR + staff types the
-                  reference and uploads a screenshot of the guest's GCash
-                  confirmation screen). Both ref AND image are required:
-                  ref is the lookup key for reconciling against the
-                  resort's GCash wallet, image is the audit evidence. */}
-              {payMethod === 'GCash' && gcashMode === 'ref' && (
                 <div className="mb-6 space-y-3">
                   <div>
                     <label htmlFor="collect-gcash-ref" className="block text-sm font-medium text-slate-700 mb-1">
@@ -1488,22 +1261,6 @@ export default function Billing({ embedded = false }) {
               {payMethod !== 'GCash' && <div className="mb-6"></div>}
 
               {(() => {
-                // In Xendit-QR mode, the Collect button at the bottom
-                // is suppressed — the Xendit "Generate GCash QR" button
-                // inside the QR panel owns the submit action, and the
-                // poller closes the modal on success.
-                const isQrFlow = payMethod === 'GCash' && gcashMode === 'qr';
-                if (isQrFlow) {
-                  return (
-                    <div className="flex justify-end gap-3">
-                      <button onClick={() => setBilling(null)}
-                        type="button"
-                        className="min-h-11 px-4 py-2.5 border border-slate-200 rounded text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1">
-                        Close
-                      </button>
-                    </div>
-                  );
-                }
                 const parsed = amountInput.trim() === '' ? null : Number(amountInput);
                 const hasAmt = parsed != null && Number.isFinite(parsed) && parsed > 0;
                 // Over-tender is valid for cash — it's not an "invalid amount",
@@ -1514,7 +1271,7 @@ export default function Billing({ embedded = false }) {
                   || (payMethod !== 'Cash' && parsed > billingOutstanding + 0.009)
                 );
                 const missingRef = payMethod === 'GCash' && gcashRef.trim().length < 1;
-                const missingImage = payMethod === 'GCash' && gcashMode === 'ref' && !gcashRefImageUrl;
+                const missingImage = payMethod === 'GCash' && !gcashRefImageUrl;
                 const disabled = paying || !hasAmt || invalidAmt || missingRef || missingImage || gcashImageUploading;
                 // Amount actually applied to the bill = clamped at outstanding.
                 // Button shows the APPLIED amount so staff see what the system

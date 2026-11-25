@@ -172,38 +172,6 @@ export async function collectPayment(bookingId, paymentMethod, entranceFee, opts
   return res.data;
 }
 
-// POST /api/admin/bookings/{id}/counter-xendit-invoice
-// Creates a short-lived (15 min) Xendit GCash invoice for the exact
-// amount (<= outstanding). Returns { invoice_id, invoice_url, amount,
-// expires_at } — the modal renders the invoice_url as an inline QR
-// code and polls counterXenditStatus until paid.
-export async function createCounterXenditInvoice(bookingId, amount) {
-  const res = await api.post(`/api/admin/bookings/${bookingId}/counter-xendit-invoice`, {
-    amount: Number(amount),
-  });
-  return res.data;
-}
-
-// POST /api/admin/reservations/{id}/counter-xendit-invoice
-// Group-level counter QR. Creates one Xendit invoice covering the
-// aggregate outstanding across every eligible sibling; the backend
-// splits paid_amount proportionally per sibling on payment.
-export async function createCounterXenditInvoiceForReservation(reservationId, amount) {
-  const res = await api.post(`/api/admin/reservations/${reservationId}/counter-xendit-invoice`, {
-    amount: Number(amount),
-  });
-  return res.data;
-}
-
-// GET /api/admin/payments/counter-status/{invoice_id}
-// Polled by the Collect modal. Returns { state, amount, paid_at,
-// booking_id }. On state='paid' the backend credits the booking's
-// paid_amount idempotently via applyCounterPaymentFromInvoice.
-export async function getCounterXenditStatus(invoiceId) {
-  const res = await api.get(`/api/admin/payments/counter-status/${invoiceId}`);
-  return res.data;
-}
-
 // PATCH /api/admin/bookings/{id}/guests
 export async function updateBookingGuests(bookingId, guests) {
   const res = await api.patch(`/api/admin/bookings/${bookingId}/guests`, { guests });
