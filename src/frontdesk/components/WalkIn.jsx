@@ -2015,11 +2015,11 @@ export default function WalkIn({ embedded = false }) {
                           id="walkin-cash-tender"
                           type="number"
                           inputMode="decimal"
-                          min="0.01"
-                          step="0.01"
+                          min="1"
+                          step="1"
                           value={form.cashTender}
                           onChange={(e) => setField('cashTender', e.target.value)}
-                          placeholder={`${grandTotal.toFixed(2)} — or more (change will show below)`}
+                          placeholder={`${Math.round(grandTotal)} — or more (change will show below)`}
                           className={`w-full pl-7 pr-3 py-2 border rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
                             shortByCash ? 'border-rose-400' : 'border-slate-300'
                           }`}
@@ -2027,7 +2027,7 @@ export default function WalkIn({ embedded = false }) {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setField('cashTender', grandTotal.toFixed(2))}
+                        onClick={() => setField('cashTender', String(Math.round(grandTotal)))}
                         className="mt-1 text-[11px] text-emerald-700 hover:text-emerald-800 underline underline-offset-2"
                       >
                         Exact: {fmtMoney(grandTotal)}
