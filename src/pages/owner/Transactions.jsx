@@ -277,7 +277,7 @@ export default function OwnerTransactions() {
   // booking showed up as "Reservation Fees" at its full grand total —
   // which was the core of the misleading read.
   const collected = useMemo(() => {
-    const buckets = { completed: 0, inProgress: 0, upcoming: 0, forfeited: 0 };
+    const buckets = { completed: 0, inProgress: 0, upcoming: 0, forfeited: 0, noShow: 0, pending: 0, other: 0 };
     for (const b of allBookings) {
       const paid = Number(b.paidAmount ?? 0);
       if (paid <= 0) continue;
@@ -285,8 +285,11 @@ export default function OwnerTransactions() {
       else if (b.status === "Checked In") buckets.inProgress += paid;
       else if (b.status === "Confirmed")  buckets.upcoming   += paid;
       else if (b.status === "Cancelled")  buckets.forfeited  += paid;
+      else if (b.status === "No-Show")    buckets.noShow     += paid;
+      else if (b.status === "Pending")    buckets.pending    += paid;
+      else                                buckets.other      += paid;
     }
-    const total = buckets.completed + buckets.inProgress + buckets.upcoming + buckets.forfeited;
+    const total = buckets.completed + buckets.inProgress + buckets.upcoming + buckets.forfeited + buckets.noShow + buckets.pending + buckets.other;
     return { ...buckets, total };
   }, [allBookings]);
 
@@ -945,7 +948,10 @@ export default function OwnerTransactions() {
           { label: 'Completed stays', amount: fmt(collected.completed) },
           { label: 'Currently checked-in', amount: fmt(collected.inProgress) },
           { label: 'Upcoming (reservation fees)', amount: fmt(collected.upcoming) },
-          { label: 'Forfeited (cancellations)', amount: fmt(collected.forfeited) },
+          ...(collected.forfeited > 0 ? [{ label: 'Forfeited (cancellations)', amount: fmt(collected.forfeited) }] : []),
+          ...(collected.noShow   > 0 ? [{ label: 'Forfeited (no-shows)', amount: fmt(collected.noShow) }]   : []),
+          ...(collected.pending  > 0 ? [{ label: 'Pending (awaiting confirmation)', amount: fmt(collected.pending) }] : []),
+          ...(collected.other    > 0 ? [{ label: 'Other', amount: fmt(collected.other) }] : []),
         ]}
         note={<>For stay-based monthly revenue (grouped by check-in date), see <strong>Owner Dashboard → Monthly Revenue</strong>.</>}
         iconClass="fa-money-bill-wave"

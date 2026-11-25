@@ -230,12 +230,30 @@ export default function OwnerDashboard() {
     const peakDayIdx = dayOfWeekCounts.indexOf(Math.max(...dayOfWeekCounts));
     const peakDay    = dayLabels[peakDayIdx];
 
+    // Monthly Revenue tile's modal breakdown — partitions revThisMonth by
+    // booking status so the segments sum back to the headline exactly
+    // (every peso of paidAmount lands in exactly one bucket). No status
+    // is excluded since paidAmount already filters down to money that
+    // actually moved.
+    const monthlyRevByStatus = { completed: 0, inProgress: 0, confirmed: 0, forfeited: 0, noShow: 0, other: 0 };
+    thisMonthAll.forEach(b => {
+      const paid = Number(b.paidAmount ?? 0);
+      if (paid <= 0) return;
+      if (b.status === 'Completed')      monthlyRevByStatus.completed  += paid;
+      else if (b.status === 'Checked In') monthlyRevByStatus.inProgress += paid;
+      else if (b.status === 'Confirmed')  monthlyRevByStatus.confirmed  += paid;
+      else if (b.status === 'Cancelled')  monthlyRevByStatus.forfeited  += paid;
+      else if (b.status === 'No-Show')    monthlyRevByStatus.noShow     += paid;
+      else                                monthlyRevByStatus.other      += paid;
+    });
+
     return {
       activeBookings, revThisMonth, revMoM, txThisMonth, txMoM,
       avgBookingValue, topRoomName, topRoomCount, topRoomRevenue, newCustomersThisMonth,
       walkinBookings, onlineBookings, onlinePct, peakDay, peakDayIdx,
       noShowsThisMonth,
       dayOfWeekCounts, days30ago, today,
+      monthlyRevByStatus,
     };
   }, [bookings, entranceRates]);
 
@@ -245,6 +263,7 @@ export default function OwnerDashboard() {
     walkinBookings, onlineBookings, onlinePct, peakDay, peakDayIdx,
     noShowsThisMonth,
     dayOfWeekCounts, days30ago, today,
+    monthlyRevByStatus,
   } = derivedKpis;
 
   // Revenue breakdown — decomposes COLLECTED revenue into room/entrance/addons.
@@ -683,10 +702,12 @@ export default function OwnerDashboard() {
         basisDetail="Sum of money collected across bookings whose stay (check-in date) falls in this month. A reservation paid today for a future stay credits next month, not today."
         scope={`${new Date().toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}`}
         breakdown={[
-          { label: 'Room rates', amount: fmt(revBreakdown.room), hint: 'Including stay extensions' },
-          { label: 'Entrance fees', amount: fmt(revBreakdown.entrance) },
-          { label: 'Add-ons', amount: fmt(revBreakdown.addons) },
-          { label: 'Promo discount applied', amount: `−${fmt(revBreakdown.promos)}` },
+          { label: 'Completed stays', amount: fmt(monthlyRevByStatus.completed) },
+          { label: 'Currently checked-in', amount: fmt(monthlyRevByStatus.inProgress) },
+          { label: 'Confirmed (upcoming this month)', amount: fmt(monthlyRevByStatus.confirmed) },
+          ...(monthlyRevByStatus.forfeited > 0 ? [{ label: 'Forfeited (cancellations)', amount: fmt(monthlyRevByStatus.forfeited) }] : []),
+          ...(monthlyRevByStatus.noShow > 0 ? [{ label: 'Forfeited (no-shows)', amount: fmt(monthlyRevByStatus.noShow) }] : []),
+          ...(monthlyRevByStatus.other > 0 ? [{ label: 'Other', amount: fmt(monthlyRevByStatus.other) }] : []),
         ]}
         note={<>For cash flow by payment date (what hit the bank this month), see <strong>Reports → Analytics</strong> and <strong>Transactions</strong>.</>}
         iconClass="fa-chart-line"
