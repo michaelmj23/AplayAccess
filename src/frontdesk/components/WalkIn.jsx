@@ -55,6 +55,13 @@ const EMPTY_FORM = {
   // Ref flow. Uploads to aplaya/gcash-refs/YYYY/MM/DD/ at submit time.
   gcashRef: '',
   gcashRefImageUrl: '',
+  // Cash tender — required when payMethod === 'Cash'. String so an
+  // empty input can be distinguished from a typed 0. Must be >=
+  // grand total at submit time; change due renders live below the
+  // field. Nothing gets persisted backend-side (the tender itself is
+  // a counter-floor quantity, not a DB field) — paid_amount stays at
+  // grand total just like Cash Billing collects.
+  cashTender: '',
   bookingType: 'day', // 'day' | 'night' | '24hr'
   // Multi-night count — only applies when bookingType === '24hr'.
   // Day and Night stay single-slot (backend rejects nights>1 for
@@ -609,6 +616,16 @@ export default function WalkIn({ embedded = false }) {
       }
       if (gcashImageUploading) {
         setFormError('Please wait for the screenshot upload to finish.'); return;
+      }
+    }
+    if (form.payMethod === 'Cash') {
+      const grandTotal = previewTotal + entranceFeeTotal;
+      const typed = form.cashTender.trim() === '' ? null : Number(form.cashTender);
+      if (typed == null || !Number.isFinite(typed) || typed <= 0) {
+        setFormError('Please enter the amount tendered.'); return;
+      }
+      if (typed < grandTotal - 0.009) {
+        setFormError(`Tender (${fmtMoney(typed)}) is less than the total (${fmtMoney(grandTotal)}).`); return;
       }
     }
     const selRoom = rooms.find(r => String(r.id) === String(form.roomId));
@@ -1676,13 +1693,16 @@ export default function WalkIn({ embedded = false }) {
                         <button key={opt.value} type="button"
                           onClick={() => {
                             setField('payMethod', opt.value);
-                            // Clear GCash evidence when switching back to Cash so a
-                            // stale ref/image from an aborted GCash entry can't
-                            // tag along on the Cash submit (backend ignores them
-                            // but the UI shouldn't persist them either).
+                            // Clear the OTHER method's evidence so a stale
+                            // entry from an aborted switch can't tag along
+                            // on submit. Backend ignores either way, but
+                            // the UI shouldn't carry stale state across
+                            // method changes.
                             if (opt.value !== 'GCash') {
                               setField('gcashRef', '');
                               setField('gcashRefImageUrl', '');
+                            } else {
+                              setField('cashTender', '');
                             }
                           }}
                           className={`flex-1 flex items-center justify-center gap-1.5 py-2 border-2 rounded-lg text-xs font-medium transition-colors ${
@@ -1967,6 +1987,68 @@ export default function WalkIn({ embedded = false }) {
                         <span>Total to Collect</span>
                         <span>{fmtMoney(previewTotal + entranceFeeTotal)}</span>
                       </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Cash tender — required when payMethod === 'Cash'.
+                    Staff types what the guest handed over, UI shows
+                    change due below. Mirrors the Billing Collect modal's
+                    Amount Tendered field. Nothing new reaches the
+                    backend — paid_amount stays at grand total. */}
+                {form.payMethod === 'Cash' && (() => {
+                  const grandTotal = previewTotal + entranceFeeTotal;
+                  const typed = form.cashTender.trim() === '' ? null : Number(form.cashTender);
+                  const hasTender = typed != null && Number.isFinite(typed) && typed > 0;
+                  const shortByCash = hasTender && typed < grandTotal - 0.009;
+                  const overByCash  = hasTender && typed > grandTotal + 0.009;
+                  const changeDue   = overByCash ? typed - grandTotal : 0;
+                  return (
+                    <div className="mt-4 p-3 border border-emerald-200 bg-emerald-50 rounded-lg">
+                      <label htmlFor="walkin-cash-tender" className="block text-xs font-semibold text-emerald-900 mb-1">
+                        <i className="fas fa-money-bill-wave mr-1"></i>
+                        Amount Tendered <span className="text-rose-600">*</span>
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none">₱</span>
+                        <input
+                          id="walkin-cash-tender"
+                          type="number"
+                          inputMode="decimal"
+                          min="0.01"
+                          step="0.01"
+                          value={form.cashTender}
+                          onChange={(e) => setField('cashTender', e.target.value)}
+                          placeholder={`${grandTotal.toFixed(2)} — or more (change will show below)`}
+                          className={`w-full pl-7 pr-3 py-2 border rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                            shortByCash ? 'border-rose-400' : 'border-slate-300'
+                          }`}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setField('cashTender', grandTotal.toFixed(2))}
+                        className="mt-1 text-[11px] text-emerald-700 hover:text-emerald-800 underline underline-offset-2"
+                      >
+                        Exact: {fmtMoney(grandTotal)}
+                      </button>
+                      {overByCash && (
+                        <div className="mt-2 rounded border border-emerald-300 bg-white px-3 py-2 flex items-center justify-between">
+                          <span className="text-xs text-emerald-800 font-semibold flex items-center gap-1">
+                            <i className="fas fa-coins text-emerald-600"></i>
+                            Change due
+                          </span>
+                          <span className="text-base font-bold text-emerald-700 tabular-nums">
+                            {fmtMoney(changeDue)}
+                          </span>
+                        </div>
+                      )}
+                      {shortByCash && (
+                        <p className="mt-1 text-xs text-rose-700">
+                          <i className="fas fa-exclamation-circle mr-1"></i>
+                          Tender is less than the total. Guest still owes {fmtMoney(grandTotal - typed)}.
+                        </p>
+                      )}
                     </div>
                   );
                 })()}
