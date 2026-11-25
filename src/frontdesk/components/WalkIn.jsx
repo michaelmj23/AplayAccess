@@ -48,12 +48,10 @@ const EMPTY_FORM = {
   fullName: '', phone: '', email: '',
   roomId: '', date: todayStr(),
   payMethod: 'Cash', notes: '',
-  // GCash evidence — required when payMethod === 'GCash'. gcashRef is
-  // the typed reference number (reconciliation lookup key),
-  // gcashRefImageUrl is a Cloudinary URL of the guest's confirmation
-  // screenshot (audit evidence). Same contract as the Billing Manual
-  // Ref flow. Uploads to aplaya/gcash-refs/YYYY/MM/DD/ at submit time.
-  gcashRef: '',
+  // GCash confirmation screenshot — required when payMethod === 'GCash'.
+  // Cloudinary URL of the guest's confirmation screen; sole audit
+  // evidence we capture. Uploads to aplaya/gcash-refs/YYYY/MM/DD/ on
+  // file-pick so the walk-in submit posts a URL, not a File.
   gcashRefImageUrl: '',
   // Cash tender — required when payMethod === 'Cash'. String so an
   // empty input can be distinguished from a typed 0. Must be >=
@@ -608,9 +606,6 @@ export default function WalkIn({ embedded = false }) {
     }
     if (!form.roomId) { setFormError('Please select a room.'); return; }
     if (form.payMethod === 'GCash') {
-      if (!form.gcashRef.trim()) {
-        setFormError('GCash reference number is required.'); return;
-      }
       if (!form.gcashRefImageUrl) {
         setFormError('GCash confirmation screenshot is required.'); return;
       }
@@ -713,10 +708,9 @@ export default function WalkIn({ embedded = false }) {
         discount:          promoDiscount,
       };
       // GCash evidence rides alongside payment_method for both single
-      // and multi-room walk-ins. Backend validates both are present
-      // when method=gcash and mirrors them onto every sibling.
+      // and multi-room walk-ins. Backend validates the image is
+      // present when method=gcash and mirrors it onto every sibling.
       if (form.payMethod === 'GCash') {
-        payload.gcash_ref            = form.gcashRef.trim();
         payload.gcash_ref_image_url  = form.gcashRefImageUrl;
       }
       // Multi-room branch: expand primary + each sibling by their
@@ -1699,7 +1693,6 @@ export default function WalkIn({ embedded = false }) {
                             // the UI shouldn't carry stale state across
                             // method changes.
                             if (opt.value !== 'GCash') {
-                              setField('gcashRef', '');
                               setField('gcashRefImageUrl', '');
                             } else {
                               setField('cashTender', '');
@@ -2060,25 +2053,11 @@ export default function WalkIn({ embedded = false }) {
                     static QR, outside the system), then staff captures
                     the proof. Both ref AND image are required. */}
                 {form.payMethod === 'GCash' && (
-                  <div className="mt-4 p-3 border border-sky-200 bg-sky-50 rounded-lg space-y-3">
-                    <p className="text-xs font-semibold text-sky-900">
+                  <div className="mt-4 p-3 border border-sky-200 bg-sky-50 rounded-lg">
+                    <p className="text-xs font-semibold text-sky-900 mb-2">
                       <i className="fas fa-mobile-alt mr-1"></i>
                       GCash Payment Evidence
                     </p>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        GCash Reference Number <span className="text-rose-600">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={form.gcashRef}
-                        onChange={(e) => setField('gcashRef', e.target.value)}
-                        placeholder="e.g. 1234 567 8901"
-                        className="w-full px-3 py-2 border border-slate-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-                        autoComplete="off"
-                      />
-                    </div>
-
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1">
                         Confirmation Screenshot <span className="text-rose-600">*</span>

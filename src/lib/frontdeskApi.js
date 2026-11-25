@@ -128,7 +128,6 @@ export async function collectReservationPayment(reservationId, paymentMethod, en
   const body = { payment_method: paymentMethod };
   if (entranceFee != null) body.entrance_fee = Number(entranceFee);
   if (opts.amount != null) body.amount = Number(opts.amount);
-  if (opts.gcashRef) body.gcash_ref = String(opts.gcashRef).trim();
   if (opts.gcashRefImageUrl) body.gcash_ref_image_url = String(opts.gcashRefImageUrl).trim();
   const res = await api.post(`/api/admin/reservations/${reservationId}/collect-payment`, body);
   return res.data;
@@ -166,7 +165,6 @@ export async function collectPayment(bookingId, paymentMethod, entranceFee, opts
   const body = { payment_method: paymentMethod };
   if (entranceFee != null) body.entrance_fee = entranceFee;
   if (opts.amount != null) body.amount = Number(opts.amount);
-  if (opts.gcashRef) body.gcash_ref = String(opts.gcashRef).trim();
   if (opts.gcashRefImageUrl) body.gcash_ref_image_url = String(opts.gcashRefImageUrl).trim();
   const res = await api.post(`/api/admin/bookings/${bookingId}/collect-payment`, body);
   return res.data;

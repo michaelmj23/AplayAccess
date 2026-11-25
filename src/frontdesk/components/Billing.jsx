@@ -474,14 +474,10 @@ export default function Billing({ embedded = false }) {
   // outstanding" (the common case — staff just hits Collect). A number
   // overrides to that amount; backend clamps to (0, outstanding].
   const [amountInput, setAmountInput] = useState('');
-  // GCash reference number. Required only when payMethod === 'GCash'.
-  // Not sent to backend for Cash. Backend persists to paymongo_payment_id
-  // so the receipt's "GCash Ref" row keeps working.
-  const [gcashRef, setGcashRef] = useState('');
-  // Manual-ref GCash evidence: Cloudinary URL of the guest's confirmation
-  // screenshot. Required alongside gcashRef when Manual Ref is submitted.
-  // Image is uploaded immediately on file-pick so the collect submit
-  // posts a URL, not a File.
+  // GCash confirmation screenshot — the sole evidence captured for a
+  // GCash counter collection. Required when payMethod === 'GCash'.
+  // Cloudinary URL; image is uploaded immediately on file-pick so
+  // the collect submit posts a URL, not a File.
   const [gcashRefImageUrl, setGcashRefImageUrl] = useState('');
   const [gcashImageUploading, setGcashImageUploading] = useState(false);
   // Two-step confirm so a misclick on Collect doesn't post a payment
@@ -818,10 +814,6 @@ export default function Billing({ embedded = false }) {
       showToast(`Amount cannot exceed outstanding balance (${fmtMoney(billingOutstanding)}).`, 'error');
       return;
     }
-    if (payMethod === 'GCash' && gcashRef.trim().length < 1) {
-      showToast('Enter the GCash reference number before collecting.', 'error');
-      return;
-    }
     setConfirmCollectOpen(true);
   }
 
@@ -842,9 +834,8 @@ export default function Billing({ embedded = false }) {
       if (parsedAmount != null) {
         opts.amount = Math.min(parsedAmount, billingOutstanding);
       }
-      if (payMethod === 'GCash') {
-        opts.gcashRef = gcashRef.trim();
-        if (gcashRefImageUrl) opts.gcashRefImageUrl = gcashRefImageUrl;
+      if (payMethod === 'GCash' && gcashRefImageUrl) {
+        opts.gcashRefImageUrl = gcashRefImageUrl;
       }
 
       if (billing.isGroup) {
@@ -952,7 +943,6 @@ export default function Billing({ embedded = false }) {
     setBilling(b);
     setPayMethod('Cash');
     setAmountInput('');
-    setGcashRef('');
     setGcashRefImageUrl('');
     setGcashImageUploading(false);
   }
@@ -1165,7 +1155,7 @@ export default function Billing({ embedded = false }) {
                     { value: 'GCash', icon: 'fa-mobile-alt',      color: 'text-sky-500'  },
                   ].map(opt => (
                     <button key={opt.value} type="button"
-                      onClick={() => { setPayMethod(opt.value); if (opt.value !== 'GCash') setGcashRef(''); }}
+                      onClick={() => { setPayMethod(opt.value); }}
                       className={`flex-1 flex items-center justify-center gap-2 py-2 border rounded text-sm font-medium transition-colors ${
                         payMethod === opt.value
                           ? 'border-sky-500 bg-sky-50 text-sky-700'
@@ -1180,28 +1170,11 @@ export default function Billing({ embedded = false }) {
               </div>
 
               {/* GCash — guest scans the resort's static GCash QR
-                  on their own phone, pays, then shows staff the
-                  confirmation. Staff types the reference number and
-                  uploads a screenshot of that confirmation. Both are
-                  required: ref is the reconciliation lookup key,
-                  image is the audit evidence. */}
+                  on their own phone (outside the system), pays, then
+                  shows staff the confirmation. Staff uploads a photo
+                  of that confirmation as the audit evidence. */}
               {payMethod === 'GCash' && (
-                <div className="mb-6 space-y-3">
-                  <div>
-                    <label htmlFor="collect-gcash-ref" className="block text-sm font-medium text-slate-700 mb-1">
-                      GCash Reference Number <span className="text-rose-600">*</span>
-                    </label>
-                    <input
-                      id="collect-gcash-ref"
-                      type="text"
-                      placeholder="e.g. 1234 567 8901"
-                      value={gcashRef}
-                      onChange={(e) => setGcashRef(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-                      autoComplete="off"
-                    />
-                  </div>
-
+                <div className="mb-6">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">
                       Confirmation Screenshot <span className="text-rose-600">*</span>
@@ -1270,9 +1243,8 @@ export default function Billing({ embedded = false }) {
                   || parsed <= 0
                   || (payMethod !== 'Cash' && parsed > billingOutstanding + 0.009)
                 );
-                const missingRef = payMethod === 'GCash' && gcashRef.trim().length < 1;
                 const missingImage = payMethod === 'GCash' && !gcashRefImageUrl;
-                const disabled = paying || !hasAmt || invalidAmt || missingRef || missingImage || gcashImageUploading;
+                const disabled = paying || !hasAmt || invalidAmt || missingImage || gcashImageUploading;
                 // Amount actually applied to the bill = clamped at outstanding.
                 // Button shows the APPLIED amount so staff see what the system
                 // will record, not what the guest tendered.
@@ -1319,7 +1291,7 @@ export default function Billing({ embedded = false }) {
           parts.push(`Tendered ${fmtMoney(tendered)} — apply ${fmtMoney(amount)} to ${billing.id}, hand back ${fmtMoney(change)} change via Cash.`);
         } else {
           parts.push(`Collect ${fmtMoney(amount)} from ${billing.guest}`);
-          parts.push(`for ${billing.id} via ${payMethod}${payMethod === 'GCash' ? ` (ref ${gcashRef.trim()})` : ''}.`);
+          parts.push(`for ${billing.id} via ${payMethod}.`);
         }
         if (!isFull) parts.push(`Remaining balance: ${fmtMoney(remain)}.`);
         if (willAutoCheckIn) parts.push('Guest will be checked in automatically.');
