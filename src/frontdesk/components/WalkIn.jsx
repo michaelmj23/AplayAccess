@@ -1658,7 +1658,7 @@ export default function WalkIn({ embedded = false }) {
                   </div>
                   )}
 
-                  <div>
+                  <div className="col-span-2">
                     <label className="block text-xs font-medium text-slate-700 mb-1">
                       No. of Guests *
                       <span className="ml-1 text-slate-600 font-normal">(for entrance fee)</span>
@@ -1677,39 +1677,6 @@ export default function WalkIn({ embedded = false }) {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Payment Method *</label>
-                    <div className="flex gap-2">
-                      {[
-                        { value: 'Cash',  icon: 'fa-money-bill-wave', color: 'text-emerald-600' },
-                        { value: 'GCash', icon: 'fa-mobile-alt',      color: 'text-sky-500'  },
-                          ].map(opt => (
-                        <button key={opt.value} type="button"
-                          onClick={() => {
-                            setField('payMethod', opt.value);
-                            // Clear the OTHER method's evidence so a stale
-                            // entry from an aborted switch can't tag along
-                            // on submit. Backend ignores either way, but
-                            // the UI shouldn't carry stale state across
-                            // method changes.
-                            if (opt.value !== 'GCash') {
-                              setField('gcashRefImageUrl', '');
-                            } else {
-                              setField('cashTender', '');
-                            }
-                          }}
-                          className={`flex-1 flex items-center justify-center gap-1.5 py-2 border-2 rounded-lg text-xs font-medium transition-colors ${
-                            form.payMethod === opt.value
-                              ? 'border-sky-500 bg-sky-50 text-sky-700'
-                              : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                          }`}
-                        >
-                          <i className={`fas ${opt.icon} text-xs ${form.payMethod === opt.value ? '' : opt.color}`}></i>
-                          {opt.value}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
                 </div>
 
                 </>)}
@@ -1983,6 +1950,39 @@ export default function WalkIn({ embedded = false }) {
                     </div>
                   );
                 })()}
+
+                {/* Payment Method — moved from step 1 so staff picks
+                    AFTER seeing the final grand total (room + amenities
+                    + entrance). Switching the method clears the other
+                    method's evidence so a stale entry can't tag along. */}
+                <div className="mt-4">
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Payment Method *</label>
+                  <div className="flex gap-2">
+                    {[
+                      { value: 'Cash',  icon: 'fa-money-bill-wave', color: 'text-emerald-600' },
+                      { value: 'GCash', icon: 'fa-mobile-alt',      color: 'text-sky-500'  },
+                    ].map(opt => (
+                      <button key={opt.value} type="button"
+                        onClick={() => {
+                          setField('payMethod', opt.value);
+                          if (opt.value !== 'GCash') {
+                            setField('gcashRefImageUrl', '');
+                          } else {
+                            setField('cashTender', '');
+                          }
+                        }}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-2 border-2 rounded-lg text-xs font-medium transition-colors ${
+                          form.payMethod === opt.value
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        <i className={`fas ${opt.icon} text-xs ${form.payMethod === opt.value ? '' : opt.color}`}></i>
+                        {opt.value}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
                 {/* Cash tender — required when payMethod === 'Cash'.
                     Staff types what the guest handed over, UI shows
