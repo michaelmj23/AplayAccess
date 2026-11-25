@@ -8,6 +8,7 @@ import {
 import Sidebar from './Layout/Sidebar';
 import { getFdBookings, getFdRooms } from '../../lib/frontdeskApi';
 import Toast, { useToast } from '../../components/ui/Toast';
+import KpiSummaryModal from '../../components/ui/KpiSummaryModal';
 import { fmtTime, localDateStr } from '../../lib/format';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
@@ -34,7 +35,11 @@ export default function Dashboard() {
   const [bookings, setBookings]   = useState([]);
   const [rooms, setRooms]         = useState([]);
   const [loading, setLoading]     = useState(true);
+  const [kpiOpen, setKpiOpen]     = useState(false);
   const [toast, showToast, clearToast, toastType] = useToast();
+
+  // Helper for ₱ formatting in the KPI breakdown rows.
+  const fmt = (n) => `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   // ── load data ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -66,7 +71,7 @@ export default function Dashboard() {
   // ── derived metrics ─────────────────────────────────────────────────────────
   const today = todayStr();
 
-  const { todayBookings, arriving, checkedIn, completed, walkIns, pendingCollection, overdueCheckouts } = useMemo(() => {
+  const { todayBookings, arriving, checkedIn, completed, walkIns, pendingCollection, pendingCheckedIn, pendingArriving, pendingCheckedInCount, pendingArrivingCount, overdueCheckouts } = useMemo(() => {
     // "Today" includes bookings checking in today AND any still-Checked-In
     // stays from earlier days — so an overnight guest who arrived at
     // 11:50 PM yesterday doesn't disappear from the dashboard at 12:01 AM.
@@ -106,12 +111,16 @@ export default function Dashboard() {
     // arriving Confirmed rows. No-Show / Cancelled are explicitly excluded
     // (forfeited deposits are revenue, not collectible balances) — same
     // contract the Billing "Overdue Collections" tile uses.
-    const pendingCollection = todayBookings.reduce((sum, b) => {
-      if (b.status === 'No-Show' || b.status === 'Cancelled') return sum;
-      const grand       = Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + Number(b.entranceFee ?? 0);
-      const outstanding = Math.max(0, grand - Number(b.paidAmount ?? 0));
-      return sum + outstanding;
-    }, 0);
+    const outstandingOf = (b) => {
+      const grand = Number(b.total ?? 0) + Number(b.extensionsTotal ?? 0) + Number(b.entranceFee ?? 0);
+      return Math.max(0, grand - Number(b.paidAmount ?? 0));
+    };
+    const contributing = todayBookings.filter(b => b.status !== 'No-Show' && b.status !== 'Cancelled' && outstandingOf(b) > 0);
+    const pendingCollection = contributing.reduce((sum, b) => sum + outstandingOf(b), 0);
+    const pendingCheckedIn  = contributing.filter(b => b.status === 'Checked In').reduce((s, b) => s + outstandingOf(b), 0);
+    const pendingArriving   = contributing.filter(b => b.status === 'Confirmed').reduce((s, b) => s + outstandingOf(b), 0);
+    const pendingCheckedInCount = contributing.filter(b => b.status === 'Checked In').length;
+    const pendingArrivingCount  = contributing.filter(b => b.status === 'Confirmed').length;
 
     // Overdue checkouts — checked in but checkout time has passed. This is
     // the KPI-actionable state front desk can actually do something about
@@ -121,7 +130,7 @@ export default function Dashboard() {
       return new Date(b.checkOut.replace(' ', 'T')) < now;
     });
 
-    return { todayBookings, arriving, checkedIn, completed, walkIns, pendingCollection, overdueCheckouts };
+    return { todayBookings, arriving, checkedIn, completed, walkIns, pendingCollection, pendingCheckedIn, pendingArriving, pendingCheckedInCount, pendingArrivingCount, overdueCheckouts };
   }, [bookings, today]);
 
   // Occupancy. Exclude pseudo-room categories from both numerator and
@@ -210,13 +219,13 @@ export default function Dashboard() {
               return [
                 { label: 'Occupancy',          value: `${occupancyPct}%`,                    bg: 'bg-sky-100',     text: 'text-sky-600',     icon: 'fa-chart-pie',     sub: `${occupiedRooms} / ${totalRooms} rooms` },
                 { label: 'Available Rooms',     value: availableRooms,                        bg: 'bg-emerald-100', text: 'text-emerald-600', icon: 'fa-door-open'      },
-                { label: 'Pending Collection',  value: `₱${pendingCollection.toLocaleString()}`, bg: 'bg-teal-100',    text: 'text-teal-600',    icon: 'fa-hand-holding-dollar', sub: 'Outstanding at the counter' },
+                { label: 'Pending Collection',  value: `₱${pendingCollection.toLocaleString()}`, bg: 'bg-teal-100',    text: 'text-teal-600',    icon: 'fa-hand-holding-dollar', sub: 'Outstanding at the counter', onClick: () => setKpiOpen(true) },
                 { label: 'Arriving Today',      value: arriving.length,                       bg: 'bg-indigo-100',  text: 'text-indigo-600',  icon: 'fa-plane-arrival',  sub: 'Confirmed' },
                 { label: 'Walk-ins Today',      value: walkIns.length,                        bg: 'bg-amber-100',   text: 'text-amber-600',   icon: 'fa-walking'        },
                 overdueCard,
               ];
             })().map(card => {
-              const interactive = !!card.href;
+              const interactive = !!card.href || !!card.onClick;
               const cardCls = [
                 'bg-white rounded-xl shadow p-5 flex items-center transition-colors',
                 interactive ? 'cursor-pointer hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1' : '',
@@ -244,8 +253,8 @@ export default function Dashboard() {
                 <button
                   key={card.label}
                   type="button"
-                  onClick={() => navigate(card.href)}
-                  aria-label={`${card.label}: ${card.value}${card.sub ? `. ${card.sub}` : ''}. Open bookings list.`}
+                  onClick={() => card.onClick ? card.onClick() : navigate(card.href)}
+                  aria-label={`${card.label}: ${card.value}${card.sub ? `. ${card.sub}` : ''}.${card.onClick ? ' Open summary.' : ' Open bookings list.'}`}
                   className={`${cardCls} text-left w-full`}
                 >
                   {body}
@@ -362,6 +371,22 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+      <KpiSummaryModal
+        open={kpiOpen}
+        onClose={() => setKpiOpen(false)}
+        title="Pending Collection"
+        value={fmt(pendingCollection)}
+        basis="Outstanding"
+        basisDetail="Sum of unpaid balances for guests the counter can collect from today — Checked-In rows + today's Confirmed arrivals. No-Show and Cancelled bookings are excluded (forfeited deposits count as revenue, not pending)."
+        scope={`Today · ${pendingCheckedInCount + pendingArrivingCount} booking${(pendingCheckedInCount + pendingArrivingCount) === 1 ? '' : 's'}`}
+        breakdown={[
+          { label: 'Checked-In (still owes)', amount: fmt(pendingCheckedIn), hint: `${pendingCheckedInCount} booking${pendingCheckedInCount === 1 ? '' : 's'}` },
+          { label: "Confirmed arriving today", amount: fmt(pendingArriving), hint: `${pendingArrivingCount} booking${pendingArrivingCount === 1 ? '' : 's'}` },
+        ]}
+        note={<>Overdue subset (past checkout time, still owes) shows on the <strong>Billing page</strong> as the "Overdue Collections" alert tile.</>}
+        iconClass="fa-hand-holding-dollar"
+        accent="teal"
+      />
       <Toast message={toast} type={toastType} onClose={clearToast} />
     </Sidebar>
   );

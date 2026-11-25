@@ -8,6 +8,7 @@ import { getFdBookings, collectPayment, collectReservationPayment, downloadStaff
 import { uploadFile } from '../../lib/uploadApi';
 import { api } from '../../lib/api';
 import Toast, { useToast } from '../../components/ui/Toast';
+import KpiSummaryModal from '../../components/ui/KpiSummaryModal';
 import PaymentCell from '../../components/ui/PaymentPill';
 import { fmtMoney, fmtDate, fmtDateTime, localDateStr } from '../../lib/format';
 import { usePagination, PaginationBar } from '../../lib/pagination.jsx';
@@ -533,6 +534,7 @@ export default function Billing({ embedded = false }) {
   const [downloading, setDownloading] = useState(null); // bookingId being downloaded
 
   const [toast, showToast, clearToast, toastType] = useToast();
+  const [kpiOpen, setKpiOpen] = useState(false);
   const [entranceRates, setEntranceRates] = useState(FALLBACK_RATES);
 
   // Dedicated search side panel — fetches on demand, no auto-refresh.
@@ -1032,6 +1034,22 @@ export default function Billing({ embedded = false }) {
   return (
     <Shell>
       <Helmet><title>Billing — Frontdesk</title></Helmet>
+      <KpiSummaryModal
+        open={kpiOpen}
+        onClose={() => setKpiOpen(false)}
+        title="Overdue Collections"
+        value={overdueCollections.count.toString()}
+        basis="Overdue"
+        basisDetail="Checked-In guests whose scheduled checkout has already passed and still owe money. The chase-now subset of Pending Collection — these guests may leave without settling."
+        scope={`Today · ${fmtMoney(overdueCollections.sum)} owed total`}
+        breakdown={[
+          { label: 'Guests past checkout + still owing', amount: overdueCollections.count.toString(), hint: 'Each one needs follow-up' },
+          { label: 'Total outstanding', amount: fmtMoney(overdueCollections.sum) },
+        ]}
+        note={<>Full day's pending balance (overdue + still-in-window) is on the <strong>Dashboard</strong> as "Pending Collection".</>}
+        iconClass="fa-triangle-exclamation"
+        accent={overdueCollections.count > 0 ? 'rose' : 'teal'}
+      />
       <Toast message={toast} type={toastType} onClose={clearToast} />
 
       {/* ── Detail Drawer ── */}
@@ -1377,7 +1395,12 @@ export default function Billing({ embedded = false }) {
               <h3 className="text-2xl font-bold">{loading ? '—' : todayCompleted.length}</h3>
             </div>
           </div>
-          <div className={`bg-white rounded-lg shadow p-5 flex items-center ${!loading && overdueCollections.count > 0 ? 'ring-2 ring-rose-200' : ''}`}>
+          <button
+            type="button"
+            onClick={() => setKpiOpen(true)}
+            className={`bg-white rounded-lg shadow p-5 flex items-center text-left w-full cursor-pointer hover:bg-slate-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1 ${!loading && overdueCollections.count > 0 ? 'ring-2 ring-rose-200' : ''}`}
+            aria-label={`Overdue Collections: ${overdueCollections.count}. Open summary.`}
+          >
             <div className={`p-3 rounded-full mr-4 ${!loading && overdueCollections.count > 0 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>
               <i className="fas fa-triangle-exclamation text-xl"></i>
             </div>
@@ -1393,7 +1416,7 @@ export default function Billing({ embedded = false }) {
                 <p className="text-xs text-slate-400">No one past checkout</p>
               )}
             </div>
-          </div>
+          </button>
         </div>
 
         {error && (

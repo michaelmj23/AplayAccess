@@ -16,6 +16,7 @@ import { getAdminBookings } from "../../lib/adminApi.js";
 import { api } from "../../lib/api";
 import { localDateStr } from "../../lib/format";
 import Toast, { useToast } from "../../components/ui/Toast";
+import KpiSummaryModal from "../../components/ui/KpiSummaryModal";
 import { useAuth } from "../../context/AuthContext.jsx";
 import LowStockAlert from "../../components/addons/LowStockAlert.jsx";
 
@@ -52,6 +53,7 @@ function greetForHour() {
 export default function OwnerDashboard() {
   const { user } = useAuth();
   const [toast, showToast, clearToast, toastType] = useToast();
+  const [kpiOpen, setKpiOpen] = useState(false);
   const [bookings,   setBookings]   = useState([]);
 
   const [loading,    setLoading]    = useState(true);
@@ -424,17 +426,15 @@ export default function OwnerDashboard() {
 
       {/* KPI Cards — Row 1: Revenue & Bookings */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl shadow p-5 hover:shadow-md transition">
+        <button
+          type="button"
+          onClick={() => setKpiOpen(true)}
+          aria-label={`Monthly Revenue: ${fmt(revThisMonth)}. Open summary.`}
+          className="bg-white rounded-xl shadow p-5 hover:shadow-md transition text-left w-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1"
+        >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-slate-500 text-sm flex items-center gap-1.5">
-                Monthly Revenue
-                <i
-                  className="fas fa-circle-info text-slate-400 cursor-help text-xs"
-                  title="Bucketed by stay date (check-in). A walk-in paid today for a future stay shows up on the stay's month, not today's. For cash actually collected this month, see Reports."
-                  aria-label="Monthly Revenue is bucketed by stay date"
-                ></i>
-              </p>
+              <p className="text-slate-500 text-sm">Monthly Revenue</p>
               <h3 className="text-2xl font-bold mt-1">{fmt(revThisMonth)}</h3>
               <p className={`text-xs mt-1 ${revMoM >= 0 ? "text-success-fg" : "text-danger-fg"}`}>
                 <i className={`fas fa-arrow-${revMoM >= 0 ? "up" : "down"} mr-1`} aria-hidden="true"></i>
@@ -443,7 +443,7 @@ export default function OwnerDashboard() {
             </div>
             <div className="p-3 rounded-xl bg-emerald-100 text-emerald-600"><i className="fas fa-chart-line text-xl" aria-hidden="true"></i></div>
           </div>
-        </div>
+        </button>
 
         <div className="bg-white rounded-xl shadow p-5 hover:shadow-md transition">
           <div className="flex items-center justify-between">
@@ -674,6 +674,24 @@ export default function OwnerDashboard() {
         </div>
       )}
 
+      <KpiSummaryModal
+        open={kpiOpen}
+        onClose={() => setKpiOpen(false)}
+        title="Monthly Revenue"
+        value={fmt(revThisMonth)}
+        basis="Stay-based"
+        basisDetail="Sum of money collected across bookings whose stay (check-in date) falls in this month. A reservation paid today for a future stay credits next month, not today."
+        scope={`${new Date().toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}`}
+        breakdown={[
+          { label: 'Room rates', amount: fmt(revBreakdown.room), hint: 'Including stay extensions' },
+          { label: 'Entrance fees', amount: fmt(revBreakdown.entrance) },
+          { label: 'Add-ons', amount: fmt(revBreakdown.addons) },
+          { label: 'Promo discount applied', amount: `−${fmt(revBreakdown.promos)}` },
+        ]}
+        note={<>For cash flow by payment date (what hit the bank this month), see <strong>Reports → Analytics</strong> and <strong>Transactions</strong>.</>}
+        iconClass="fa-chart-line"
+        accent="emerald"
+      />
       <Toast message={toast} type={toastType} onClose={clearToast} />
     </div>
   );

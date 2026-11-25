@@ -8,6 +8,7 @@ import Sidebar from './Layout/Sidebar';
 import { getFdBookings } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import Toast, { useToast } from '../../components/ui/Toast';
+import KpiSummaryModal from '../../components/ui/KpiSummaryModal';
 import { fmtMoney, fmtTime, localDateStr } from '../../lib/format';
 import { printHtml } from '../../lib/print.js';
 import { usePagination, PaginationBar } from '../../lib/pagination.jsx';
@@ -162,6 +163,7 @@ export default function Reports() {
   const [loading, setLoading]       = useState(true);
   const [reportDate, setReportDate] = useState(todayStr());
   const [toast, showToast, clearToast, toastType] = useToast();
+  const [kpiOpen, setKpiOpen] = useState(false);
   const [usingDemo, setUsingDemo]     = useState(false);
   const [entranceRates, setEntranceRates] = useState(FALLBACK_RATES);
 
@@ -258,18 +260,35 @@ export default function Reports() {
             { label: 'Total Bookings', value: dateBookings.length,                                              bg: 'bg-sky-100',     text: 'text-sky-600',     icon: 'fa-calendar'      },
             { label: 'Confirmed',      value: dateBookings.filter(b => b.status === 'Confirmed').length,        bg: 'bg-violet-100',  text: 'text-violet-600',  icon: 'fa-check-circle'  },
             { label: 'Completed',      value: dateBookings.filter(b => b.status === 'Completed').length,        bg: 'bg-emerald-100', text: 'text-emerald-600', icon: 'fa-check-double'  },
-            { label: 'Revenue',        value: fmtMoney(totalRevenue),                                           bg: 'bg-amber-100',   text: 'text-amber-600',   icon: 'fa-peso-sign'     },
-          ].map(card => (
-            <div key={card.label} className="bg-white rounded-lg shadow p-5 flex items-center">
-              <div className={`p-3 rounded-full ${card.bg} ${card.text} mr-4`}>
-                <i className={`fas ${card.icon} text-lg`} aria-hidden="true"></i>
+            { label: 'Revenue',        value: fmtMoney(totalRevenue),                                           bg: 'bg-amber-100',   text: 'text-amber-600',   icon: 'fa-peso-sign', onClick: () => setKpiOpen(true) },
+          ].map(card => {
+            const inner = (
+              <>
+                <div className={`p-3 rounded-full ${card.bg} ${card.text} mr-4`}>
+                  <i className={`fas ${card.icon} text-lg`} aria-hidden="true"></i>
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs">{card.label}</p>
+                  <p className="text-xl font-bold">{loading ? '—' : card.value}</p>
+                </div>
+              </>
+            );
+            return card.onClick ? (
+              <button
+                key={card.label}
+                type="button"
+                onClick={card.onClick}
+                aria-label={`${card.label}: ${card.value}. Open summary.`}
+                className="bg-white rounded-lg shadow p-5 flex items-center text-left w-full cursor-pointer hover:bg-slate-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1"
+              >
+                {inner}
+              </button>
+            ) : (
+              <div key={card.label} className="bg-white rounded-lg shadow p-5 flex items-center">
+                {inner}
               </div>
-              <div>
-                <p className="text-slate-500 text-xs">{card.label}</p>
-                <p className="text-xl font-bold">{loading ? '—' : card.value}</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -507,6 +526,29 @@ export default function Reports() {
           )}
         </div>
       </main>
+      {(() => {
+        const activeRev = activeDateBookings.reduce((s, b) => s + Number(b.paidAmount ?? 0), 0);
+        const forfeitedRev = Math.max(0, totalRevenue - activeRev);
+        const forfeitedCount = cancelledCount;
+        return (
+          <KpiSummaryModal
+            open={kpiOpen}
+            onClose={() => setKpiOpen(false)}
+            title="Revenue"
+            value={fmtMoney(totalRevenue)}
+            basis="Stay-based"
+            basisDetail="Sum of money collected across bookings whose check-in date matches this report date. Includes forfeited reservation fees from cancellations so the total matches what the resort actually kept."
+            scope={`Arrival date · ${reportDateLabel}`}
+            breakdown={[
+              { label: 'From active bookings', amount: fmtMoney(activeRev), hint: `${activeDateBookings.length} booking${activeDateBookings.length === 1 ? '' : 's'}` },
+              { label: 'From forfeited deposits', amount: fmtMoney(forfeitedRev), hint: `${forfeitedCount} cancellation${forfeitedCount === 1 ? '' : 's'}` },
+            ]}
+            note={<>For cash flow by payment date (not stay date), owner <strong>Reports → Analytics</strong> shows the cash-based monthly figure.</>}
+            iconClass="fa-peso-sign"
+            accent="amber"
+          />
+        );
+      })()}
       <Toast message={toast} type={toastType} onClose={clearToast} />
     </Sidebar>
   );

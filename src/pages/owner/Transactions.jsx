@@ -6,6 +6,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Lege
 import { getAdminBookings, getAnalyticsOverview } from "../../lib/adminApi.js";
 import { downloadStaffReceipt } from "../../lib/frontdeskApi.js";
 import Toast, { useToast } from "../../components/ui/Toast";
+import KpiSummaryModal from "../../components/ui/KpiSummaryModal";
 import { printHtml } from "../../lib/print.js";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
@@ -112,6 +113,7 @@ export default function OwnerTransactions() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [toast, showToast, clearToast, toastType] = useToast();
+  const [kpiOpen, setKpiOpen] = useState(false);
 
   const [sortBy,  setSortBy]  = useState('Check-in');
   const [sortDir, setSortDir] = useState('desc');
@@ -334,7 +336,12 @@ export default function OwnerTransactions() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <button
+          type="button"
+          onClick={() => setKpiOpen(true)}
+          aria-label={`Revenue Collected: ${fmt(totalRevenue)}. Open summary.`}
+          className="bg-white rounded-lg shadow p-6 text-left w-full cursor-pointer hover:shadow-md transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1"
+        >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-500 text-sm">Revenue Collected</p>
@@ -348,7 +355,7 @@ export default function OwnerTransactions() {
               <i className="fas fa-money-bill-wave text-xl" aria-hidden="true"></i>
             </div>
           </div>
-        </div>
+        </button>
 
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
@@ -926,6 +933,24 @@ export default function OwnerTransactions() {
 
       </div>
 
+      <KpiSummaryModal
+        open={kpiOpen}
+        onClose={() => setKpiOpen(false)}
+        title="Revenue Collected"
+        value={fmt(totalRevenue)}
+        basis="Cash-collected (all time)"
+        basisDetail="Every peso the resort has actually received, grouped by the status of the booking it funded. This differs from Owner Dashboard's Monthly Revenue, which is grouped by stay date."
+        scope="All bookings · lifetime"
+        breakdown={[
+          { label: 'Completed stays', amount: fmt(collected.completed) },
+          { label: 'Currently checked-in', amount: fmt(collected.inProgress) },
+          { label: 'Upcoming (reservation fees)', amount: fmt(collected.upcoming) },
+          { label: 'Forfeited (cancellations)', amount: fmt(collected.forfeited) },
+        ]}
+        note={<>For stay-based monthly revenue (grouped by check-in date), see <strong>Owner Dashboard → Monthly Revenue</strong>.</>}
+        iconClass="fa-money-bill-wave"
+        accent="emerald"
+      />
       <Toast message={toast} type={toastType} onClose={clearToast} />
     </div>
   );

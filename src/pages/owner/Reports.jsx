@@ -14,6 +14,7 @@ import {
 } from "chart.js";
 import { getAnalyticsReport, getAnalyticsBookings, getAnalyticsRooms, getAnalyticsOverview, getAnalyticsMonthly } from "../../lib/adminApi.js";
 import Toast, { useToast } from "../../components/ui/Toast";
+import KpiSummaryModal from "../../components/ui/KpiSummaryModal";
 import { printHtml } from "../../lib/print.js";
 import { usePagination, PaginationBar } from "../../lib/pagination.jsx";
 
@@ -88,6 +89,8 @@ const BAR_COLORS = ["rgba(59,130,246,0.7)","rgba(16,185,129,0.7)","rgba(251,191,
 export default function OwnerReports() {
   const now = new Date();
   const [toast, showToast, clearToast, toastType] = useToast();
+  const [kpiMonthlyOpen,  setKpiMonthlyOpen]  = useState(false);
+  const [kpiAnalyticsOpen, setKpiAnalyticsOpen] = useState(false);
   const [tab, setTab] = useState("monthly"); // "monthly" | "analytics"
 
   // ── Monthly Report state ──────────────────────────────────────────────────
@@ -342,17 +345,34 @@ export default function OwnerReports() {
           {/* Summary cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
-              { label: "Revenue This Month", value: loadingOv ? "—" : fmt(revThisMonth), sub: `vs ${fmt(revLastMonth)} last month`, color: "bg-blue-50 text-blue-800" },
+              { label: "Revenue This Month", value: loadingOv ? "—" : fmt(revThisMonth), sub: `vs ${fmt(revLastMonth)} last month`, color: "bg-blue-50 text-blue-800", onClick: () => setKpiAnalyticsOpen(true) },
               { label: "Month-on-Month", value: loadingOv ? "—" : `${revPct >= 0 ? "+" : ""}${revPct}%`, sub: "vs previous month", color: revPct >= 0 ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800" },
               { label: `Revenue (${chartDays}d)`, value: loadingChart ? "—" : fmt(totalRev), sub: `${totalBk} bookings`, color: "bg-purple-50 text-purple-800" },
               { label: "Avg / Booking", value: loadingChart ? "—" : fmt(totalBk > 0 ? Math.round(totalRev / totalBk) : 0), sub: `last ${chartDays} days`, color: "bg-yellow-50 text-yellow-800" },
-            ].map(c => (
-              <div key={c.label} className={`rounded-lg p-5 ${c.color}`}>
-                <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{c.label}</p>
-                <p className="text-2xl font-bold mt-1">{c.value}</p>
-                <p className="text-xs opacity-60 mt-1">{c.sub}</p>
-              </div>
-            ))}
+            ].map(c => {
+              const inner = (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{c.label}</p>
+                  <p className="text-2xl font-bold mt-1">{c.value}</p>
+                  <p className="text-xs opacity-60 mt-1">{c.sub}</p>
+                </>
+              );
+              return c.onClick ? (
+                <button
+                  key={c.label}
+                  type="button"
+                  onClick={c.onClick}
+                  aria-label={`${c.label}: ${c.value}. Open summary.`}
+                  className={`rounded-lg p-5 text-left w-full cursor-pointer hover:brightness-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1 ${c.color}`}
+                >
+                  {inner}
+                </button>
+              ) : (
+                <div key={c.label} className={`rounded-lg p-5 ${c.color}`}>
+                  {inner}
+                </div>
+              );
+            })}
           </div>
 
           {/* Period selector */}
@@ -483,15 +503,16 @@ export default function OwnerReports() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           {[
             { label: "Total Revenue",      value: loading ? "—" : fmt(revenue),              icon: "fa-money-bill-wave", color: "bg-green-100 text-green-600",
-              subtitle: forfeited > 0 ? `incl. ${fmt(forfeited)} forfeited` : null },
+              subtitle: forfeited > 0 ? `incl. ${fmt(forfeited)} forfeited` : null,
+              onClick: () => setKpiMonthlyOpen(true) },
             { label: "Forfeited Revenue",  value: loading ? "—" : fmt(forfeited),            icon: "fa-ban",             color: "bg-rose-100 text-rose-600",
               subtitle: forfeitedCount > 0 ? `${forfeitedCount} cancellation${forfeitedCount !== 1 ? "s" : ""}` : "No cancellations" },
             { label: "Total Bookings",     value: loading ? "—" : bookings.length,           icon: "fa-calendar-check",  color: "bg-blue-100 text-blue-600"    },
             { label: "Avg. Stay Value",    value: loading ? "—" : fmt(Math.round(avgVal)),   icon: "fa-calculator",      color: "bg-purple-100 text-purple-600" },
             { label: "Total Guest-Days",   value: loading ? "—" : Math.round(nights),        icon: "fa-moon",            color: "bg-yellow-100 text-yellow-600" },
             { label: "Total Discounts",    value: loading ? "—" : fmt(totalDiscounts),       icon: "fa-tag",             color: "bg-amber-100 text-amber-600"  },
-          ].map((c) => (
-            <div key={c.label} className="bg-white rounded-lg shadow p-5">
+          ].map((c) => {
+            const inner = (
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
                   <p className="text-gray-500 text-xs">{c.label}</p>
@@ -502,8 +523,23 @@ export default function OwnerReports() {
                   <i className={`fas ${c.icon} text-lg`} aria-hidden="true"></i>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+            return c.onClick ? (
+              <button
+                key={c.label}
+                type="button"
+                onClick={c.onClick}
+                aria-label={`${c.label}: ${c.value}. Open summary.`}
+                className="bg-white rounded-lg shadow p-5 text-left w-full cursor-pointer hover:shadow-md transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1"
+              >
+                {inner}
+              </button>
+            ) : (
+              <div key={c.label} className="bg-white rounded-lg shadow p-5">
+                {inner}
+              </div>
+            );
+          })}
         </div>
 
         {/* Revenue by Room */}
@@ -709,6 +745,41 @@ export default function OwnerReports() {
 
       </>)}
 
+      <KpiSummaryModal
+        open={kpiMonthlyOpen}
+        onClose={() => setKpiMonthlyOpen(false)}
+        title="Total Revenue"
+        value={fmt(revenue)}
+        basis="Stay-based"
+        basisDetail="Sum of money collected across bookings whose stay (check-in date) falls in the selected period. Includes forfeited reservation fees from cancellations."
+        scope={`Monthly tab · ${period || 'current period'}`}
+        breakdown={[
+          { label: 'From active bookings', amount: fmt(activeRevenue), hint: `${active.length} booking${active.length === 1 ? '' : 's'}` },
+          { label: 'From forfeited deposits', amount: fmt(forfeited), hint: `${forfeitedCount} cancellation${forfeitedCount === 1 ? '' : 's'}` },
+          { label: 'Avg per active booking', amount: fmt(Math.round(avgVal)) },
+        ]}
+        note={<>Same accounting basis as <strong>Owner Dashboard → Monthly Revenue</strong>. For cash-based monthly totals (by payment date), see the <strong>Analytics tab</strong>.</>}
+        iconClass="fa-money-bill-wave"
+        accent="emerald"
+      />
+      <KpiSummaryModal
+        open={kpiAnalyticsOpen}
+        onClose={() => setKpiAnalyticsOpen(false)}
+        title="Revenue This Month"
+        value={fmt(revThisMonth)}
+        basis="Cash-based"
+        basisDetail="Money the resort actually received this month, grouped by payment date (paid_at). A booking paid today for a future stay credits today's month; a booking paid last month but checking in this month credits last month."
+        scope={`${new Date().toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}`}
+        breakdown={[
+          { label: 'Received this month', amount: fmt(revThisMonth) },
+          { label: 'Received last month', amount: fmt(revLastMonth) },
+          { label: 'Month-over-month', amount: `${revPct >= 0 ? '+' : ''}${revPct}%` },
+          { label: 'Forfeited portion (this month)', amount: fmt(overview?.forfeited_this_month ?? 0) },
+        ]}
+        note={<>For stay-based revenue (grouped by check-in date), see the <strong>Monthly tab</strong> or <strong>Owner Dashboard</strong>.</>}
+        iconClass="fa-chart-column"
+        accent="sky"
+      />
       <Toast message={toast} type={toastType} onClose={clearToast} />
     </div>
   );
