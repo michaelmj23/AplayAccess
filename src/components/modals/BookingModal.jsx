@@ -2251,11 +2251,14 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 </p>
               </div>
 
-              {/* PayMongo note */}
+              {/* Processor-neutral checkout note — avoids naming the
+                  specific payment processor (was "PayMongo", gateway
+                  is now Xendit; keeping the processor name out of
+                  user-facing copy decouples UI from backend swaps). */}
               <div className="flex items-start gap-2 text-sm text-gray-600 bg-gray-50 rounded-md px-3 py-2">
                 <i className="fas fa-lock text-blue-500 mt-0.5 shrink-0"></i>
                 <span>
-                  A secure <span className="font-medium">PayMongo</span> checkout window will open for you to pay{" "}
+                  A secure checkout window will open for you to pay{" "}
                   <span className="font-medium">{formatPHP(amountDue)}</span> via{" "}
                   <span className="font-medium">GCash</span>.
                   This page will stay open in the background.
@@ -2692,7 +2695,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 {/* Payment note */}
                 <div className="flex items-start gap-2 text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2">
                   <i className="fas fa-lock text-blue-500 mt-0.5 shrink-0" aria-hidden="true"></i>
-                  <span>A <span className="font-medium">PayMongo</span> checkout window will open. You can pay via <span className="font-medium">GCash</span>.</span>
+                  <span>A secure checkout window will open. You can pay via <span className="font-medium">GCash</span>.</span>
                 </div>
               </div>
 
