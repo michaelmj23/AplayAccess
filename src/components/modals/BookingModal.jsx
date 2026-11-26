@@ -2235,16 +2235,19 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 </div>
               </div>
 
-              {/* Cancellation policy (smaller) — wording swaps to reflect
-                  whether this slot requires full payment at booking. For
-                  100% slots, there's no "reservation fee" to isolate —
-                  the full amount is forfeited on cancel/no-show. */}
+              {/* Cancellation policy (smaller) — wording swaps based on
+                  what the guest is actually paying now. The old copy
+                  branched on the slot's reservation % (isSlotFullPay),
+                  so a guest on a 50% slot who picked "Pay in Full" was
+                  warned about forfeiting only the 50% reservation fee
+                  when in reality the whole online payment is non-
+                  refundable. amountDue is the real paid-online figure. */}
               <div className="bg-yellow-50 border-l-4 border-yellow-400 px-3 py-2">
                 <p className="text-xs text-yellow-800">
                   <span className="font-medium">Cancellation Policy:</span>{" "}
-                  {isSlotFullPay
-                    ? <>Cancellations or no-shows will result in the forfeiture of the full payment ({formatPHP(reservationFee)}).</>
-                    : <>Cancellations or no-shows will result in the forfeiture of the {slotPct}% reservation fee ({formatPHP(reservationFee)}).</>}
+                  {effectivePaymentOption === "full"
+                    ? <>Cancellations or no-shows will result in the forfeiture of the full room payment ({formatPHP(amountDue)}).</>
+                    : <>Cancellations or no-shows will result in the forfeiture of the {slotPct}% reservation fee ({formatPHP(amountDue)}).</>}
                 </p>
               </div>
 
