@@ -422,7 +422,14 @@ export default function AdminRooms() {
       }
       if (fail) {
         load(true);
-        showToast(`${fail} room(s) failed to delete.`, "error");
+        // Optimistic delete already fired a green toast; this is a
+        // correction — the other rooms DID delete, these ones didn't.
+        // Amber signals partial, not total failure.
+        const succeeded = ids.length - fail;
+        const msg = succeeded > 0
+          ? `${fail} of ${ids.length} room(s) failed to delete.`
+          : `${fail} room(s) failed to delete.`;
+        showToast(msg, succeeded > 0 ? "warning" : "error");
       }
     }, 6000);
 

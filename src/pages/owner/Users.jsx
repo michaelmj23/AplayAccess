@@ -432,7 +432,9 @@ export default function OwnerUsers() {
     } else if (ok === 0) {
       showToast(`Failed to ${action} ${fail} user(s).`, "error");
     } else {
-      showToast(`${ok} ${verb}, ${fail} failed.`, "error");
+      // Partial outcome — some succeeded, some failed. Amber signals
+      // "look at this" without red-flagging as a total failure.
+      showToast(`${ok} ${verb}, ${fail} failed.`, "warning");
     }
     setSelected(new Set());
     load();

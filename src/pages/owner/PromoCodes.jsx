@@ -389,20 +389,24 @@ export default function PromoCodes() {
   }
   async function bulkAction(action) {
     const ids = [...selected];
-    try {
-      if (action === "delete") {
-        await Promise.all(ids.map((id) => deletePromoCode(id)));
-        showToast(`${ids.length} code(s) deleted.`, "success");
-      } else {
-        const activate = action === "activate";
-        await Promise.all(ids.map((id) => updatePromoCode(id, { is_active: activate })));
-        showToast(`${ids.length} code(s) ${activate ? "activated" : "deactivated"}.`, "success");
-      }
-      setSelected(new Set());
-      load();
-    } catch {
-      showToast("Some operations failed.", "error");
+    // allSettled so one failure doesn't mask the rest — we need both
+    // counts to pick the right toast tone (success / warning / error).
+    const runOne = action === "delete"
+      ? (id) => deletePromoCode(id)
+      : (id) => updatePromoCode(id, { is_active: action === "activate" });
+    const results = await Promise.allSettled(ids.map(runOne));
+    const ok   = results.filter(r => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    const verb = action === "delete" ? "deleted" : (action === "activate" ? "activated" : "deactivated");
+    if (fail === 0) {
+      showToast(`${ok} code(s) ${verb}.`, "success");
+    } else if (ok === 0) {
+      showToast(`Failed to ${action} ${fail} code(s).`, "error");
+    } else {
+      showToast(`${ok} ${verb}, ${fail} failed.`, "warning");
     }
+    setSelected(new Set());
+    load();
   }
 
   /* ── sort ── */

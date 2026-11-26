@@ -401,14 +401,23 @@ export default function AdminAddons() {
 
   async function bulkToggle(activate) {
     const ids = [...selected];
-    try {
-      await Promise.all(ids.map(id => updateAdminAddon(id, { is_active: activate })));
-      showToast(`${ids.length} add-on(s) ${activate ? "activated" : "deactivated"}.`, "success");
-      setSelected(new Set());
-      load();
-    } catch {
-      showToast("Some updates failed.", "error");
+    // allSettled so one failure doesn't mask the rest — we need both
+    // counts to pick the right toast tone (success / warning / error).
+    const results = await Promise.allSettled(
+      ids.map(id => updateAdminAddon(id, { is_active: activate }))
+    );
+    const ok   = results.filter(r => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    const verb = activate ? "activated" : "deactivated";
+    if (fail === 0) {
+      showToast(`${ok} add-on(s) ${verb}.`, "success");
+    } else if (ok === 0) {
+      showToast(`Failed to ${verb.replace(/d$/, "e")} ${fail} add-on(s).`, "error");
+    } else {
+      showToast(`${ok} ${verb}, ${fail} failed.`, "warning");
     }
+    setSelected(new Set());
+    load();
   }
 
   /* ── sort click ── */

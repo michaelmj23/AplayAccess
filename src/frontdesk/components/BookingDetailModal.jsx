@@ -73,6 +73,26 @@ function isOverdueCheckout(b) {
   return new Date(String(b.checkOut).replace(' ', 'T')) < new Date();
 }
 
+// Derive toast tone from a bulk group-action summary returned by the
+// backend. Every reservation-level endpoint (check-in, check-out,
+// extend, no-show, revert, cancel) returns 200 even when zero rows
+// moved — the summary carries the real outcome in {okKey} + an array
+// of blocker/skip buckets per failure reason. Blanket 'success' on
+// every 200 would greenlight real failures ("2 scheduled for later"
+// in green), so staff never sees that nothing actually changed.
+//
+//   ok === 0                → 'error'   (red)   — nothing happened
+//   ok > 0 && any blockers  → 'warning' (amber) — partial
+//   ok > 0 && no blockers   → 'success' (green) — clean
+function groupActionTone(summary, okKey) {
+  if (!summary) return 'success';
+  const ok = Number(summary[okKey] ?? 0);
+  const anyBlocked = Object.entries(summary).some(([k, v]) =>
+    k !== okKey && Array.isArray(v) && v.length > 0);
+  if (ok === 0) return 'error';
+  return anyBlocked ? 'warning' : 'success';
+}
+
 function StatusBadge({ status, booking }) {
   if (status === 'Pending' && booking && isExpiredPending(booking)) {
     return (
@@ -417,22 +437,8 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupCheckInLoading(true);
     try {
       const res = await checkInReservation(booking.reservationId);
-      // Toast tone reflects the real outcome, not just the HTTP 200.
-      // The endpoint returns 200 even when nothing was checked in
-      // (all siblings scheduled for later, unpaid, or already in),
-      // so the "success" tone would mislead staff into thinking the
-      // group is now in-house. Green only when at least one sibling
-      // actually flipped to Checked In and nothing was blocked;
-      // amber for partial; red when nothing happened.
-      const checkedIn = Number(res.summary?.checked_in ?? 0);
-      const skippedFuture  = (res.summary?.skipped_future  ?? []).length;
-      const blockedUnpaid  = (res.summary?.blocked_unpaid  ?? []).length;
-      const alreadyCheckedIn = Number(res.summary?.already_checked_in ?? 0);
-      const hadFailures = skippedFuture > 0 || blockedUnpaid > 0;
-      const tone = checkedIn === 0
-        ? 'error'
-        : (hadFailures ? 'warning' : 'success');
-      const msg = res.message || `Group check-in: ${checkedIn} room(s) checked in.`;
+      const tone = groupActionTone(res.summary, 'checked_in');
+      const msg  = res.message || `Group check-in: ${res.summary?.checked_in ?? 0} room(s) checked in.`;
       showToast?.(msg, tone);
       // The call touched multiple bookings — hand back control to the
       // parent to refresh the whole list so each sibling row reflects
@@ -459,7 +465,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupCheckOutLoading(true);
     try {
       const res = await checkOutReservation(booking.reservationId);
-      showToast?.(res.message || `Group check-out: ${res.summary?.checked_out ?? 0} room(s) checked out.`, 'success');
+      const tone = groupActionTone(res.summary, 'checked_out');
+      const msg  = res.message || `Group check-out: ${res.summary?.checked_out ?? 0} room(s) checked out.`;
+      showToast?.(msg, tone);
       onReload?.();
       refreshNotifications?.();
       onClose?.();
@@ -571,7 +579,8 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
           setExtendResult({ scope: 'group', aborted: false, ...summary, message: res.message });
           return;
         }
-        showToast?.(res.message || `Group extend: ${extended} room(s) extended.`, 'success');
+        const tone = groupActionTone(summary, 'extended');
+        showToast?.(res.message || `Group extend: ${extended} room(s) extended.`, tone);
         setExtendOpen(false);
         onClose?.();
       } else {
@@ -611,7 +620,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupMarkNoShowLoading(true);
     try {
       const res = await markNoShowReservation(booking.reservationId);
-      showToast?.(res.message || `Group no-show: ${res.summary?.marked ?? 0} room(s) marked.`, 'success');
+      const tone = groupActionTone(res.summary, 'marked');
+      const msg  = res.message || `Group no-show: ${res.summary?.marked ?? 0} room(s) marked.`;
+      showToast?.(msg, tone);
       onReload?.();
       refreshNotifications?.();
       setGroupMarkNoShowConfirm(false);
@@ -636,7 +647,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupRevertNoShowLoading(true);
     try {
       const res = await revertNoShowReservation(booking.reservationId);
-      showToast?.(res.message || `Group reversal: ${res.summary?.reverted ?? 0} room(s) restored.`, 'success');
+      const tone = groupActionTone(res.summary, 'reverted');
+      const msg  = res.message || `Group reversal: ${res.summary?.reverted ?? 0} room(s) restored.`;
+      showToast?.(msg, tone);
       onReload?.();
       refreshNotifications?.();
       onClose?.();
@@ -659,7 +672,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupCancelLoading(true);
     try {
       const res = await cancelReservation(booking.reservationId);
-      showToast?.(res.message || `Group cancel: ${res.summary?.cancelled ?? 0} room(s) cancelled.`, 'success');
+      const tone = groupActionTone(res.summary, 'cancelled');
+      const msg  = res.message || `Group cancel: ${res.summary?.cancelled ?? 0} room(s) cancelled.`;
+      showToast?.(msg, tone);
       onReload?.();
       refreshNotifications?.();
       setGroupCancelConfirm(false);
