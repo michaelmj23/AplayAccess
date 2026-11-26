@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import Modal from "./Modal.jsx";
 import { createBooking, createGuestBooking, cancelBooking, cancelGuestBooking, createGuestPaymentLink, getGuestPaymentStatus, guestConfirmPayment } from "../../lib/bookingApi.js";
 import { primeCsrf } from "../../lib/api.js";
@@ -171,6 +172,19 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   const [guestName,  setGuestName]  = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
+
+  // Account-exists interstitial. Set when the backend's /api/guest-booking
+  // returns 409 {code: 'account_exists'} — the typed email already has
+  // a user account on Aplaya and creating a guest booking under it
+  // would create a split identity (booking lives server-side but
+  // never surfaces in the account owner's dashboard). The prompt
+  // offers Log in or Use different email.
+  const [accountExistsPrompt, setAccountExistsPrompt] = useState(false);
+
+  // React Router navigate — used by the account-exists Log in button
+  // to send the guest to /login with their email prefilled and a
+  // redirect back to /rooms.
+  const navigate = useNavigate();
   // Payment popup state: { bookingId, checkoutUrl, popup } while waiting for payment
   // popup can be null when the user closed the window (we keep bookingId/checkoutUrl for reopen)
   const [paymentPopup, setPaymentPopup] = useState(null);
@@ -973,6 +987,15 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       setPaymentPopup({ bookingId, checkoutUrl: checkout_url, popup: null });
       setTimeLeft(PAYMENT_WINDOW_SECONDS);
     } catch (err) {
+      // Guest-booking account-exists intercept. Backend returns 409
+      // with code 'account_exists' when the typed email already has a
+      // user account. Swap the generic error message for the Log in /
+      // Use different email interstitial so the guest has a one-click
+      // path forward instead of a dead-end red banner.
+      if (err?.response?.status === 409 && err?.response?.data?.code === 'account_exists') {
+        setAccountExistsPrompt(true);
+        return;
+      }
       const msg =
         err?.response?.data?.message ||
         Object.values(err?.response?.data?.errors || {})?.[0]?.[0] ||
@@ -1062,6 +1085,59 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
           </h3>
           <button onClick={onClose} type="button" className="w-11 h-11 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" aria-label="Close booking modal"><i className="fas fa-times" aria-hidden="true"></i></button>
         </div>
+
+        {/* Account-exists interstitial. Shown when guest-mode submit
+            returned 409 code:'account_exists' — the typed email is
+            already a user account. Two escape paths: go log in (closes
+            modal, /login prefills the email + redirects back to /rooms
+            on success) or use a different email (clears the email
+            field and focuses it). */}
+        {accountExistsPrompt && (
+          <div role="alert" aria-live="polite" className="mb-4 rounded-lg bg-amber-50 border border-amber-300 px-4 py-3">
+            <div className="flex items-start gap-3">
+              <i className="fas fa-envelope-circle-check text-amber-600 mt-0.5 shrink-0 text-lg" aria-hidden="true"></i>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-amber-900">This email already has an account</p>
+                <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                  <strong className="break-all">{guestEmail.trim()}</strong> is registered on Aplaya. Log in to use your account, or book with a different email.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountExistsPrompt(false);
+                      onClose?.();
+                      navigate(`/login?email=${encodeURIComponent(guestEmail.trim())}&redirect=/rooms`);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 min-h-10 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                  >
+                    <i className="fas fa-sign-in-alt" aria-hidden="true"></i>
+                    Log in
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountExistsPrompt(false);
+                      setGuestEmail("");
+                      // Give the DOM a tick to re-render the form, then
+                      // focus + scroll the email input into view.
+                      requestAnimationFrame(() => {
+                        const el = document.getElementById('bm-guest-email');
+                        if (el) {
+                          el.focus();
+                          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      });
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 min-h-10 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                  >
+                    Use different email
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div role="alert" aria-live="assertive" className="mb-4 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700 flex items-start gap-2">

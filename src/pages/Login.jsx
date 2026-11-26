@@ -9,13 +9,22 @@ export default function Login() {
   const navigate  = useNavigate();
   const location  = useLocation();
 
-  const [email, setEmail]           = useState("");
+  // Prefill from ?email= and honor ?redirect= — set by the account-exists
+  // interstitial in BookingModal when a guest-mode booking hit a
+  // registered email. Keeps the user's one typed field intact across
+  // the modal-to-login handoff and sends them back to /rooms after
+  // login so they can finish the booking they started.
+  const qp = new URLSearchParams(location.search);
+
+  const [email, setEmail]           = useState(qp.get("email") || "");
   const [password, setPassword]     = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError]           = useState("");
   const [loading, setLoading]       = useState(false);
 
-  const next = new URLSearchParams(location.search).get("next") || "/dashboard";
+  // `next` keeps backward compatibility with any existing links.
+  // `redirect` is the new param used by the BookingModal handoff.
+  const next = qp.get("redirect") || qp.get("next") || "/dashboard";
 
   async function submit(e) {
     e.preventDefault();
