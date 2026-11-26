@@ -1573,13 +1573,18 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                                 </span>
                                 <span className="flex items-center gap-2 shrink-0">
                                   <span className="text-slate-500 tabular-nums">{fmtMoney(s.total)}</span>
+                                  {/* Sibling pill palette mirrors the main status
+                                      pill at the top of this modal so the same
+                                      booking never renders two different colors
+                                      for the same status across views. */}
                                   <span className={`inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                                    s.status === 'Checked In'  ? 'bg-emerald-100 text-emerald-800' :
                                     s.status === 'Confirmed'   ? 'bg-sky-100 text-sky-800' :
-                                    s.status === 'Completed'   ? 'bg-slate-200 text-slate-700' :
-                                    s.status === 'Cancelled'   ? 'bg-rose-100 text-rose-700' :
-                                    s.status === 'No-Show'     ? 'bg-amber-100 text-amber-800' :
-                                    'bg-slate-100 text-slate-700'
+                                    s.status === 'Checked In'  ? 'bg-violet-100 text-violet-800' :
+                                    s.status === 'Completed'   ? 'bg-emerald-100 text-emerald-800' :
+                                    s.status === 'Cancelled'   ? 'bg-rose-100 text-rose-800' :
+                                    s.status === 'Pending'     ? 'bg-amber-100 text-amber-800' :
+                                    s.status === 'No-Show'     ? 'bg-slate-200 text-slate-800' :
+                                    'bg-slate-100 text-slate-800'
                                   }`}>
                                     {s.status}
                                   </span>
