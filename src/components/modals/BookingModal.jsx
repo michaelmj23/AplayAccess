@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import Modal from "./Modal.jsx";
 import { createBooking, createGuestBooking, cancelBooking, cancelGuestBooking, createGuestPaymentLink, getGuestPaymentStatus, guestConfirmPayment } from "../../lib/bookingApi.js";
 import { primeCsrf } from "../../lib/api.js";
@@ -185,6 +186,17 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   const [inlineShowPassword, setInlineShowPassword] = useState(false);
   const [inlineLoginError, setInlineLoginError]     = useState("");
   const [inlineLoginBusy, setInlineLoginBusy]       = useState(false);
+
+  // Pending-booking conflict popup. Backend's authed /api/bookings
+  // rejects with 409 {pending_id, pending_res_id} when the signed-in
+  // user has an unfinished Pending row — one-pending-at-a-time rule.
+  // Also fires straight from the authed path when the user is
+  // already signed in and tries to create a second. Shown as its own
+  // popup with a Go to My Bookings action so the guest isn't stuck
+  // on a red banner with no next step.
+  const [pendingBookingPrompt, setPendingBookingPrompt] = useState(null);
+
+  const navigate = useNavigate();
 
   // Shared post-sign-in continuation. Called from both the password
   // submit and the Google success handler — closes the popup, closes
@@ -1060,6 +1072,18 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         setAccountExistsPrompt(true);
         return;
       }
+      // Authed /api/bookings rejects 409 {pending_id, pending_res_id}
+      // when the signed-in user has another Pending booking —
+      // one-pending-at-a-time rule. Also closes the sign-in popup so
+      // the user isn't looking at two dialogs at once.
+      if (err?.response?.status === 409 && err?.response?.data?.pending_id) {
+        setAccountExistsPrompt(false);
+        setPendingBookingPrompt({
+          id:    err.response.data.pending_id,
+          resId: err.response.data.pending_res_id ?? null,
+        });
+        return;
+      }
       const msg =
         err?.response?.data?.message ||
         Object.values(err?.response?.data?.errors || {})?.[0]?.[0] ||
@@ -1273,6 +1297,68 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 className="text-xs text-slate-600 hover:text-sky-700 hover:underline disabled:opacity-50 rounded px-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
               >
                 Use a different email instead
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+      {/* Pending-booking conflict popup. Backend's one-pending-at-a-
+          time rule rejected the submit because the signed-in user
+          already has an unfinished booking. Only exit is to go pay
+          or cancel the existing one. */}
+      {pendingBookingPrompt && createPortal(
+        <div
+          className="fixed inset-0 z-[10002] bg-black/60 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pending-booking-title"
+          onClick={() => setPendingBookingPrompt(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-md bg-white rounded-xl shadow-2xl p-6 animate-hero-fade-in"
+          >
+            <button
+              type="button"
+              onClick={() => setPendingBookingPrompt(null)}
+              className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+              aria-label="Close"
+            >
+              <i className="fas fa-times" aria-hidden="true"></i>
+            </button>
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-full bg-amber-100 text-amber-600 shrink-0">
+                <i className="fas fa-clock text-lg" aria-hidden="true"></i>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 id="pending-booking-title" className="text-base font-bold text-slate-900">
+                  Finish your other booking first
+                </h3>
+                <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">
+                  You already have a pending booking{pendingBookingPrompt.resId ? <> (<strong className="text-slate-900">{pendingBookingPrompt.resId}</strong>)</> : null} waiting for payment. Complete or cancel it before making a new one.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingBookingPrompt(null);
+                  onClose?.();
+                  navigate('/dashboard/bookings');
+                }}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+              >
+                <i className="fas fa-list-check" aria-hidden="true"></i>
+                Go to my bookings
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingBookingPrompt(null)}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+              >
+                Close
               </button>
             </div>
           </div>
