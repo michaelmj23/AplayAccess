@@ -4,14 +4,23 @@ import Modal from "./Modal.jsx";
 import { Link } from "react-router-dom";
 import { downloadGuestReceipt } from "../../lib/bookingApi.js";
 import ConfirmDialog from "../ui/ConfirmDialog.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
 
 /**
  * @param {{ open, onClose, booking, guestMode }} props
  * booking shape (optional):
  *   { roomType, checkIn, checkOut, guests, paymentMethod, totals, bookingData }
  * guestMode: true = guest booking (no account), show download receipt instead of dashboard link
+ *
+ * Note: parent pages pass guestMode based on the state at submit time
+ * (successIsGuest). If the user signed in mid-flow via the account-exists
+ * inline sign-in, the parent doesn't know — we shadow the prop here with
+ * (guestModeProp && !user) so a signed-in user always sees the dashboard
+ * CTA instead of the "download or lose it forever" guest copy.
  */
-export default function SuccessModal({ open, onClose, booking = null, guestMode = false }) {
+export default function SuccessModal({ open, onClose, booking = null, guestMode: guestModeProp = false }) {
+  const { user } = useAuth();
+  const guestMode = guestModeProp && !user;
   const [downloading, setDownloading]   = useState(false);
   const [downloadError, setDownloadError] = useState("");
   const [closeConfirm, setCloseConfirm] = useState(false);
