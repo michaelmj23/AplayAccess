@@ -2034,6 +2034,17 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 )}
               </div>}
 
+              {/* Guest-mode info — explains why promo codes aren't
+                  shown and nudges towards signing up. */}
+              {guestMode && (
+                <div className="flex items-start gap-2.5 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-md">
+                  <i className="fas fa-tag text-amber-600 mt-0.5" aria-hidden="true"></i>
+                  <div className="text-xs text-amber-900 leading-relaxed">
+                    <span className="font-semibold">Have a promo code?</span> Promo codes are available to registered accounts only. <a href="/signup" className="underline font-medium hover:text-amber-700">Sign up</a> or <a href="/login" className="underline font-medium hover:text-amber-700">log in</a> to apply one at checkout.
+                  </div>
+                </div>
+              )}
+
               {/* Payment option selector — exposed as a radiogroup
                   with two role="radio" buttons. They're a binary
                   mutually-exclusive choice, so radio semantics let
