@@ -77,7 +77,7 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function BookingModal({ open, onClose, selectedRoom, rooms, onBooked, guestMode = false, resumeBooking = null }) {
+export default function BookingModal({ open, onClose, selectedRoom, rooms, onBooked, guestMode: guestModeProp = false, resumeBooking = null }) {
   // Resume mode: user clicked a Pending booking from MyBookings / Dashboard.
   // We skip the room/date/guests picker entirely — the booking exists
   // server-side with those values locked in. Only two actions are valid:
@@ -91,6 +91,14 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // error at the payment step. Guest-mode bookings skip this check
   // since they collect email on the form itself.
   const { user, loginWithEmail, loginWithGoogle } = useAuth();
+
+  // Defensive override: if the parent asks for guest mode but a user is
+  // already authenticated (race with AuthContext boot, cross-tab login,
+  // GuestWarningModal fired before /api/me resolved), the modal should
+  // run as authed — guest-mode UI + guest endpoint would both be wrong
+  // for someone the backend already knows. Every existing `guestMode`
+  // reference below picks this derived value up for free.
+  const guestMode = guestModeProp && !user;
   const needsVerification = !guestMode && user && !user.email_verified_at;
   const [verifyOpen, setVerifyOpen] = useState(false);
   const modalRef        = useRef(null);
@@ -214,6 +222,18 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     await Promise.resolve();
     handleConfirm({ forceAuthed: true });
   }
+
+  // If the user becomes authenticated while the account-exists popup
+  // is open (they signed in from another tab, the Navbar login modal,
+  // or a different device syncing cookies), close the popup and
+  // retry the booking automatically — no reason to keep asking for a
+  // password they already provided elsewhere.
+  useEffect(() => {
+    if (user && accountExistsPrompt) {
+      continueAfterInlineLogin();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, accountExistsPrompt]);
 
   // useGoogleLogin MUST be declared above any conditional return so
   // React's hook count stays stable. Auth-code flow (popup) — same
