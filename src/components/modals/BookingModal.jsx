@@ -10,6 +10,7 @@ import { fmtDateTime } from "../../lib/format";
 import { savePendingPayment, clearPendingPayment } from "../../hooks/usePendingPayment.js";
 import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { useGoogleLogin } from "@react-oauth/google";
 import VerifyEmailModal from "./VerifyEmailModal.jsx";
 import useFocusTrap from "../../hooks/useFocusTrap.js";
 
@@ -88,7 +89,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // in the UI so they can verify inline instead of hitting a cryptic
   // error at the payment step. Guest-mode bookings skip this check
   // since they collect email on the form itself.
-  const { user } = useAuth();
+  const { user, loginWithEmail, loginWithGoogle } = useAuth();
   const needsVerification = !guestMode && user && !user.email_verified_at;
   const [verifyOpen, setVerifyOpen] = useState(false);
   const modalRef        = useRef(null);
@@ -176,9 +177,70 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // returns 409 {code: 'account_exists'} — the typed email already has
   // a user account on Aplaya and creating a guest booking under it
   // would create a split identity (booking lives server-side but
-  // never surfaces in the account owner's dashboard). The prompt
-  // offers Log in or Use different email.
+  // never surfaces in the account owner's dashboard). The popup
+  // offers inline sign-in (password or Google) so the guest's typed
+  // form state survives — no need to re-enter room / date / add-ons.
   const [accountExistsPrompt, setAccountExistsPrompt] = useState(false);
+  const [inlinePassword, setInlinePassword]         = useState("");
+  const [inlineLoginError, setInlineLoginError]     = useState("");
+  const [inlineLoginBusy, setInlineLoginBusy]       = useState(false);
+
+  // Shared post-sign-in continuation. Called from both the password
+  // submit and the Google success handler — closes the popup, closes
+  // the booking modal's own wizard, and retries the booking submit
+  // through the authed /api/bookings path (forceAuthed: true). The
+  // whole guestMode UI stays mounted; the session cookie just got
+  // promoted mid-flow.
+  async function continueAfterInlineLogin() {
+    setInlineLoginBusy(false);
+    setInlineLoginError("");
+    setInlinePassword("");
+    setAccountExistsPrompt(false);
+    // handleConfirm reads form state from current render; a microtask
+    // delay is enough to let React commit the popup-close update.
+    await Promise.resolve();
+    handleConfirm({ forceAuthed: true });
+  }
+
+  // useGoogleLogin MUST be declared above any conditional return so
+  // React's hook count stays stable. Auth-code flow (popup) — same
+  // mechanics as LoginModal so Google-OAuth-only accounts (no password)
+  // can finish their booking inline too.
+  const inlineGoogleLogin = useGoogleLogin({
+    flow: "auth-code",
+    onSuccess: async (codeResponse) => {
+      setInlineLoginError("");
+      setInlineLoginBusy(true);
+      try {
+        await loginWithGoogle(codeResponse.code);
+        await continueAfterInlineLogin();
+      } catch (err) {
+        setInlineLoginBusy(false);
+        setInlineLoginError(err?.response?.data?.message || "Google sign-in failed. Please try again.");
+      }
+    },
+    onError: () => {
+      setInlineLoginBusy(false);
+      setInlineLoginError("Google sign-in failed. Please try again.");
+    },
+  });
+
+  async function handleInlineLogin(e) {
+    e.preventDefault();
+    if (!inlinePassword) { setInlineLoginError("Please enter your password."); return; }
+    setInlineLoginError("");
+    setInlineLoginBusy(true);
+    try {
+      await loginWithEmail(guestEmail.trim(), inlinePassword);
+      await continueAfterInlineLogin();
+    } catch (err) {
+      setInlineLoginBusy(false);
+      const msg = err?.response?.data?.message
+        || (err?.response?.status === 422 ? "Invalid email or password." : null)
+        || "Sign-in failed. Please try again.";
+      setInlineLoginError(msg);
+    }
+  }
   // Payment popup state: { bookingId, checkoutUrl, popup } while waiting for payment
   // popup can be null when the user closed the window (we keep bookingId/checkoutUrl for reopen)
   const [paymentPopup, setPaymentPopup] = useState(null);
@@ -859,10 +921,17 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
     }
   }
 
-  async function handleConfirm() {
+  async function handleConfirm({ forceAuthed = false } = {}) {
     setError("");
     const room = selectedRoomObj;
     if (!room?.id) { setError("Could not determine room. Please try again."); return; }
+
+    // forceAuthed is set by the account-exists popup after a successful
+    // inline sign-in: the component is still rendered with guestMode=true
+    // from props, but the session cookie is now live, so the submit
+    // must use the authed /api/bookings endpoint and drop the guest_*
+    // payload fields.
+    const isGuestFlow = guestMode && !forceAuthed;
 
     setConfirmOpen(false);
     setSubmitting(true);
@@ -905,7 +974,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       }
 
       // Guest mode: add contact info + use public endpoint
-      if (guestMode) {
+      if (isGuestFlow) {
         bookingPayload.guest_name  = guestName.trim();
         bookingPayload.guest_email = guestEmail.trim();
         bookingPayload.guest_phone = guestPhone.trim() || null;
@@ -919,7 +988,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       // just once at app boot.
       await primeCsrf();
 
-      const result = guestMode
+      const result = isGuestFlow
         ? await createGuestBooking(bookingPayload)
         : await createBooking(bookingPayload);
 
@@ -954,8 +1023,8 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       // For guest bookings, use the guest_token (UUID) for all subsequent API calls
       // to prevent ID enumeration. For logged-in users, use the numeric booking ID.
       const guestToken = result.guest_token;
-      const bookingId = guestMode ? guestToken : raw.id;
-      const { checkout_url } = guestMode
+      const bookingId = isGuestFlow ? guestToken : raw.id;
+      const { checkout_url } = isGuestFlow
         ? await createGuestPaymentLink(guestToken, effectivePaymentOption === "full")
         : await createPaymentLink(raw.id, effectivePaymentOption === "full");
 
@@ -967,7 +1036,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         bookingId:  raw.id,
         resId:      raw.res_id ?? null,
         roomName:   raw.room?.name ?? null,
-        guestToken: guestMode ? guestToken : null,
+        guestToken: isGuestFlow ? guestToken : null,
         payFull:    effectivePaymentOption === 'full',
         // 15-min TTL matches the backend's stale-Pending sweep window.
         expiresAt:  new Date(Date.now() + PAYMENT_WINDOW_SECONDS * 1000).toISOString(),
@@ -1074,25 +1143,28 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
       {/* Account-exists popup — portaled above the BookingModal so
           it sits on top of the booking form and dims it. Opens when
           guest-mode submit returned 409 code:'account_exists' (the
-          typed email already has an Aplaya account). Two escape
-          paths: Log in (closes modal, routes to /login prefilled)
-          or Use different email (clears + focuses the email input). */}
+          typed email already has an Aplaya account). Inline sign-in
+          (password or Google) so the guest's booking state survives:
+          on success, retries the submit against /api/bookings. The
+          "Use different email" escape clears + refocuses the email
+          input in Step 1. */}
       {accountExistsPrompt && createPortal(
         <div
           className="fixed inset-0 z-[10002] bg-black/60 flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="account-exists-title"
-          onClick={() => setAccountExistsPrompt(false)}
+          onClick={() => !inlineLoginBusy && setAccountExistsPrompt(false)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-md bg-white rounded-xl shadow-2xl p-6 animate-hero-fade-in"
+            className="relative w-full max-w-md bg-white rounded-xl shadow-2xl p-6 animate-hero-fade-in max-h-[90vh] overflow-y-auto"
           >
             <button
               type="button"
               onClick={() => setAccountExistsPrompt(false)}
-              className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              disabled={inlineLoginBusy}
+              className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
               aria-label="Close"
             >
               <i className="fas fa-times" aria-hidden="true"></i>
@@ -1103,42 +1175,71 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
               </div>
               <div className="flex-1 min-w-0">
                 <h3 id="account-exists-title" className="text-base font-bold text-slate-900">
-                  This email already has an account
+                  Sign in to complete your booking
                 </h3>
                 <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">
-                  <strong className="break-all text-slate-900">{guestEmail.trim()}</strong> is registered on Aplaya. Log in to use your account, or book with a different email.
+                  <strong className="break-all text-slate-900">{guestEmail.trim()}</strong> already has an Aplaya account. Sign in below and we'll finish your booking with your details intact.
                 </p>
               </div>
             </div>
-            <div className="mt-5 flex flex-col sm:flex-row gap-2">
+
+            <form onSubmit={handleInlineLogin} className="mt-5 space-y-3">
+              <div>
+                <label htmlFor="bm-inline-password" className="block text-xs font-medium text-slate-700 mb-1">Password</label>
+                <input
+                  id="bm-inline-password"
+                  type="password"
+                  value={inlinePassword}
+                  onChange={(e) => { setInlinePassword(e.target.value); setInlineLoginError(""); }}
+                  disabled={inlineLoginBusy}
+                  autoFocus
+                  autoComplete="current-password"
+                  className="w-full px-3 py-2.5 min-h-11 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:bg-slate-50 disabled:opacity-60"
+                  placeholder="Enter your password"
+                />
+              </div>
+
+              {inlineLoginError && (
+                <p role="alert" className="text-xs text-red-700 flex items-start gap-1.5">
+                  <i className="fas fa-exclamation-circle mt-0.5" aria-hidden="true"></i>
+                  <span>{inlineLoginError}</span>
+                </p>
+              )}
+
               <button
-                type="button"
-                onClick={() => {
-                  const email = guestEmail.trim();
-                  setAccountExistsPrompt(false);
-                  onClose?.();
-                  // Navbar listens for this event and opens its LoginModal
-                  // with the email prefilled. The app has no /login route
-                  // (login is a modal); dispatching an event keeps the
-                  // handoff consistent with the rest of the app's auth
-                  // UX. A tick of delay lets the booking modal finish
-                  // unmounting before the login modal mounts over the
-                  // background page.
-                  setTimeout(() => {
-                    window.dispatchEvent(new CustomEvent('aplaya:open-login', {
-                      detail: { email },
-                    }));
-                  }, 50);
-                }}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                type="submit"
+                disabled={inlineLoginBusy || !inlinePassword}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
               >
-                <i className="fas fa-sign-in-alt" aria-hidden="true"></i>
-                Log in
+                {inlineLoginBusy
+                  ? (<><i className="fas fa-spinner fa-spin" aria-hidden="true"></i> Signing in…</>)
+                  : (<><i className="fas fa-sign-in-alt" aria-hidden="true"></i> Sign in and complete booking</>)}
               </button>
+            </form>
+
+            <div className="my-4 flex items-center gap-3">
+              <div className="flex-1 h-px bg-slate-200" />
+              <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">or</span>
+              <div className="flex-1 h-px bg-slate-200" />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => inlineGoogleLogin()}
+              disabled={inlineLoginBusy}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-800 text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+            >
+              <i className="fab fa-google text-sky-600" aria-hidden="true"></i>
+              Continue with Google
+            </button>
+
+            <div className="mt-4 text-center">
               <button
                 type="button"
                 onClick={() => {
                   setAccountExistsPrompt(false);
+                  setInlinePassword("");
+                  setInlineLoginError("");
                   setGuestEmail("");
                   requestAnimationFrame(() => {
                     const el = document.getElementById('bm-guest-email');
@@ -1148,9 +1249,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     }
                   });
                 }}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+                disabled={inlineLoginBusy}
+                className="text-xs text-slate-600 hover:text-slate-900 underline disabled:opacity-50"
               >
-                Use different email
+                Use a different email instead
               </button>
             </div>
           </div>
