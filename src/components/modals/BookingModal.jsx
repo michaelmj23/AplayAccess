@@ -1991,8 +1991,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
           {/* ═══ Step 2 — Payment ═══ */}
           {!isResume && step === 2 && (
             <div className="space-y-4">
-              {/* Promo code input */}
-              <div>
+              {/* Promo code input — signed-in guests only. Guest-booking
+                  (no account) doesn't get promo codes; they're an
+                  incentive reserved for verified account holders. */}
+              {!guestMode && <div>
                 <label htmlFor="bm-promo-code" className="block text-sm font-medium text-gray-700 mb-1">
                   <i className="fas fa-tag mr-1 text-blue-500" aria-hidden="true"></i>Promo Code <span className="text-gray-600 font-normal">(optional)</span>
                 </label>
@@ -2030,7 +2032,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     Promos apply to the room rate only. Discounted bookings require payment in full at checkout.
                   </p>
                 )}
-              </div>
+              </div>}
 
               {/* Payment option selector — exposed as a radiogroup
                   with two role="radio" buttons. They're a binary
