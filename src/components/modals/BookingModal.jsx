@@ -1077,6 +1077,80 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
         </div>,
         document.body
       )}
+      {/* Account-exists popup — portaled above the BookingModal so
+          it sits on top of the booking form and dims it. Opens when
+          guest-mode submit returned 409 code:'account_exists' (the
+          typed email already has an Aplaya account). Two escape
+          paths: Log in (closes modal, routes to /login prefilled)
+          or Use different email (clears + focuses the email input). */}
+      {accountExistsPrompt && createPortal(
+        <div
+          className="fixed inset-0 z-[10002] bg-black/60 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="account-exists-title"
+          onClick={() => setAccountExistsPrompt(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-md bg-white rounded-xl shadow-2xl p-6 animate-hero-fade-in"
+          >
+            <button
+              type="button"
+              onClick={() => setAccountExistsPrompt(false)}
+              className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              aria-label="Close"
+            >
+              <i className="fas fa-times" aria-hidden="true"></i>
+            </button>
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-full bg-amber-100 text-amber-600 shrink-0">
+                <i className="fas fa-envelope-circle-check text-lg" aria-hidden="true"></i>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 id="account-exists-title" className="text-base font-bold text-slate-900">
+                  This email already has an account
+                </h3>
+                <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">
+                  <strong className="break-all text-slate-900">{guestEmail.trim()}</strong> is registered on Aplaya. Log in to use your account, or book with a different email.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountExistsPrompt(false);
+                  onClose?.();
+                  navigate(`/login?email=${encodeURIComponent(guestEmail.trim())}&redirect=/rooms`);
+                }}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              >
+                <i className="fas fa-sign-in-alt" aria-hidden="true"></i>
+                Log in
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountExistsPrompt(false);
+                  setGuestEmail("");
+                  requestAnimationFrame(() => {
+                    const el = document.getElementById('bm-guest-email');
+                    if (el) {
+                      el.focus();
+                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  });
+                }}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+              >
+                Use different email
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       <div className="p-6" ref={modalRef}>
         <div className="flex items-center justify-between mb-5">
           <h3 id="booking-modal-title" className="text-2xl font-bold text-gray-900">
@@ -1085,59 +1159,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
           </h3>
           <button onClick={onClose} type="button" className="w-11 h-11 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" aria-label="Close booking modal"><i className="fas fa-times" aria-hidden="true"></i></button>
         </div>
-
-        {/* Account-exists interstitial. Shown when guest-mode submit
-            returned 409 code:'account_exists' — the typed email is
-            already a user account. Two escape paths: go log in (closes
-            modal, /login prefills the email + redirects back to /rooms
-            on success) or use a different email (clears the email
-            field and focuses it). */}
-        {accountExistsPrompt && (
-          <div role="alert" aria-live="polite" className="mb-4 rounded-lg bg-amber-50 border border-amber-300 px-4 py-3">
-            <div className="flex items-start gap-3">
-              <i className="fas fa-envelope-circle-check text-amber-600 mt-0.5 shrink-0 text-lg" aria-hidden="true"></i>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-amber-900">This email already has an account</p>
-                <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                  <strong className="break-all">{guestEmail.trim()}</strong> is registered on Aplaya. Log in to use your account, or book with a different email.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAccountExistsPrompt(false);
-                      onClose?.();
-                      navigate(`/login?email=${encodeURIComponent(guestEmail.trim())}&redirect=/rooms`);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 min-h-10 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-                  >
-                    <i className="fas fa-sign-in-alt" aria-hidden="true"></i>
-                    Log in
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAccountExistsPrompt(false);
-                      setGuestEmail("");
-                      // Give the DOM a tick to re-render the form, then
-                      // focus + scroll the email input into view.
-                      requestAnimationFrame(() => {
-                        const el = document.getElementById('bm-guest-email');
-                        if (el) {
-                          el.focus();
-                          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                      });
-                    }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 min-h-10 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-                  >
-                    Use different email
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {error && (
           <div role="alert" aria-live="assertive" className="mb-4 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700 flex items-start gap-2">
