@@ -417,7 +417,23 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     setGroupCheckInLoading(true);
     try {
       const res = await checkInReservation(booking.reservationId);
-      showToast?.(res.message || `Group check-in: ${res.summary?.checked_in ?? 0} room(s) checked in.`, 'success');
+      // Toast tone reflects the real outcome, not just the HTTP 200.
+      // The endpoint returns 200 even when nothing was checked in
+      // (all siblings scheduled for later, unpaid, or already in),
+      // so the "success" tone would mislead staff into thinking the
+      // group is now in-house. Green only when at least one sibling
+      // actually flipped to Checked In and nothing was blocked;
+      // amber for partial; red when nothing happened.
+      const checkedIn = Number(res.summary?.checked_in ?? 0);
+      const skippedFuture  = (res.summary?.skipped_future  ?? []).length;
+      const blockedUnpaid  = (res.summary?.blocked_unpaid  ?? []).length;
+      const alreadyCheckedIn = Number(res.summary?.already_checked_in ?? 0);
+      const hadFailures = skippedFuture > 0 || blockedUnpaid > 0;
+      const tone = checkedIn === 0
+        ? 'error'
+        : (hadFailures ? 'warning' : 'success');
+      const msg = res.message || `Group check-in: ${checkedIn} room(s) checked in.`;
+      showToast?.(msg, tone);
       // The call touched multiple bookings — hand back control to the
       // parent to refresh the whole list so each sibling row reflects
       // its new state. The modal closes afterwards; staff reopens any
