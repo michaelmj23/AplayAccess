@@ -163,7 +163,7 @@ const ACTION_CONFIG = {
     icon:    'fa-user-slash',
     color:   'slate',
     heading: 'Mark guest as no-show?',
-    desc:    'Guest will be recorded as not arriving. Reservation fee stays as forfeited revenue. You can reverse this later by manually checking the guest in.',
+    desc:    'Guest will be recorded as not arriving. Any amount they have paid is forfeited — no refund will be issued. You can reverse this later by manually checking the guest in.',
   },
   'remove-amenity': {
     label:   'Remove Add-on',
@@ -2384,7 +2384,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                     {hasMarkNS && groupMarkNoShowConfirm && (
                       <div className="mb-2 rounded-lg bg-amber-50 border border-amber-200 p-2">
                         <p className="text-[11px] text-amber-900 mb-2">
-                          Mark all eligible Day/Night rooms as no-show? Promo credit (if any) is released. Use the reversal action to undo.
+                          Mark all eligible Day/Night rooms as no-show? Guests forfeit any amount they have paid — no refunds will be issued. Promo credit (if any) is released. Use the reversal action to undo.
                         </p>
                         <div className="flex gap-2">
                           <button type="button" onClick={handleGroupMarkNoShow} disabled={groupMarkNoShowLoading}
