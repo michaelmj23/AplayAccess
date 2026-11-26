@@ -5,7 +5,7 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { useGoogleLogin } from "@react-oauth/google";
 import useFocusTrap from "../../hooks/useFocusTrap.js";
 
-export default function LoginModal({ open, onClose, onLoginSuccess, onOpenSignup }) {
+export default function LoginModal({ open, onClose, onLoginSuccess, onOpenSignup, initialEmail = "" }) {
   // Focus trap + initial-focus + return-focus on close. SignupModal
   // already had Escape; LoginModal didn't. Both now share the same
   // dialog mechanics as the Modal-based screens.
@@ -20,8 +20,16 @@ export default function LoginModal({ open, onClose, onLoginSuccess, onOpenSignup
   }, [open, onClose]);
   const { user, loginWithEmail, loginWithGoogle } = useAuth();
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
+
+  // Prefill the email field whenever this modal opens with an initialEmail
+  // (e.g. the BookingModal handoff when a guest-booking email matched an
+  // existing account). Only writes on the open-transition so we don't
+  // clobber what the user is actively typing.
+  useEffect(() => {
+    if (open && initialEmail) setEmail(initialEmail);
+  }, [open, initialEmail]);
   const [showPassword, setShowPassword] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);

@@ -24,6 +24,9 @@ export default function Navbar() {
 
   const [loginOpen,  setLoginOpen]  = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
+  // Prefill for the login modal, used by the BookingModal handoff when
+  // a guest-mode booking hits an email that already has an account.
+  const [pendingLoginEmail, setPendingLoginEmail] = useState("");
   const [menuOpen,   setMenuOpen]   = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   // Opened immediately after a fresh (unverified) signup. Google
@@ -38,6 +41,21 @@ export default function Navbar() {
     : DEFAULT_NAVBAR;
 
   useLockBodyScroll(loginOpen || signupOpen || menuOpen);
+
+  // Listen for a cross-component open-login request. BookingModal's
+  // account-exists prompt fires this when the guest clicks "Log in" —
+  // it closes itself, then dispatches the event so this Navbar can
+  // open the LoginModal with the typed email prefilled. Keeps login
+  // behavior consistent (modal, not a dead /login route).
+  useEffect(() => {
+    function onOpenLogin(e) {
+      setPendingLoginEmail(e?.detail?.email || "");
+      setSignupOpen(false);
+      setLoginOpen(true);
+    }
+    window.addEventListener("aplaya:open-login", onOpenLogin);
+    return () => window.removeEventListener("aplaya:open-login", onOpenLogin);
+  }, []);
 
   // Focus trap + Escape-to-close for the mobile slide-out menu.
   // Without these, keyboard users could Tab out of the open menu
@@ -279,9 +297,10 @@ export default function Navbar() {
       {/* Modals */}
       <LoginModal
         open={loginOpen}
-        onClose={() => setLoginOpen(false)}
+        onClose={() => { setLoginOpen(false); setPendingLoginEmail(""); }}
         onLoginSuccess={handleLoginSuccess}
         onOpenSignup={() => { setLoginOpen(false); setSignupOpen(true); }}
+        initialEmail={pendingLoginEmail}
       />
 
       <SignupModal

@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
 import Modal from "./Modal.jsx";
 import { createBooking, createGuestBooking, cancelBooking, cancelGuestBooking, createGuestPaymentLink, getGuestPaymentStatus, guestConfirmPayment } from "../../lib/bookingApi.js";
 import { primeCsrf } from "../../lib/api.js";
@@ -180,11 +179,6 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // never surfaces in the account owner's dashboard). The prompt
   // offers Log in or Use different email.
   const [accountExistsPrompt, setAccountExistsPrompt] = useState(false);
-
-  // React Router navigate — used by the account-exists Log in button
-  // to send the guest to /login with their email prefilled and a
-  // redirect back to /rooms.
-  const navigate = useNavigate();
   // Payment popup state: { bookingId, checkoutUrl, popup } while waiting for payment
   // popup can be null when the user closed the window (we keep bookingId/checkoutUrl for reopen)
   const [paymentPopup, setPaymentPopup] = useState(null);
@@ -1120,9 +1114,21 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
               <button
                 type="button"
                 onClick={() => {
+                  const email = guestEmail.trim();
                   setAccountExistsPrompt(false);
                   onClose?.();
-                  navigate(`/login?email=${encodeURIComponent(guestEmail.trim())}&redirect=/rooms`);
+                  // Navbar listens for this event and opens its LoginModal
+                  // with the email prefilled. The app has no /login route
+                  // (login is a modal); dispatching an event keeps the
+                  // handoff consistent with the rest of the app's auth
+                  // UX. A tick of delay lets the booking modal finish
+                  // unmounting before the login modal mounts over the
+                  // background page.
+                  setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('aplaya:open-login', {
+                      detail: { email },
+                    }));
+                  }, 50);
                 }}
                 className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
               >
