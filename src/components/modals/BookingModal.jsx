@@ -182,6 +182,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   // form state survives — no need to re-enter room / date / add-ons.
   const [accountExistsPrompt, setAccountExistsPrompt] = useState(false);
   const [inlinePassword, setInlinePassword]         = useState("");
+  const [inlineShowPassword, setInlineShowPassword] = useState(false);
   const [inlineLoginError, setInlineLoginError]     = useState("");
   const [inlineLoginBusy, setInlineLoginBusy]       = useState(false);
 
@@ -1164,7 +1165,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
               type="button"
               onClick={() => setAccountExistsPrompt(false)}
               disabled={inlineLoginBusy}
-              className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
               aria-label="Close"
             >
               <i className="fas fa-times" aria-hidden="true"></i>
@@ -1183,54 +1184,72 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
               </div>
             </div>
 
-            <form onSubmit={handleInlineLogin} className="mt-5 space-y-3">
-              <div>
-                <label htmlFor="bm-inline-password" className="block text-xs font-medium text-slate-700 mb-1">Password</label>
-                <input
-                  id="bm-inline-password"
-                  type="password"
-                  value={inlinePassword}
-                  onChange={(e) => { setInlinePassword(e.target.value); setInlineLoginError(""); }}
-                  disabled={inlineLoginBusy}
-                  autoFocus
-                  autoComplete="current-password"
-                  className="w-full px-3 py-2.5 min-h-11 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:bg-slate-50 disabled:opacity-60"
-                  placeholder="Enter your password"
-                />
+            {inlineLoginError && (
+              <div role="alert" className="mt-4 rounded-md bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">
+                <i className="fas fa-exclamation-circle mr-2" aria-hidden="true"></i>
+                {inlineLoginError}
               </div>
+            )}
 
-              {inlineLoginError && (
-                <p role="alert" className="text-xs text-red-700 flex items-start gap-1.5">
-                  <i className="fas fa-exclamation-circle mt-0.5" aria-hidden="true"></i>
-                  <span>{inlineLoginError}</span>
-                </p>
-              )}
+            <form onSubmit={handleInlineLogin} className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="bm-inline-password" className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                <div className="relative">
+                  <i className="fas fa-lock absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true"></i>
+                  <input
+                    id="bm-inline-password"
+                    type={inlineShowPassword ? "text" : "password"}
+                    value={inlinePassword}
+                    onChange={(e) => { setInlinePassword(e.target.value); setInlineLoginError(""); }}
+                    disabled={inlineLoginBusy}
+                    autoFocus
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    required
+                    className="w-full rounded-md border border-slate-300 pl-10 pr-11 py-2 focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50 disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setInlineShowPassword((s) => !s)}
+                    className="absolute right-0.5 top-1/2 -translate-y-1/2 w-11 h-11 inline-flex items-center justify-center rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                    aria-label={inlineShowPassword ? "Hide password" : "Show password"}
+                  >
+                    <i className={`fas ${inlineShowPassword ? "fa-eye-slash" : "fa-eye"}`} aria-hidden="true"></i>
+                  </button>
+                </div>
+              </div>
 
               <button
                 type="submit"
                 disabled={inlineLoginBusy || !inlinePassword}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                className="w-full rounded-md bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white font-medium py-2.5 min-h-11 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
               >
-                {inlineLoginBusy
-                  ? (<><i className="fas fa-spinner fa-spin" aria-hidden="true"></i> Signing in…</>)
-                  : (<><i className="fas fa-sign-in-alt" aria-hidden="true"></i> Sign in and complete booking</>)}
+                {inlineLoginBusy ? "Signing in..." : "Sign in and complete booking"}
               </button>
             </form>
 
+            {/* Divider */}
             <div className="my-4 flex items-center gap-3">
               <div className="flex-1 h-px bg-slate-200" />
-              <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">or</span>
+              <span className="text-xs text-slate-400 uppercase tracking-wide">or</span>
               <div className="flex-1 h-px bg-slate-200" />
             </div>
 
+            {/* Google Sign-In — same multi-color SVG + styling as LoginModal
+                so the two sign-in surfaces look like one system. */}
             <button
               type="button"
               onClick={() => inlineGoogleLogin()}
               disabled={inlineLoginBusy}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-800 text-sm font-semibold rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+              className="w-full inline-flex items-center justify-center gap-3 py-2.5 min-h-11 px-4 rounded-md border border-slate-200 bg-white text-slate-700 font-medium text-sm hover:bg-slate-50 hover:border-slate-300 transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
             >
-              <i className="fab fa-google text-sky-600" aria-hidden="true"></i>
-              Continue with Google
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.44c-.29 1.48-1.14 2.73-2.4 3.58v3h3.88c2.28-2.1 3.57-5.18 3.57-8.82z"/>
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3c-1.07.72-2.45 1.16-4.05 1.16-3.12 0-5.76-2.11-6.7-4.94H1.29v3.09C3.26 21.3 7.31 24 12 24z"/>
+                <path fill="#FBBC04" d="M5.3 14.3c-.24-.72-.38-1.49-.38-2.3s.14-1.58.38-2.3V6.61H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.39l4.01-3.09z"/>
+                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.61l4.01 3.09C6.24 6.86 8.88 4.75 12 4.75z"/>
+              </svg>
+              {inlineLoginBusy ? "Signing in..." : "Sign in with Google"}
             </button>
 
             <div className="mt-4 text-center">
@@ -1239,6 +1258,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 onClick={() => {
                   setAccountExistsPrompt(false);
                   setInlinePassword("");
+                  setInlineShowPassword(false);
                   setInlineLoginError("");
                   setGuestEmail("");
                   requestAnimationFrame(() => {
@@ -1250,7 +1270,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   });
                 }}
                 disabled={inlineLoginBusy}
-                className="text-xs text-slate-600 hover:text-slate-900 underline disabled:opacity-50"
+                className="text-xs text-slate-600 hover:text-sky-700 hover:underline disabled:opacity-50 rounded px-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
               >
                 Use a different email instead
               </button>
