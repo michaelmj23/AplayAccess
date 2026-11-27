@@ -1364,23 +1364,17 @@ export default function Billing({ embedded = false }) {
             <div className="rounded-lg border border-slate-200 bg-slate-50 divide-y divide-slate-200 overflow-hidden">
               {change > 0 && (
                 <div className="flex items-center justify-between px-3 py-2">
-                  <span className="text-xs text-slate-500 font-medium">Cash tendered</span>
+                  <span className="text-xs text-slate-500 font-medium">Tendered</span>
                   <span className="text-sm font-semibold text-slate-900 tabular-nums">{fmtMoney(tendered)}</span>
                 </div>
               )}
               <div className="flex items-center justify-between px-3 py-2 bg-sky-50/50">
-                <span className="text-xs text-sky-700 font-semibold flex items-center gap-1.5">
-                  <i className="fas fa-arrow-right text-[10px]" aria-hidden="true"></i>
-                  Apply to {billing.id}
-                </span>
+                <span className="text-xs text-sky-700 font-semibold">Applied</span>
                 <span className="text-base font-bold text-sky-700 tabular-nums">{fmtMoney(amount)}</span>
               </div>
               {change > 0 && (
                 <div className="flex items-center justify-between px-3 py-2 bg-emerald-50/70">
-                  <span className="text-xs text-emerald-700 font-semibold flex items-center gap-1.5">
-                    <i className="fas fa-coins text-[10px]" aria-hidden="true"></i>
-                    Change to hand back
-                  </span>
+                  <span className="text-xs text-emerald-700 font-semibold">Change</span>
                   <span className="text-sm font-bold text-emerald-700 tabular-nums">{fmtMoney(change)}</span>
                 </div>
               )}
