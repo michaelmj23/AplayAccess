@@ -1442,6 +1442,20 @@ export default function WalkIn({ embedded = false }) {
                           { key: 'pavilion',  label: '🏛️  Pavilions'     },
                           { key: 'tent',      label: '⛺  Tent Pitching' },
                         ];
+                        // Build the option label from parts so a zero
+                        // rate (the Entrance Only admission row's
+                        // day_rate=0) hides the price entirely instead
+                        // of rendering a confusing "— ₱0" between the
+                        // name and the capacity. Non-admission rows
+                        // still read Name — ₱X · Capacity.
+                        const optionLabel = (r) => {
+                          const price = rateFor(r);
+                          const parts = [];
+                          if (price > 0) parts.push(`₱${price.toLocaleString('en-PH')}`);
+                          if (r.capacity_label) parts.push(r.capacity_label);
+                          const suffix = parts.join(' · ');
+                          return suffix ? `${r.name} — ${suffix}` : r.name;
+                        };
                         return groups.map(g => {
                           const items = visible.filter(r => getCat(r) === g.key);
                           if (!items.length) return null;
@@ -1449,7 +1463,7 @@ export default function WalkIn({ embedded = false }) {
                             <optgroup key={g.key} label={g.label}>
                               {items.map(r => (
                                 <option key={r.id} value={r.id}>
-                                  {r.name} — ₱{rateFor(r).toLocaleString('en-PH')}{r.capacity_label ? ` · ${r.capacity_label}` : ''}
+                                  {optionLabel(r)}
                                 </option>
                               ))}
                             </optgroup>
