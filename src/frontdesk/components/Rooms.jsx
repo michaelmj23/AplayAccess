@@ -6,6 +6,7 @@ import Modal from '../../components/modals/Modal';
 import { getFdBookings, getFdRooms } from '../../lib/frontdeskApi';
 import Toast, { useToast } from '../../components/ui/Toast';
 import BookingDetailModal from './BookingDetailModal';
+import RoomCalendarModal from './RoomCalendarModal';
 import { fmtTime, fmtMoney, localDateStr } from '../../lib/format';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -339,7 +340,7 @@ function fmtDateLabel(dt) {
 }
 
 // ─── MultiUnitCard — for cottages / pavilions with quantity > 1 ──────────────
-function MultiUnitCard({ room, info, onOpen }) {
+function MultiUnitCard({ room, info, onOpen, onOpenCalendar }) {
   const { quantity, occupied, incoming, vacant, cleaning = 0 } = info;
 
   // Dot order: occupied → cleaning → incoming → vacant. Puts the
@@ -365,7 +366,18 @@ function MultiUnitCard({ room, info, onOpen }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="font-semibold text-slate-800 text-xs leading-tight truncate">{room.name}</p>
-        <span className="text-[10px] font-bold text-slate-400 ml-1 shrink-0">×{quantity}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="text-[10px] font-bold text-slate-400 ml-1">×{quantity}</span>
+          {onOpenCalendar && (
+            <button type="button"
+              onClick={(e) => { e.stopPropagation(); onOpenCalendar(); }}
+              title="View availability calendar"
+              aria-label="View availability calendar"
+              className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+              <i className="fas fa-calendar-days text-[11px]" aria-hidden="true"></i>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Dot grid */}
@@ -592,7 +604,7 @@ function MultiUnitModal({ room, info, bookings, slot, onClose, onWalkIn, onOpenB
 }
 
 // ─── RoomCard ─────────────────────────────────────────────────────────────────
-function RoomCard({ room, info, onClick }) {
+function RoomCard({ room, info, onClick, onOpenCalendar }) {
   const config = STATUS_CONFIG[info.status];
   const guest  = guestName(info.booking);
 
@@ -609,17 +621,28 @@ function RoomCard({ room, info, onClick }) {
         ${info.status === 'occupied' && (info.urgency === 'soon' || info.urgency === 'overdue') ? 'animate-pulse' : ''}
       `}
     >
-      {/* Top row: status badge + soon/overdue chip */}
+      {/* Top row: status badge + soon/overdue chip + calendar button */}
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1 text-[10px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded-full bg-black/20 text-white">
           <i className={`fas ${config.icon} text-[9px]`}></i>{config.label}
         </span>
-        {info.status === 'occupied' && info.urgency === 'overdue' && (
-          <span className="text-[10px] font-bold bg-yellow-300 text-rose-900 px-1.5 py-0.5 rounded-full">! OVERDUE</span>
-        )}
-        {info.status === 'occupied' && info.urgency === 'soon' && (
-          <span className="text-[10px] font-bold bg-white/30 px-1.5 py-0.5 rounded-full">⚡ Soon</span>
-        )}
+        <div className="flex items-center gap-1">
+          {info.status === 'occupied' && info.urgency === 'overdue' && (
+            <span className="text-[10px] font-bold bg-yellow-300 text-rose-900 px-1.5 py-0.5 rounded-full">! OVERDUE</span>
+          )}
+          {info.status === 'occupied' && info.urgency === 'soon' && (
+            <span className="text-[10px] font-bold bg-white/30 px-1.5 py-0.5 rounded-full">⚡ Soon</span>
+          )}
+          {onOpenCalendar && (
+            <button type="button"
+              onClick={(e) => { e.stopPropagation(); onOpenCalendar(); }}
+              title="View availability calendar"
+              aria-label="View availability calendar"
+              className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-white/20 hover:bg-white/35 text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70">
+              <i className="fas fa-calendar-days text-[11px]" aria-hidden="true"></i>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Room name + guest */}
@@ -673,6 +696,7 @@ export default function FDRooms({ embedded = false }) {
   const [filter, setFilter]     = useState('all');
   const [selectedSlot, setSelectedSlot] = useState(null); // { room, info }
   const [selectedMulti, setSelectedMulti] = useState(null); // { room, info, slot }
+  const [calendarRoom,  setCalendarRoom]  = useState(null); // room | null — opens RoomCalendarModal
   const [toast, showToast, clearToast, toastType] = useToast();
 
   const load = useCallback(() => {
@@ -804,6 +828,18 @@ export default function FDRooms({ embedded = false }) {
             onWalkIn={() => navigate('/frontdesk/walkin', { state: { preselectedRoom: selectedSlot.room } })}
           />
         )
+      )}
+      {calendarRoom && (
+        <RoomCalendarModal
+          open
+          room={calendarRoom}
+          bookings={bookings}
+          onClose={() => setCalendarRoom(null)}
+          onOpenBooking={(b) => {
+            setCalendarRoom(null);
+            setSelectedSlot({ room: calendarRoom, info: { status: 'occupied', booking: b } });
+          }}
+        />
       )}
       {selectedMulti && !selectedSlot && (
         <MultiUnitModal
@@ -976,12 +1012,21 @@ export default function FDRooms({ embedded = false }) {
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                                   {items.map(item => {
                                     const info = item[infoKey];
+                                    // Exclude admission + tent categories from the calendar —
+                                    // those are walk-in-only with no slot-granular calendar
+                                    // semantics (admission has qty=999 and tents are
+                                    // multi-unit walk-in overflow).
+                                    const cat = getCat(item.room);
+                                    const showCal = cat !== 'admission' && cat !== 'tent';
+                                    const openCal = showCal ? () => setCalendarRoom(item.room) : null;
                                     return info.multi ? (
                                       <MultiUnitCard key={`${slot}-${item.room.id}`} room={item.room} info={info}
-                                        onOpen={() => setSelectedMulti({ room: item.room, info, slot })} />
+                                        onOpen={() => setSelectedMulti({ room: item.room, info, slot })}
+                                        onOpenCalendar={openCal} />
                                     ) : (
                                       <RoomCard key={`${slot}-${item.room.id}`} room={item.room} info={info}
-                                        onClick={() => setSelectedSlot({ room: item.room, info })} />
+                                        onClick={() => setSelectedSlot({ room: item.room, info })}
+                                        onOpenCalendar={openCal} />
                                     );
                                   })}
                                 </div>
