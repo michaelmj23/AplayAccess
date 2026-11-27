@@ -727,7 +727,12 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
   const additionalRoomRows = additionalRooms.map(ar => {
     const room = rooms.find(r => String(r.id) === String(ar.roomId));
     const type = bookingType;
-    const n    = type === '24hr' ? effectiveNights : 1;
+    // Match the primary room's multi-night behavior: both 24hr and
+    // 24hr-pm support nights > 1 (effectiveNights is already keyed on
+    // is24hr which covers both). Previously only '24hr' was handled,
+    // so an additional room on a 24hr-pm multi-night booking only
+    // counted ONE night of rate, hiding the rest of the subtotal.
+    const n    = (type === '24hr' || type === '24hr-pm') ? effectiveNights : 1;
     return { ar, room, type, nights: n, rate: rateForRoom(room, type) };
   });
   const additionalRoomObjs = additionalRoomRows.map(r => r.room).filter(Boolean);
