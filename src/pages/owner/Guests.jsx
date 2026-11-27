@@ -110,7 +110,6 @@ export default function AdminGuests() {
 
   /* ── stats ── */
   const activeCount = guests.filter((g) => g.is_active).length;
-  const totalRevenue = guests.reduce((s, g) => s + (Number(g.total_spent) || 0), 0);
 
   /* ── skeleton ── */
   const SkeletonRows = () =>
@@ -192,11 +191,6 @@ export default function AdminGuests() {
             <div>
               <p className="text-sm text-slate-600">Active</p>
               <p className="text-2xl font-semibold text-emerald-600">{activeCount}</p>
-            </div>
-            <div className="h-8 w-px bg-slate-200"></div>
-            <div>
-              <p className="text-sm text-slate-600">Revenue</p>
-              <p className="text-2xl font-semibold text-indigo-600">{"\u20B1"}{totalRevenue.toLocaleString()}</p>
             </div>
           </div>
           {(debouncedSearch || filterStatus !== "all") && (
