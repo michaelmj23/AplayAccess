@@ -246,10 +246,15 @@ export default function RoomCalendarModal({ room, bookings = [], open, onClose, 
               >
                 <span className="text-xs font-semibold">{d.getDate()}</span>
                 {inMonth && (
-                  <div className="flex gap-0.5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${dayFull   ? SLOT_META.day.cls   : 'bg-emerald-300'}`}   aria-label={`Day ${dayFull ? 'full' : 'free'}`}></span>
-                    <span className={`w-1.5 h-1.5 rounded-full ${nightFull ? SLOT_META.night.cls : 'bg-emerald-300'}`} aria-label={`Night ${nightFull ? 'full' : 'free'}`}></span>
-                    <span className={`w-1.5 h-1.5 rounded-full ${d24Full   ? SLOT_META['24hr'].cls : 'bg-emerald-300'}`} aria-label={`24hr ${d24Full ? 'full' : 'free'}`}></span>
+                  // Only render dots for SLOTS THAT ARE BOOKED. A fully
+                  // free day renders no dots, so staff don't confuse
+                  // "three free dots" for "three busy dots". A busy day
+                  // shows only the booked slot's colour so the eye
+                  // picks it out immediately.
+                  <div className="flex gap-0.5 min-h-[6px]">
+                    {dayFull   && <span className={`w-1.5 h-1.5 rounded-full ${SLOT_META.day.cls}`}    aria-label="Day booked"></span>}
+                    {nightFull && <span className={`w-1.5 h-1.5 rounded-full ${SLOT_META.night.cls}`}  aria-label="Night booked"></span>}
+                    {d24Full   && <span className={`w-1.5 h-1.5 rounded-full ${SLOT_META['24hr'].cls}`} aria-label="24hr booked"></span>}
                   </div>
                 )}
               </button>
@@ -258,8 +263,8 @@ export default function RoomCalendarModal({ room, bookings = [], open, onClose, 
         </div>
 
         {/* Legend */}
-        <div className="mt-3 flex items-center justify-center gap-3 text-[10px] text-slate-500">
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-300"></span> Free</span>
+        <div className="mt-3 flex items-center justify-center gap-3 text-[10px] text-slate-500 flex-wrap">
+          <span className="italic">Days with no dots are fully free.</span>
           <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-500"></span> Day booked</span>
           <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span> Night booked</span>
           <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span> 24hr booked</span>
