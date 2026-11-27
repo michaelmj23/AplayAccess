@@ -116,20 +116,35 @@ function getSlotStatus(roomName, bookings, slot) {
   // room as VACANT and staff would walk in another guest on top.
   const matching = bookings.filter(b => {
     if (b.roomType !== roomName) return false;
-    if (b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'Pending' || b.status === 'No-Show') return false;
+    if (b.status === 'Cancelled' || b.status === 'Pending' || b.status === 'No-Show') return false;
+    // Early-checkout housekeeping buffer: a Completed booking whose
+    // check_out is still in the future means the backend set a
+    // (now + 1 hour) cleaning window when staff pressed Check Out.
+    // Keep it in consideration so the card renders as CLEANING
+    // instead of VACANT and a walk-in can't grab a physically
+    // dirty room. Historical Completed rows (check_out already
+    // passed) are still filtered out.
+    if (b.status === 'Completed') {
+      const r = bookingRange(b);
+      return r && r.co > now;
+    }
     if (b.status === 'Checked In') return true;
     return overlapsWindow(b, ws, we);
   });
 
-  // Priority: currently in progress > confirmed future.
+  // Priority: currently in progress > cleaning > confirmed future.
   // Checked-In always counts as in-progress regardless of clock —
   // they're physically in the room until staff hits checkout.
-  let inProgress = null, incoming = null;
+  let inProgress = null, cleaning = null, incoming = null;
   for (const b of matching) {
     const r = bookingRange(b);
     if (!r) continue;
     if (b.status === 'Checked In') {
       if (!inProgress) inProgress = { b, ...r };
+      continue;
+    }
+    if (b.status === 'Completed') {
+      if (!cleaning) cleaning = { b, ...r };
       continue;
     }
     if (now >= r.ci && now < r.co) {
@@ -151,6 +166,10 @@ function getSlotStatus(roomName, bookings, slot) {
       urgency:   overdue ? 'overdue' : (ms < 30 * 60000 ? 'soon' : 'normal'),
     };
   }
+  if (cleaning) {
+    const { b, co } = cleaning;
+    return { status: 'cleaning', booking: b, readyAt: b.checkOut, eta: countdown(co - now) };
+  }
   if (incoming) {
     const { b, ci } = incoming;
     return { status: 'incoming', booking: b, arrivesAt: b.checkIn, eta: countdown(ci - now) };
@@ -164,27 +183,40 @@ function getMultiSlotStatus(roomName, quantity, bookings, slot) {
   const [ws, we] = slot === 'day' ? dayWindow(now) : overnightWindow(now);
   let occupied = 0, incoming = 0;
 
+  let cleaning = 0;
+
   // Same Pending exclusion as single-unit. Same Checked-In force-include
   // (an overdue Checked-In on one cottage of a multi-unit room must
   // still count toward occupied — otherwise the available count
   // overstates capacity and staff hand out an already-occupied unit).
+  // Completed with a future check_out counts as a cleaning unit — the
+  // backend holds a 1-hour housekeeping buffer there; a walk-in trying
+  // to grab it would be rejected by the overlap check.
   bookings.filter(b => {
     if (b.roomType !== roomName) return false;
-    if (b.status === 'Cancelled' || b.status === 'Completed' || b.status === 'Pending' || b.status === 'No-Show') return false;
+    if (b.status === 'Cancelled' || b.status === 'Pending' || b.status === 'No-Show') return false;
+    if (b.status === 'Completed') {
+      const r = bookingRange(b);
+      return r && r.co > now;
+    }
     if (b.status === 'Checked In') return true;
     return overlapsWindow(b, ws, we);
   }).forEach(b => {
     const r = bookingRange(b);
     if (!r) return;
     if (b.status === 'Checked In') { occupied++; return; }
+    if (b.status === 'Completed')  { cleaning++; return; }
     if (now >= r.ci && now < r.co) occupied++;
     else if (now < r.ci)           incoming++;
   });
 
-  const booked = occupied + incoming;
+  const booked = occupied + incoming + cleaning;
   const vacant = Math.max(0, quantity - booked);
-  const status = occupied > 0 ? 'occupied' : incoming > 0 ? 'incoming' : 'vacant';
-  return { multi: true, quantity, occupied, incoming, vacant, status };
+  const status = occupied > 0 ? 'occupied'
+               : cleaning > 0 ? 'cleaning'
+               : incoming > 0 ? 'incoming'
+               : 'vacant';
+  return { multi: true, quantity, occupied, cleaning, incoming, vacant, status };
 }
 
 const getDayStatus        = (roomName, bookings)           => getSlotStatus(roomName, bookings, 'day');
@@ -200,6 +232,7 @@ const STATUS_CONFIG = {
   vacant:   { bg: 'bg-emerald-500', border: 'border-emerald-600', text: 'text-white', label: 'VACANT',   icon: 'fa-check-circle'  },
   occupied: { bg: 'bg-rose-500',    border: 'border-rose-600',    text: 'text-white', label: 'OCCUPIED', icon: 'fa-door-closed'   },
   incoming: { bg: 'bg-sky-500',     border: 'border-sky-600',     text: 'text-white', label: 'ARRIVING', icon: 'fa-person-walking' },
+  cleaning: { bg: 'bg-amber-500',   border: 'border-amber-600',   text: 'text-white', label: 'CLEANING', icon: 'fa-broom'         },
 };
 
 // ─── VacantModal — shown when card has no active booking (vacant) ────────────
@@ -439,6 +472,7 @@ function MultiUnitModal({ room, info, bookings, slot, onClose, onWalkIn, onOpenB
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           {info.occupied > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">{info.occupied} Occ</span>}
+          {info.cleaning > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{info.cleaning} Clean</span>}
           {info.incoming > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700">{info.incoming} Arr</span>}
           {info.vacant   > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{info.vacant} Free</span>}
         </div>
@@ -599,6 +633,12 @@ function RoomCard({ room, info, onClick }) {
             {info.remaining && <span className="ml-1 opacity-75">({info.remaining})</span>}
           </span>
         )}
+        {info.status === 'cleaning' && (
+          <span>
+            <i className="fas fa-broom mr-1 text-[9px]"></i>Ready {fmtTime(info.readyAt)}
+            {info.eta && <span className="ml-1 opacity-75">(in {info.eta})</span>}
+          </span>
+        )}
         {info.status === 'incoming' && (
           <span>
             <i className="fas fa-arrow-right mr-1 text-[9px]"></i>Arrives {fmtTime(info.arrivesAt)}
@@ -687,18 +727,21 @@ export default function FDRooms({ embedded = false }) {
     return cat === 'tent' || cat === 'admission';
   };
   const counts = useMemo(() => {
-    const c = { vacant: 0, occupied: 0, incoming: 0 };
+    const c = { vacant: 0, occupied: 0, cleaning: 0, incoming: 0 };
     roomInfos.forEach(({ room, dayInfo, nightInfo }) => {
       const skipVacant = isExcludedFromVacancy(room);
       if (dayInfo.multi) {
         const occ = Math.max(dayInfo.occupied, nightInfo.occupied);
         const inc = Math.max(dayInfo.incoming, nightInfo.incoming);
+        const cln = Math.max(dayInfo.cleaning ?? 0, nightInfo.cleaning ?? 0);
         c.occupied += occ;
         c.incoming += inc;
-        if (!skipVacant) c.vacant += Math.max(0, dayInfo.quantity - occ - inc);
+        c.cleaning += cln;
+        if (!skipVacant) c.vacant += Math.max(0, dayInfo.quantity - occ - inc - cln);
       } else {
         const status =
           (dayInfo.status === 'occupied' || nightInfo.status === 'occupied') ? 'occupied'
+        : (dayInfo.status === 'cleaning' || nightInfo.status === 'cleaning') ? 'cleaning'
         : (dayInfo.status === 'incoming' || nightInfo.status === 'incoming') ? 'incoming'
         : 'vacant';
         if (status === 'vacant' && skipVacant) return;
@@ -729,6 +772,7 @@ export default function FDRooms({ embedded = false }) {
     { key: 'all',      label: 'All Rooms', color: 'bg-slate-700 text-white'   },
     { key: 'vacant',   label: 'Vacant',    color: 'bg-emerald-500 text-white' },
     { key: 'occupied', label: 'Occupied',  color: 'bg-rose-500 text-white'    },
+    { key: 'cleaning', label: 'Cleaning',  color: 'bg-amber-500 text-white'   },
     { key: 'incoming', label: 'Arriving',  color: 'bg-sky-500 text-white'     },
   ];
 
@@ -797,11 +841,15 @@ export default function FDRooms({ embedded = false }) {
             </button>
           </div>
 
-          {/* Summary bar — single column on phone, three cols at sm+ */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+          {/* Summary bar — four tiles with the cleaning buffer surfaced
+              alongside Vacant / Occupied / Arriving so staff see rooms
+              that are physically free but still inside the 1-hour
+              housekeeping window the backend releases them on. */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
             {[
               { label: 'Vacant',   count: counts.vacant,   bg: 'bg-emerald-500', icon: 'fa-check-circle'   },
               { label: 'Occupied', count: counts.occupied, bg: 'bg-rose-500',    icon: 'fa-door-closed'    },
+              { label: 'Cleaning', count: counts.cleaning, bg: 'bg-amber-500',   icon: 'fa-broom'          },
               { label: 'Arriving', count: counts.incoming, bg: 'bg-sky-500',     icon: 'fa-person-walking' },
             ].map(s => (
               <div key={s.label} className={`${s.bg} rounded-xl p-4 flex items-center gap-3 text-white shadow`}>
