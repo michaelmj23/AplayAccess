@@ -884,6 +884,14 @@ export default function Billing({ embedded = false }) {
       if (payMethod === 'GCash' && gcashRefImageUrl) {
         opts.gcashRefImageUrl = gcashRefImageUrl;
       }
+      // Cash exchange: send the un-clamped amount as cash_tendered so
+      // the backend can persist what the guest actually handed over
+      // and compute change = tendered - collected. If staff left the
+      // field blank for a full-balance collect, default tendered to
+      // the outstanding (exact-change collection).
+      if (payMethod === 'Cash') {
+        opts.cashTendered = parsedAmount != null ? parsedAmount : billingOutstanding;
+      }
 
       if (billing.isGroup) {
         const res = await collectReservationPayment(

@@ -129,6 +129,7 @@ export async function collectReservationPayment(reservationId, paymentMethod, en
   if (entranceFee != null) body.entrance_fee = Number(entranceFee);
   if (opts.amount != null) body.amount = Number(opts.amount);
   if (opts.gcashRefImageUrl) body.gcash_ref_image_url = String(opts.gcashRefImageUrl).trim();
+  if (opts.cashTendered != null) body.cash_tendered = Number(opts.cashTendered);
   const res = await api.post(`/api/admin/reservations/${reservationId}/collect-payment`, body);
   return res.data;
 }
@@ -166,6 +167,10 @@ export async function collectPayment(bookingId, paymentMethod, entranceFee, opts
   if (entranceFee != null) body.entrance_fee = entranceFee;
   if (opts.amount != null) body.amount = Number(opts.amount);
   if (opts.gcashRefImageUrl) body.gcash_ref_image_url = String(opts.gcashRefImageUrl).trim();
+  // Cash exchange capture — the un-clamped amount staff typed into
+  // "Amount Tendered" (may exceed the outstanding balance; backend
+  // persists it for the receipt and computes change = tendered - delta).
+  if (opts.cashTendered != null) body.cash_tendered = Number(opts.cashTendered);
   const res = await api.post(`/api/admin/bookings/${bookingId}/collect-payment`, body);
   return res.data;
 }

@@ -1068,6 +1068,23 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       <span className="text-slate-500">Paid</span>
                       <span className="tabular-nums text-emerald-700 font-medium">{fmtMoney(paid)}</span>
                     </div>
+                    {/* Cash exchange record — last cash collection's
+                        tendered + change. Hidden on online-only
+                        bookings (both fields null). */}
+                    {booking.cashTendered != null && (
+                      <>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-500">Cash tendered</span>
+                          <span className="tabular-nums text-slate-700">{fmtMoney(booking.cashTendered)}</span>
+                        </div>
+                        {Number(booking.changeGiven ?? 0) > 0 && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-slate-500">Change given</span>
+                            <span className="tabular-nums text-slate-700">{fmtMoney(booking.changeGiven)}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
                     {balance > 0 ? (
                       <div className="flex justify-between text-xs">
                         <span className="text-rose-700 font-semibold">Balance due</span>
