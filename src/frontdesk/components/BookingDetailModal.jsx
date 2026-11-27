@@ -468,6 +468,10 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
   // first, then re-run the group check-out. Toast enumerates skips
   // so staff can see exactly what still needs attention.
   const [groupCheckOutLoading, setGroupCheckOutLoading] = useState(false);
+  // Two-step confirm so staff don't accidentally close out an entire
+  // group reservation with a single stray click. Mirrors the pattern
+  // the Mark No-Show and Cancel group actions already use.
+  const [groupCheckOutConfirm, setGroupCheckOutConfirm] = useState(false);
   async function handleGroupCheckOut() {
     if (!booking.reservationId) return;
     setGroupCheckOutLoading(true);
@@ -478,6 +482,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
       showToast?.(msg, tone);
       onReload?.();
       refreshNotifications?.();
+      setGroupCheckOutConfirm(false);
       onClose?.();
     } catch (err) {
       const msg = err?.response?.data?.message || 'Group check-out failed.';
@@ -2408,6 +2413,25 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                         </div>
                       </div>
                     )}
+                    {hasCheckOut && groupCheckOutConfirm && (
+                      <div className="mb-2 rounded-lg bg-indigo-50 border border-indigo-200 p-2">
+                        <p className="text-[11px] text-indigo-900 mb-2">
+                          Check out all Checked-In rooms in this reservation? Rooms with unpaid balances will be skipped — collect those at Billing first.
+                        </p>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={handleGroupCheckOut} disabled={groupCheckOutLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[11px] font-semibold py-1.5 px-2 rounded">
+                            {groupCheckOutLoading
+                              ? <><i className="fas fa-spinner fa-spin text-[10px]"></i>Checking out…</>
+                              : <><i className="fas fa-check text-[10px]"></i>Yes, check out all</>}
+                          </button>
+                          <button type="button" onClick={() => setGroupCheckOutConfirm(false)} disabled={groupCheckOutLoading}
+                            className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-900 text-[11px] font-semibold py-1.5 px-2 rounded">
+                            Keep checked in
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     {hasCancel && groupCancelConfirm && (
                       <div className="mb-2 rounded-lg bg-rose-50 border border-rose-200 p-2">
                         <p className="text-[11px] text-rose-800 mb-2">
@@ -2436,12 +2460,10 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                             : <><i className="fas fa-user-check mr-1" aria-hidden="true"></i>Check in all</>}
                         </button>
                       )}
-                      {hasCheckOut && (
-                        <button type="button" onClick={handleGroupCheckOut} disabled={groupCheckOutLoading}
-                          className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2">
-                          {groupCheckOutLoading
-                            ? <><i className="fas fa-spinner fa-spin mr-1" aria-hidden="true"></i>Checking out…</>
-                            : <><i className="fas fa-door-open mr-1" aria-hidden="true"></i>Check out all</>}
+                      {hasCheckOut && !groupCheckOutConfirm && (
+                        <button type="button" onClick={() => setGroupCheckOutConfirm(true)}
+                          className="inline-flex items-center justify-center min-h-11 px-4 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2">
+                          <i className="fas fa-door-open mr-1" aria-hidden="true"></i>Check out all
                         </button>
                       )}
                       {hasExtend && (
