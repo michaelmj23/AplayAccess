@@ -406,6 +406,22 @@ export default function WalkIn({ embedded = false }) {
     if (form.primaryQty !== 1) setField('primaryQty', 1);
   }, [form.roomId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Primary cleared while siblings are still staged → promote the
+  // first sibling. Mirrors BookingModal's card-click behavior so a
+  // staff member who picks the empty "Select room..." option in the
+  // dropdown doesn't leave the reservation headless with Added
+  // siblings and a disappeared preview total.
+  useEffect(() => {
+    if (!form.roomId && form.additionalRooms.length > 0) {
+      const [next, ...rest] = form.additionalRooms;
+      setForm(f => ({
+        ...f,
+        roomId:          String(next.roomId),
+        additionalRooms: rest,
+      }));
+    }
+  }, [form.roomId, form.additionalRooms]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Pricing preview — room rate only; entrance fees collected at check-in by frontdesk
   const selectedRoom  = rooms.find(r => String(r.id) === String(form.roomId));
   const allowedTypes  = selectedRoom?.allowed_booking_types ?? null;
