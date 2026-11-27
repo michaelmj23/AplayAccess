@@ -15,40 +15,15 @@ import { fmtTime, fmtMoney } from '../../lib/format';
  * handled by the parent.
  *
  * Multi-unit rooms (cottages, pavilions with quantity > 1): a pill
- * only turns red once activeCount === quantity, matching the rooms
- * board's availability semantics.
+ * simply reflects "at least one unit is booked on this day" — capacity
+ * numbers aren't surfaced in the calendar view (the Rooms board card
+ * already shows live free count).
  *
  * Status handling mirrors the backend overlap check post-hostage-fix:
  *   - Cancelled / No-Show excluded.
  *   - Completed included only when check_out > now (cleaning window).
  *   - Pending included only within 15-min payment grace.
  */
-
-// Slot-window math — Carbon-side logic ported to JS Date. Same
-// windows AvailabilityController computes server-side.
-function slotWindow(dateIso, slotType) {
-  const base = new Date(`${dateIso}T00:00:00`);
-  const next = new Date(base); next.setDate(next.getDate() + 1);
-  if (slotType === 'night') {
-    const ci = new Date(base); ci.setHours(18, 0, 0, 0);
-    const co = new Date(next); co.setHours(6, 0, 0, 0);
-    return [ci, co];
-  }
-  if (slotType === '24hr') {
-    const ci = new Date(base); ci.setHours(7, 0, 0, 0);
-    const co = new Date(next); co.setHours(6, 0, 0, 0);
-    return [ci, co];
-  }
-  if (slotType === '24hr-pm') {
-    const ci = new Date(base); ci.setHours(18, 0, 0, 0);
-    const co = new Date(next); co.setHours(18, 0, 0, 0);
-    return [ci, co];
-  }
-  // day
-  const ci = new Date(base); ci.setHours(7, 0, 0, 0);
-  const co = new Date(base); co.setHours(17, 0, 0, 0);
-  return [ci, co];
-}
 
 // Parse "YYYY-MM-DD HH:MM:SS" or ISO to Date.
 function parseBookingTs(ts) {
@@ -131,25 +106,31 @@ export default function RoomCalendarModal({ room, bookings = [], open, onClose, 
 
   const now = useMemo(() => new Date(), [picked, cursor]); // snap each render
 
-  const quantity = Math.max(1, Number(room?.quantity) || 1);
-
-  // For a given day iso + slot type: count active bookings that overlap.
-  const countActive = (dateIso, slotType) => {
-    const [ws, we] = slotWindow(dateIso, slotType);
-    let count = 0;
-    for (const b of roomBookings) {
-      if (bookingBlocks(b, ws, we, now)) count++;
-      if (count >= quantity) return quantity;
-    }
-    return count;
-  };
-
-  // For the click-expanded day: list every active booking whose window
-  // touches that date (any slot).
-  const bookingsOnDate = (dateIso) => {
+  // One function used by BOTH the pill render and the clicked-day
+  // detail list, so they can't disagree. Returns which slot categories
+  // actually have a booking touching the given date, plus the full list
+  // for the expanded panel.
+  //
+  // Previous version used slot-specific windows (e.g. 24hr-pm's 6 PM-
+  // 6 PM-next-day span) for pill colouring, which fired for bookings
+  // that happen entirely on the NEXT day because that next day falls
+  // inside the slot window. The detail panel used a strict 00:00-
+  // 24:00 window — so the pill lit up and the panel said "No bookings".
+  // Unified here on the strict day window; pill colour is now derived
+  // from booking_type so a 24hr booking shows the 24hr pill on every
+  // calendar day it actually occupies.
+  const dayInfo = (dateIso) => {
     const base = new Date(`${dateIso}T00:00:00`);
     const next = new Date(base); next.setDate(next.getDate() + 1);
-    return roomBookings.filter(b => bookingBlocks(b, base, next, now));
+    const items = roomBookings.filter(b => bookingBlocks(b, base, next, now));
+    const pills = { day: false, night: false, '24hr': false };
+    for (const b of items) {
+      const t = b.bookingType || '';
+      if (t === 'day') pills.day = true;
+      else if (t === 'night') pills.night = true;
+      else if (t === '24hr' || t === '24hr-pm') pills['24hr'] = true;
+    }
+    return { items, pills };
   };
 
   if (!room) return null;
@@ -217,18 +198,11 @@ export default function RoomCalendarModal({ room, bookings = [], open, onClose, 
             const isToday = iso === todayIso;
             const isPicked = iso === picked;
 
-            // Per-slot occupancy count → pill colour (green if free, red if full)
-            const day24  = countActive(iso, '24hr');
-            const day24p = countActive(iso, '24hr-pm');
-            const dayCt  = countActive(iso, 'day');
-            const nightCt = countActive(iso, 'night');
-            // Combine 24hr + 24hr-pm into one "24h" indicator — either
-            // version blocking means the 24-hour window for that date
-            // is taken. The other slots stand on their own.
-            const dayFull   = dayCt   >= quantity;
-            const nightFull = nightCt >= quantity;
-            const d24Full   = Math.max(day24, day24p) >= quantity;
-            const hasAny    = dayCt > 0 || nightCt > 0 || day24 > 0 || day24p > 0;
+            const { pills, items } = dayInfo(iso);
+            const dayFull   = pills.day;
+            const nightFull = pills.night;
+            const d24Full   = pills['24hr'];
+            const hasAny    = items.length > 0;
 
             return (
               <button
@@ -272,7 +246,7 @@ export default function RoomCalendarModal({ room, bookings = [], open, onClose, 
 
         {/* Expanded detail for picked day */}
         {picked && (() => {
-          const items = bookingsOnDate(picked);
+          const { items } = dayInfo(picked);
           const [y, m, dd] = picked.split('-').map(Number);
           const d = new Date(y, m - 1, dd);
           const label = `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
