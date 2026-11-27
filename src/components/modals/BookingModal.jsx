@@ -1861,8 +1861,30 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                     } else {
                       // Any count > 0 deselects everything for this
                       // room. Use the stepper to go 2 → 1 etc.
-                      if (String(roomId) === id) setRoomId("");
-                      setAdditionalRooms(list => list.filter(ar => String(ar.roomId) !== id));
+                      const clearingPrimary = String(roomId) === id;
+                      // Drop every instance of this room from the
+                      // sibling list first so the auto-promote step
+                      // below picks a DIFFERENT room, not the one we
+                      // just deselected.
+                      const remainingSiblings = additionalRooms.filter(ar => String(ar.roomId) !== id);
+                      setAdditionalRooms(remainingSiblings);
+                      if (clearingPrimary) {
+                        // Mirror decRoom's auto-promote behavior: if
+                        // other rooms are staged, promote the first to
+                        // primary instead of leaving the reservation
+                        // headless. Without this, unchecking the
+                        // primary via the card click left additional
+                        // rooms as 'Added' with no primary — the
+                        // Preview total disappeared and submit fell
+                        // through 'Please select a room/cottage.'
+                        const nextPrimary = remainingSiblings[0];
+                        if (nextPrimary) {
+                          setRoomId(String(nextPrimary.roomId));
+                          setAdditionalRooms(remainingSiblings.filter(ar => ar.tempId !== nextPrimary.tempId));
+                        } else {
+                          setRoomId("");
+                        }
+                      }
                     }
                     setPromoResult(null);
                     setPromoInput("");
