@@ -2522,7 +2522,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                       </span>
                     )}:
                   </span>
-                  <span className={`font-medium tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(primaryRoomSubtotal)}</span>
+                  <span className="font-medium tabular-nums">{formatPHP(primaryRoomSubtotal)}</span>
                 </div>
                 {additionalRoomRows.filter(r => r.room).map(r => {
                   const typeLbl = r.type === 'night' ? 'Night' : r.type === '24hr' ? '24hr' : 'Day';
@@ -2537,12 +2537,22 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                             : ''}
                         </span>:
                       </span>
-                      <span className={`font-medium tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(r.rate * r.nights)}</span>
+                      <span className="font-medium tabular-nums">{formatPHP(r.rate * r.nights)}</span>
                     </div>
                   );
                 })}
                 {discount > 0 && (
                   <>
+                    {/* Subtotal before promo — shown only when a discount
+                        is being applied, so guests can see what the
+                        promo is computed against. Struck through so the
+                        new discounted rate below is the eye's anchor. */}
+                    {additionalRoomRows.filter(r => r.room).length > 0 && (
+                      <div className="flex justify-between mb-1 text-sm text-gray-500">
+                        <span>Rooms subtotal:</span>
+                        <span className="line-through tabular-nums">{formatPHP(roomSubtotal)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between mb-1 text-sm text-green-700 font-medium">
                       <span><i className="fas fa-tag mr-1"></i>Promo ({promoInput}):</span>
                       <span>− {formatPHP(discount)}</span>
@@ -2989,7 +2999,7 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                         </span>
                       )}
                     </span>
-                    <span className={`tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(primaryRoomSubtotal)}</span>
+                    <span className="tabular-nums">{formatPHP(primaryRoomSubtotal)}</span>
                   </div>
                   {additionalRoomRows.filter(r => r.room).map(r => {
                     const typeLbl = r.type === 'night' ? 'Night' : r.type === '24hr' ? '24hr' : 'Day';
@@ -3004,12 +3014,23 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                               : ''}
                           </span>
                         </span>
-                        <span className={`tabular-nums ${discount > 0 ? "line-through text-gray-500" : ""}`}>{formatPHP(r.rate * r.nights)}</span>
+                        <span className="tabular-nums">{formatPHP(r.rate * r.nights)}</span>
                       </div>
                     );
                   })}
                   {discount > 0 && (
                     <>
+                      {/* Subtotal line before promo so guests see what
+                          the discount is computed against — only shown
+                          when multi-room (single room already shows its
+                          full price on the row above). Strikethrough
+                          makes the discounted rate below the eye anchor. */}
+                      {additionalRoomRows.filter(r => r.room).length > 0 && (
+                        <div className="flex justify-between text-gray-500 text-sm">
+                          <span>Rooms subtotal</span>
+                          <span className="line-through tabular-nums">{formatPHP(roomSubtotal)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-green-700 font-medium">
                         <span><i className="fas fa-tag mr-1 text-xs"></i>Promo ({promoInput.toUpperCase()})</span>
                         <span>− {formatPHP(discount)}</span>
