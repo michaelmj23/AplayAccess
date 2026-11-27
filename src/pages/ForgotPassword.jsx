@@ -1,12 +1,17 @@
 // src/pages/ForgotPassword.jsx
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { forgotPasswordRequest } from "../lib/authApi.js";
 import { primeCsrf } from "../lib/api.js";
 
 export default function ForgotPassword() {
-  const [email, setEmail]         = useState("");
+  // Prefill from ?email= so the BookingModal handoff lands here with
+  // the guest's typed email already in the field — one less thing to
+  // type, less friction on the "forgot my password" path.
+  const location = useLocation();
+  const qp = new URLSearchParams(location.search);
+  const [email, setEmail]         = useState(qp.get("email") || "");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState("");

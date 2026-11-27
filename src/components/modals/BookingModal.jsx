@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import Modal from "./Modal.jsx";
 import { createBooking, createGuestBooking, cancelBooking, cancelGuestBooking, createGuestPaymentLink, getGuestPaymentStatus, guestConfirmPayment } from "../../lib/bookingApi.js";
 import { primeCsrf } from "../../lib/api.js";
@@ -1263,6 +1263,16 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 </div>
               </div>
 
+              <div className="flex justify-end -mt-1">
+                <Link
+                  to={`/forgot-password?email=${encodeURIComponent(guestEmail.trim())}`}
+                  onClick={() => { setAccountExistsPrompt(false); onClose?.(); }}
+                  className="text-xs text-sky-700 hover:text-sky-800 hover:underline transition rounded px-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+
               <button
                 type="submit"
                 disabled={inlineLoginBusy || !inlinePassword}
@@ -1281,22 +1291,25 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
 
             {/* Google Sign-In — same multi-color SVG + styling as LoginModal
                 so the two sign-in surfaces look like one system. */}
-            <button
-              type="button"
-              onClick={() => inlineGoogleLogin()}
-              disabled={inlineLoginBusy}
-              className="w-full inline-flex items-center justify-center gap-3 py-2.5 min-h-11 px-4 rounded-md border border-slate-200 bg-white text-slate-700 font-medium text-sm hover:bg-slate-50 hover:border-slate-300 transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.44c-.29 1.48-1.14 2.73-2.4 3.58v3h3.88c2.28-2.1 3.57-5.18 3.57-8.82z"/>
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3c-1.07.72-2.45 1.16-4.05 1.16-3.12 0-5.76-2.11-6.7-4.94H1.29v3.09C3.26 21.3 7.31 24 12 24z"/>
-                <path fill="#FBBC04" d="M5.3 14.3c-.24-.72-.38-1.49-.38-2.3s.14-1.58.38-2.3V6.61H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.39l4.01-3.09z"/>
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.61l4.01 3.09C6.24 6.86 8.88 4.75 12 4.75z"/>
-              </svg>
-              {inlineLoginBusy ? "Signing in..." : "Sign in with Google"}
-            </button>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => inlineGoogleLogin()}
+                disabled={inlineLoginBusy}
+                className="w-full inline-flex items-center justify-center gap-3 py-2.5 min-h-11 px-4 rounded-md border border-slate-200 bg-white text-slate-700 font-medium text-sm hover:bg-slate-50 hover:border-slate-300 transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.44c-.29 1.48-1.14 2.73-2.4 3.58v3h3.88c2.28-2.1 3.57-5.18 3.57-8.82z"/>
+                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3c-1.07.72-2.45 1.16-4.05 1.16-3.12 0-5.76-2.11-6.7-4.94H1.29v3.09C3.26 21.3 7.31 24 12 24z"/>
+                  <path fill="#FBBC04" d="M5.3 14.3c-.24-.72-.38-1.49-.38-2.3s.14-1.58.38-2.3V6.61H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.39l4.01-3.09z"/>
+                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.61l4.01 3.09C6.24 6.86 8.88 4.75 12 4.75z"/>
+                </svg>
+                {inlineLoginBusy ? "Signing in..." : "Sign in with Google"}
+              </button>
 
-            <div className="mt-4 text-center">
+              {/* Use a different email — promoted from a tiny text link to a
+                  full secondary button so guests who don't want to sign in
+                  (or own a second address) see the escape path clearly. */}
               <button
                 type="button"
                 onClick={() => {
@@ -1314,9 +1327,10 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                   });
                 }}
                 disabled={inlineLoginBusy}
-                className="text-xs text-slate-600 hover:text-sky-700 hover:underline disabled:opacity-50 rounded px-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                className="w-full inline-flex items-center justify-center gap-2 py-2.5 min-h-11 px-4 rounded-md border border-slate-200 bg-white text-slate-700 font-medium text-sm hover:bg-slate-50 hover:border-slate-300 transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
               >
-                Use a different email instead
+                <i className="fas fa-envelope text-slate-400" aria-hidden="true"></i>
+                Use a different email
               </button>
             </div>
           </div>
