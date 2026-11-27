@@ -58,6 +58,14 @@ function parseWalkIn(b) {
   return { name, phone, email, notes };
 }
 
+// Per-head entrance rates by booking type. Fallback used when the
+// backend hasn't persisted the entrance_fee column yet (Pending /
+// Confirmed rows — the backend only writes it at check-in time).
+// Mirrors FALLBACK_ENTRANCE_RATES in Bookings.jsx; both default to
+// the same resort-configured numbers so staff see consistent values
+// across the list and the detail modal.
+const ENTRANCE_RATES = { day: 50, night: 80, '24hr': 100, '24hr-pm': 100 };
+
 function isExpiredPending(b) {
   if (!b || b.status !== 'Pending') return false;
   if (b.paymongoLinkId) return false; // payment session in progress — not expired
