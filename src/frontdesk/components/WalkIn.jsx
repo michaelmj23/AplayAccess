@@ -713,6 +713,13 @@ export default function WalkIn({ embedded = false }) {
       if (form.payMethod === 'GCash') {
         payload.gcash_ref_image_url  = form.gcashRefImageUrl;
       }
+      // Cash exchange capture. Backend persists tendered as-is and
+      // computes change = max(0, tendered - grand_total). Leave undefined
+      // if staff didn't fill the input — paid_amount stays at grand
+      // total either way (short pay is already blocked client-side).
+      if (form.payMethod === 'Cash' && form.cashTender) {
+        payload.cash_tendered = Number(form.cashTender);
+      }
       // Multi-room branch: expand primary + each sibling by their
       // qty so cottages/pavilions with quantity > 1 become multiple
       // rooms[] entries sharing the same room_id. Backend handles
@@ -891,6 +898,28 @@ export default function WalkIn({ embedded = false }) {
                         <td className="px-4 py-2.5 text-slate-500 font-medium">Payment</td>
                         <td className="px-4 py-2.5 text-slate-900">{form.payMethod}</td>
                       </tr>
+                      {/* Cash capture — only surface when staff picked
+                          Cash AND typed a tender amount. Change is a
+                          derived field (tender − grand total). */}
+                      {form.payMethod === 'Cash' && form.cashTender && (() => {
+                        const grand = previewTotal + entranceFeeTotal;
+                        const tendered = Number(form.cashTender);
+                        const change = Math.max(0, tendered - grand);
+                        return (
+                          <>
+                            <tr>
+                              <td className="px-4 py-2.5 text-slate-500 font-medium">Cash Tendered</td>
+                              <td className="px-4 py-2.5 text-slate-900 tabular-nums">{fmtMoney(tendered)}</td>
+                            </tr>
+                            {change > 0 && (
+                              <tr>
+                                <td className="px-4 py-2.5 text-slate-500 font-medium">Change</td>
+                                <td className="px-4 py-2.5 text-emerald-700 font-semibold tabular-nums">{fmtMoney(change)}</td>
+                              </tr>
+                            )}
+                          </>
+                        );
+                      })()}
                       {form.notes && (
                         <tr>
                           <td className="px-4 py-2.5 text-slate-500 font-medium align-top">Notes</td>
