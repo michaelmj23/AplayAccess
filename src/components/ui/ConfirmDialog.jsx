@@ -80,10 +80,14 @@ export default function ConfirmDialog({
             <div className={`h-10 w-10 rounded-full ${bg} flex items-center justify-center shrink-0`}>
               <i className={`fas ${icon} ${text}`} aria-hidden="true"></i>
             </div>
-            <div className="pt-1">
+            <div className="pt-1 min-w-0 flex-1">
               <h3 id="confirm-dialog-title" className="text-base font-semibold text-gray-900">{title}</h3>
               {message && (
-                <p id="confirm-dialog-message" className="mt-1 text-sm text-gray-700 leading-relaxed">{message}</p>
+                // `message` accepts a string or JSX. Using a div (not a
+                // <p>) so callers can render block-level markup such as
+                // money-row tables or coloured notice cards. String
+                // callers still render correctly inside a div.
+                <div id="confirm-dialog-message" className="mt-1 text-sm text-gray-700 leading-relaxed">{message}</div>
               )}
             </div>
           </div>

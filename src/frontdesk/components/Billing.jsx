@@ -1357,22 +1357,68 @@ export default function Billing({ embedded = false }) {
         const isFull  = hasAmt && amount >= billingOutstanding - 0.009;
         const remain  = Math.max(0, billingOutstanding - amount);
         const willAutoCheckIn = isFull && !billing.isGroup && billing.status === 'Confirmed';
-        const parts = [];
-        if (change > 0) {
-          parts.push(`Tendered ${fmtMoney(tendered)} — apply ${fmtMoney(amount)} to ${billing.id}, hand back ${fmtMoney(change)} change via Cash.`);
-        } else {
-          parts.push(`Collect ${fmtMoney(amount)} from ${billing.guest}`);
-          parts.push(`for ${billing.id} via ${payMethod}.`);
-        }
-        if (!isFull) parts.push(`Remaining balance: ${fmtMoney(remain)}.`);
-        if (willAutoCheckIn) parts.push('Guest will be checked in automatically.');
-        parts.push('This cannot be undone.');
+        const body = (
+          <div className="mt-2 space-y-3">
+            {/* Money breakdown table — three visually distinct rows so
+                staff don't mis-read "tendered" as "collected". */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 divide-y divide-slate-200 overflow-hidden">
+              {change > 0 && (
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="text-xs text-slate-500 font-medium">Cash tendered</span>
+                  <span className="text-sm font-semibold text-slate-900 tabular-nums">{fmtMoney(tendered)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between px-3 py-2 bg-sky-50/50">
+                <span className="text-xs text-sky-700 font-semibold flex items-center gap-1.5">
+                  <i className="fas fa-arrow-right text-[10px]" aria-hidden="true"></i>
+                  Apply to {billing.id}
+                </span>
+                <span className="text-base font-bold text-sky-700 tabular-nums">{fmtMoney(amount)}</span>
+              </div>
+              {change > 0 && (
+                <div className="flex items-center justify-between px-3 py-2 bg-emerald-50/70">
+                  <span className="text-xs text-emerald-700 font-semibold flex items-center gap-1.5">
+                    <i className="fas fa-coins text-[10px]" aria-hidden="true"></i>
+                    Change to hand back
+                  </span>
+                  <span className="text-sm font-bold text-emerald-700 tabular-nums">{fmtMoney(change)}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Guest + payment method context */}
+            <p className="text-xs text-slate-600">
+              From <span className="font-semibold text-slate-900">{billing.guest}</span>
+              {' '}via{' '}
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 text-[11px] font-semibold">
+                <i className={`fas ${payMethod === 'Cash' ? 'fa-money-bill-wave text-emerald-600' : 'fa-mobile-screen text-sky-600'} text-[10px]`} aria-hidden="true"></i>
+                {payMethod}
+              </span>
+            </p>
+
+            {/* Optional notices */}
+            {!isFull && (
+              <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 flex items-start gap-2">
+                <i className="fas fa-info-circle text-amber-600 mt-0.5 shrink-0" aria-hidden="true"></i>
+                <span>Partial payment. <span className="font-semibold">{fmtMoney(remain)}</span> balance remains on this booking.</span>
+              </div>
+            )}
+            {willAutoCheckIn && (
+              <div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-800 flex items-start gap-2">
+                <i className="fas fa-user-check text-emerald-600 mt-0.5 shrink-0" aria-hidden="true"></i>
+                <span>Guest will be checked in automatically.</span>
+              </div>
+            )}
+
+            <p className="text-[11px] text-slate-500 italic">This cannot be undone.</p>
+          </div>
+        );
         return (
           <ConfirmDialog
             open={confirmCollectOpen}
             variant={isFull ? 'info' : 'warning'}
             title={isFull ? 'Confirm Payment Collection' : 'Confirm Partial Payment'}
-            message={parts.join(' ')}
+            message={body}
             confirmLabel={`Collect ${fmtMoney(amount)}`}
             cancelLabel="Go back"
             onConfirm={handleCollect}
