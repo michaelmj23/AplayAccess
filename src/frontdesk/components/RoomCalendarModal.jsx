@@ -149,7 +149,7 @@ export default function RoomCalendarModal({ room, bookings = [], open, onClose, 
           <div className="flex-1 min-w-0">
             <h3 className="text-base font-bold text-slate-900">Availability — {room.name}</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              {quantity > 1 ? `${quantity} units · ` : ''}
+              {Number(room?.quantity ?? 1) > 1 ? `${room.quantity} units · ` : ''}
               Day, Night, and 24-hour slots per day. Click a day to see what's booked.
             </p>
           </div>
