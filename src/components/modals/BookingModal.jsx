@@ -1263,11 +1263,19 @@ export default function BookingModal({ open, onClose, selectedRoom, rooms, onBoo
                 </div>
               </div>
 
-              <div className="flex justify-end -mt-1">
+              {/* Google-only user hint — this account might have been
+                  created via Google OAuth and have no password set.
+                  One-line nudge so they don't stare at the field
+                  trying to recall a password that doesn't exist. */}
+              <div className="flex items-start justify-between gap-2 -mt-1">
+                <p className="text-[11px] text-slate-500 flex-1 leading-snug">
+                  <i className="fas fa-circle-info mr-1 text-slate-400" aria-hidden="true"></i>
+                  Signed up with Google? Use the Google button below.
+                </p>
                 <Link
                   to={`/forgot-password?email=${encodeURIComponent(guestEmail.trim())}`}
                   onClick={() => { setAccountExistsPrompt(false); onClose?.(); }}
-                  className="text-xs text-sky-700 hover:text-sky-800 hover:underline transition rounded px-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                  className="text-xs text-sky-700 hover:text-sky-800 hover:underline transition rounded px-1 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                 >
                   Forgot password?
                 </Link>
