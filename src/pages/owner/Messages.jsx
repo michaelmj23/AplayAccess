@@ -381,6 +381,23 @@ function AutoReplyPanel({ open, onClose, showToast }) {
             </button>
           </div>
         </form>
+
+        {/* Save confirmation must live inside the edit-mode return
+            too — the list-view copy at the bottom of the component
+            never mounts while `editing` is truthy, so without this
+            the Save Changes click set saveConfirmOpen=true and
+            nothing was there to react to it. */}
+        <ConfirmDialog
+          open={saveConfirmOpen}
+          title={editing?.id ? "Save rule changes?" : "Create auto-reply rule?"}
+          message={editing?.id
+            ? <>Save changes to the rule for <strong>"{editing?.keyword}"</strong>? It fires on every matching inbound message.</>
+            : <>Create an auto-reply for messages matching <strong>"{editing?.keyword}"</strong>? It starts firing immediately on inbound messages.</>}
+          confirmLabel={editing?.id ? "Save changes" : "Create rule"}
+          variant="info"
+          onConfirm={saveRule}
+          onCancel={() => setSaveConfirmOpen(false)}
+        />
       </Modal>
     );
   }
