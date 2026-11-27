@@ -340,13 +340,18 @@ function fmtDateLabel(dt) {
 
 // ─── MultiUnitCard — for cottages / pavilions with quantity > 1 ──────────────
 function MultiUnitCard({ room, info, onOpen }) {
-  const { quantity, occupied, incoming, vacant } = info;
+  const { quantity, occupied, incoming, vacant, cleaning = 0 } = info;
 
+  // Dot order: occupied → cleaning → incoming → vacant. Puts the
+  // "right now" states (rose + amber) adjacent, then upcoming states
+  // (sky arrivals), then free units. Mirrors the colour priority the
+  // summary tiles already use.
   const dots = [];
   for (let i = 0; i < quantity; i++) {
-    if (i < occupied)                 dots.push('bg-rose-500');
-    else if (i < occupied + incoming) dots.push('bg-sky-500');
-    else                              dots.push('bg-emerald-400');
+    if (i < occupied)                                       dots.push('bg-rose-500');
+    else if (i < occupied + cleaning)                       dots.push('bg-amber-500');
+    else if (i < occupied + cleaning + incoming)            dots.push('bg-sky-500');
+    else                                                    dots.push('bg-emerald-400');
   }
 
   return (
@@ -370,12 +375,15 @@ function MultiUnitCard({ room, info, onOpen }) {
       </div>
 
       {/* Counts — compact inline. "Pend" chip removed along with the
-          pending filter tab — pending bookings don't hold the room. */}
+          pending filter tab — pending bookings don't hold the room.
+          Clean chip only appears when at least one unit is inside the
+          1-hour housekeeping buffer post-early-checkout. */}
       <div className="flex flex-wrap gap-1">
         {[
-          occupied > 0 && { n: occupied, label: 'Occ',  cls: 'bg-rose-100 text-rose-700' },
-          incoming > 0 && { n: incoming, label: 'Arr',  cls: 'bg-sky-100 text-sky-700' },
-          vacant   > 0 && { n: vacant,   label: 'Free', cls: 'bg-emerald-100 text-emerald-700' },
+          occupied > 0 && { n: occupied, label: 'Occ',   cls: 'bg-rose-100 text-rose-700' },
+          cleaning > 0 && { n: cleaning, label: 'Clean', cls: 'bg-amber-100 text-amber-700' },
+          incoming > 0 && { n: incoming, label: 'Arr',   cls: 'bg-sky-100 text-sky-700' },
+          vacant   > 0 && { n: vacant,   label: 'Free',  cls: 'bg-emerald-100 text-emerald-700' },
         ].filter(Boolean).map(({ n, label, cls }) => (
           <span key={label} className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${cls}`}>{n} {label}</span>
         ))}
