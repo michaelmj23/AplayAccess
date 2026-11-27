@@ -195,6 +195,16 @@ function AutoReplyPanel({ open, onClose, showToast }) {
   // commit per the page-wide policy on mutating actions.
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
 
+  // Reset the save confirmation flag whenever edit mode exits. Without
+  // this, a stale `saveConfirmOpen: true` leaked from the Edit view
+  // (e.g. click Save Changes → the confirm appears → click Cancel on
+  // the Edit modal instead of the confirm) would be picked up by the
+  // list view's own ConfirmDialog on the next render and open with
+  // an empty/wrong keyword.
+  useEffect(() => {
+    if (!editing) setSaveConfirmOpen(false);
+  }, [editing]);
+
   function requestSaveRule(e) {
     e.preventDefault();
     if (!editing.keyword?.trim() || !editing.response?.trim()) {
