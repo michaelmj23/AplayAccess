@@ -1294,10 +1294,9 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                     const grand  = Number(booking.total ?? 0) + Number(booking.entranceFee ?? 0) + Number(booking.extensionsTotal ?? 0);
                     const futureGrand   = grand - Number(cancelExtPending.amount ?? 0);
                     const futureOverpay = Math.max(0, effectivePaid - futureGrand);
-                    // Group mode forces both options visible (any sibling
-                    // might be overpaid). Single mode keeps the original
-                    // preview-driven collapse.
-                    const hasOverpay    = isGroup ? true : (futureOverpay > 0);
+                    // Non-group: collapse to single button when no overpayment.
+                    // Group: handled by its own branch below, independent of hasOverpay.
+                    const hasOverpay    = futureOverpay > 0;
                     const groupTotal    = Number(cancelExtPending.amount ?? 0) * groupSize;
                     return (
                       <div className="mt-2 rounded-lg bg-rose-50 border border-rose-200 p-2">
@@ -1331,7 +1330,7 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                             <p className="flex items-start gap-1.5">
                               <i className="fas fa-coins text-emerald-600 mt-0.5" aria-hidden="true"></i>
                               <span>
-                                Backend will cancel the tail extension on every Checked-In sibling and, if you confirm the refund, record per-room overpayments. The toast will show the actual refund total.
+                                Backend will cancel the tail extension on every Checked-In sibling and record per-room overpayments as refunds. The toast will show the actual refund total.
                               </span>
                             </p>
                           </div>
@@ -1341,8 +1340,34 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                             logs it and nets out of Reports), or CANCEL
                             WITHOUT refund (leaves booking overpaid — staff
                             reconciles manually at checkout). No-overpay
-                            case collapses to a single cancel. */}
-                        {hasOverpay ? (
+                            case collapses to a single cancel. Group mode
+                            collapses to Cancel + Keep: the "cancel without
+                            refund" path doesn't apply because group cancel
+                            always records per-sibling refunds. */}
+                        {isGroup ? (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleCancelExtension({ refundCash: true })}
+                              disabled={cancelExtLoading}
+                              className="flex-1 inline-flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[11px] font-semibold py-2 px-2 rounded"
+                            >
+                              {cancelExtLoading ? (
+                                <><i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>Cancelling…</>
+                              ) : (
+                                <><i className="fas fa-check text-[10px]" aria-hidden="true"></i>Cancel extension</>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCancelExtPending(null)}
+                              disabled={cancelExtLoading}
+                              className="flex-1 inline-flex items-center justify-center gap-1 bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 text-[11px] font-semibold py-2 px-2 rounded"
+                            >
+                              Keep extension
+                            </button>
+                          </div>
+                        ) : hasOverpay ? (
                           <div className="flex flex-col gap-1.5">
                             <button
                               type="button"
@@ -1352,8 +1377,6 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                             >
                               {cancelExtLoading ? (
                                 <><i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>Recording refund…</>
-                              ) : isGroup ? (
-                                <><i className="fas fa-check text-[10px]" aria-hidden="true"></i>I've refunded each overpaid room — cancel + record refunds</>
                               ) : (
                                 <><i className="fas fa-check text-[10px]" aria-hidden="true"></i>I've handed back {fmtMoney(futureOverpay)} cash — cancel + record refund</>
                               )}
