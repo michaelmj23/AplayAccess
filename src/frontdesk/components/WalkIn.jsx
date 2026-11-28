@@ -1575,6 +1575,19 @@ export default function WalkIn({ embedded = false }) {
                         </div>
                       </div>
                     )}
+                    {form.multiRoomMode && selectedRoom && baseRate > 0 && effectivePrimaryQty > 1 && (
+                      <p className="mt-1 text-xs text-sky-700">
+                        Subtotal: ₱{(baseRate * effectiveNights * effectivePrimaryQty).toLocaleString()}
+                        <span className="text-sky-600 ml-1">
+                          (× {effectivePrimaryQty} units)
+                        </span>
+                        {effectiveNights > 1 && (
+                          <span className="text-sky-600 ml-1">
+                            (₱{baseRate.toLocaleString()} × {effectiveNights} nights)
+                          </span>
+                        )}
+                      </p>
+                    )}
                   </div>
 
                   {/* Additional rooms in the SAME reservation. All share
