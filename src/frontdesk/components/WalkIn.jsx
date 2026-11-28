@@ -999,9 +999,10 @@ export default function WalkIn({ embedded = false }) {
                             {(r.type === '24hr' || r.type === '24hr-pm') && r.nights > 1
                               ? ` · ${fmtMoney(r.rate)} × ${r.nights} nights`
                               : ''}
+                            {r.qty > 1 ? ` · × ${r.qty} units` : ''}
                           </span>
                         </span>
-                        <span>{fmtMoney(r.rate * r.nights)}</span>
+                        <span>{fmtMoney(r.rate * r.nights * r.qty)}</span>
                       </div>
                     );
                   })}
@@ -1975,9 +1976,10 @@ export default function WalkIn({ embedded = false }) {
                                   {(r.type === '24hr' || r.type === '24hr-pm') && r.nights > 1
                                     ? ` · ${fmtMoney(r.rate)} × ${r.nights} nights`
                                     : ''}
+                                  {r.qty > 1 ? ` · × ${r.qty} units` : ''}
                                 </span>
                               </span>
-                              <span>{fmtMoney(r.rate * r.nights)}</span>
+                              <span>{fmtMoney(r.rate * r.nights * r.qty)}</span>
                             </div>
                           );
                         })}
