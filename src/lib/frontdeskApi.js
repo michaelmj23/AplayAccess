@@ -119,6 +119,27 @@ export async function cancelExtension(bookingId, extensionId, opts = {}) {
   return res.data;
 }
 
+// DELETE /api/admin/reservations/{id}/extensions
+// Reservation-level bulk cancel-extension. Symmetric to
+// extendReservation — cancels every Checked-In sibling's tail
+// extension in one atomic call. Backend aborts with 422 if any
+// sibling's tail has already started. "Not Checked In" siblings
+// and siblings with no extension are expected skips and surface
+// in the summary without aborting.
+//
+// Returns {cancelled, cancelled_rooms, removed_total,
+// refund_applied_total, overpayment_total, skipped_*} plus
+// `message`.
+export async function cancelReservationExtensions(reservationId, opts = {}) {
+  const body = {};
+  if (opts.refundCash) body.refund_cash = true;
+  const res = await api.delete(
+    `/api/admin/reservations/${reservationId}/extensions`,
+    { data: body },
+  );
+  return res.data;
+}
+
 // POST /api/admin/reservations/{id}/collect-payment
 // Group / reservation-level collect-payment. Walks each sibling with
 // outstanding > 0 and brings paid_amount up to that sibling's own

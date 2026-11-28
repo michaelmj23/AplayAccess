@@ -16,6 +16,7 @@ import {
   createExtension,
   extendReservation,
   cancelExtension,
+  cancelReservationExtensions,
 } from '../../lib/frontdeskApi';
 import { api } from '../../lib/api';
 import { applyPromoToBooking } from '../../lib/adminApi';
@@ -544,22 +545,47 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
     }
   }
 
+  // When the booking is part of a group reservation, the X on the
+  // primary's extension row cascades to every sibling's tail extension
+  // in one atomic call (symmetric with the group extend flow). Without
+  // this branch, only the primary was cancelled and siblings kept the
+  // extension — leaving the reservation desynced.
   async function handleCancelExtension({ refundCash } = {}) {
     if (!cancelExtPending) return;
+    const isGroup = Number(booking.groupSize ?? 1) > 1 && !!booking.reservationId;
     setCancelExtLoading(true);
     try {
-      const res = await cancelExtension(booking.bookingId, cancelExtPending.id, { refundCash });
-      const refunded = Number(res?.refund_applied ?? 0);
-      const over     = Number(res?.overpayment ?? 0);
-      let msg;
-      if (refunded > 0) {
-        msg = `Extension cancelled. Refund of ${fmtMoney(refunded)} recorded — hand the cash to the guest.`;
-      } else if (over > 0) {
-        msg = `Extension cancelled. Guest overpaid by ${fmtMoney(over)} — refund or credit at checkout.`;
+      if (isGroup) {
+        const res = await cancelReservationExtensions(booking.reservationId, { refundCash });
+        const summary = res?.summary || {};
+        const cancelled = Number(summary.cancelled ?? 0);
+        const refunded  = Number(summary.refund_applied_total ?? 0);
+        const over      = Number(summary.overpayment_total ?? 0);
+        let msg = res?.message;
+        if (!msg) {
+          if (refunded > 0) {
+            msg = `Group extension cancelled on ${cancelled} room(s). Refund of ${fmtMoney(refunded)} recorded — hand the cash to the guest.`;
+          } else if (over > 0) {
+            msg = `Group extension cancelled on ${cancelled} room(s). Guest overpaid by ${fmtMoney(over)} — refund or credit at checkout.`;
+          } else {
+            msg = `Group extension cancelled on ${cancelled} room(s).`;
+          }
+        }
+        showToast?.(msg, groupActionTone(summary, 'cancelled'));
       } else {
-        msg = 'Extension cancelled.';
+        const res = await cancelExtension(booking.bookingId, cancelExtPending.id, { refundCash });
+        const refunded = Number(res?.refund_applied ?? 0);
+        const over     = Number(res?.overpayment ?? 0);
+        let msg;
+        if (refunded > 0) {
+          msg = `Extension cancelled. Refund of ${fmtMoney(refunded)} recorded — hand the cash to the guest.`;
+        } else if (over > 0) {
+          msg = `Extension cancelled. Guest overpaid by ${fmtMoney(over)} — refund or credit at checkout.`;
+        } else {
+          msg = 'Extension cancelled.';
+        }
+        showToast?.(msg, 'success');
       }
-      showToast?.(msg, 'success');
       onReload?.();
       refreshNotifications?.();
       setCancelExtPending(null);
@@ -1189,12 +1215,18 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                       // is unambiguous. The X button only shows on the
                       // tail that hasn't started yet — matches the
                       // backend guards (tail-only + start > now).
+                      // For group reservations, the X cascades: clicking
+                      // it calls the group endpoint which cancels the
+                      // tail extension on every Checked-In sibling in
+                      // one atomic call (symmetric with group extend).
                       const sorted = [...booking.extensions].sort(
                         (a, b) => new Date(String(a.end).replace(' ', 'T'))
                                 - new Date(String(b.end).replace(' ', 'T'))
                       );
                       const tailId = sorted[sorted.length - 1]?.id;
                       const now = new Date();
+                      const isGroupRow = Number(booking.groupSize ?? 1) > 1 && !!booking.reservationId;
+                      const groupSize  = Number(booking.groupSize ?? 1);
                       return sorted.map(e => {
                         const typeLbl = e.type === 'night' ? 'Night'
                           : e.type === '24hr'    ? `24hr AM × ${e.nights}`
@@ -1228,8 +1260,12 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                                   })}
                                   disabled={cancelExtLoading}
                                   className="w-7 h-7 inline-flex items-center justify-center rounded text-rose-600 hover:bg-rose-50 hover:text-rose-800 text-[10px] disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-                                  aria-label={`Cancel ${typeLbl} extension`}
-                                  title="Cancel this extension (only the most recent one that hasn't started yet)"
+                                  aria-label={isGroupRow
+                                    ? `Cancel ${typeLbl} extension on all ${groupSize} rooms`
+                                    : `Cancel ${typeLbl} extension`}
+                                  title={isGroupRow
+                                    ? `Cancel this extension on all ${groupSize} rooms (only the most recent one that hasn't started yet)`
+                                    : 'Cancel this extension (only the most recent one that hasn\'t started yet)'}
                                 >
                                   <i className="fas fa-times" aria-hidden="true"></i>
                                 </button>
@@ -1241,23 +1277,42 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                     })()}
                   </ul>
                   {/* Inline confirm — fires when staff clicks the X.
-                      Previews the overpayment the cancel will create
-                      so staff know to reconcile at checkout. */}
+                      Singles: preview the primary's overpayment so staff
+                      know to reconcile at checkout.
+                      Groups: swap in a bulk-mode confirm. Per-sibling
+                      overpayment can't be previewed client-side without
+                      sibling-level paidAmount data, so staff see both
+                      "record refund" and "cancel without refund" paths
+                      unconditionally and the backend reports the real
+                      totals in the toast. */}
                   {cancelExtPending && (() => {
+                    const isGroup   = Number(booking.groupSize ?? 1) > 1 && !!booking.reservationId;
+                    const groupSize = Number(booking.groupSize ?? 1);
                     const paid   = Number(booking.paidAmount ?? 0);
                     const refund = Number(booking.refundAmount ?? 0);
                     const effectivePaid = paid - refund;
                     const grand  = Number(booking.total ?? 0) + Number(booking.entranceFee ?? 0) + Number(booking.extensionsTotal ?? 0);
                     const futureGrand   = grand - Number(cancelExtPending.amount ?? 0);
                     const futureOverpay = Math.max(0, effectivePaid - futureGrand);
-                    const hasOverpay    = futureOverpay > 0;
+                    // Group mode forces both options visible (any sibling
+                    // might be overpaid). Single mode keeps the original
+                    // preview-driven collapse.
+                    const hasOverpay    = isGroup ? true : (futureOverpay > 0);
+                    const groupTotal    = Number(cancelExtPending.amount ?? 0) * groupSize;
                     return (
                       <div className="mt-2 rounded-lg bg-rose-50 border border-rose-200 p-2">
-                        <p className="text-[11px] text-rose-900 mb-1">
-                          Cancel the <span className="font-semibold">{cancelExtPending.label}</span> extension?
-                          Removes <span className="font-semibold">{fmtMoney(cancelExtPending.amount)}</span> from the balance.
-                        </p>
-                        {hasOverpay && (
+                        {isGroup ? (
+                          <p className="text-[11px] text-rose-900 mb-1">
+                            Cancel this <span className="font-semibold">{cancelExtPending.label}</span> extension on <span className="font-semibold">all {groupSize} rooms</span>?
+                            Removes <span className="font-semibold">{fmtMoney(groupTotal)}</span> from the group balance ({fmtMoney(cancelExtPending.amount)} × {groupSize}).
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-rose-900 mb-1">
+                            Cancel the <span className="font-semibold">{cancelExtPending.label}</span> extension?
+                            Removes <span className="font-semibold">{fmtMoney(cancelExtPending.amount)}</span> from the balance.
+                          </p>
+                        )}
+                        {!isGroup && futureOverpay > 0 && (
                           <div className="text-[11px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 mb-2 space-y-1">
                             <p className="flex items-start gap-1.5">
                               <i className="fas fa-coins text-emerald-600 mt-0.5" aria-hidden="true"></i>
@@ -1268,6 +1323,16 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                             </p>
                             <p className="text-[10px] text-emerald-700 ml-5">
                               Pick an option below. Policy: cash / GCash collected at the counter is refundable; online reservation fees paid via PayMongo are NOT.
+                            </p>
+                          </div>
+                        )}
+                        {isGroup && (
+                          <div className="text-[11px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 mb-2 space-y-1">
+                            <p className="flex items-start gap-1.5">
+                              <i className="fas fa-coins text-emerald-600 mt-0.5" aria-hidden="true"></i>
+                              <span>
+                                Backend will cancel the tail extension on every Checked-In sibling and, if you confirm the refund, record per-room overpayments. The toast will show the actual refund total.
+                              </span>
                             </p>
                           </div>
                         )}
@@ -1287,6 +1352,8 @@ export default function BookingDetailModal({ booking: initialBooking, onClose, o
                             >
                               {cancelExtLoading ? (
                                 <><i className="fas fa-spinner fa-spin text-[10px]" aria-hidden="true"></i>Recording refund…</>
+                              ) : isGroup ? (
+                                <><i className="fas fa-check text-[10px]" aria-hidden="true"></i>I've refunded each overpaid room — cancel + record refunds</>
                               ) : (
                                 <><i className="fas fa-check text-[10px]" aria-hidden="true"></i>I've handed back {fmtMoney(futureOverpay)} cash — cancel + record refund</>
                               )}
