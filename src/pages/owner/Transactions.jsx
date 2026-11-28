@@ -440,7 +440,7 @@ export default function OwnerTransactions() {
           <p className="mt-3 text-xs text-slate-500">
             Showing <span className="font-semibold text-slate-700">{filtered.length}</span> of{" "}
             <span className="font-semibold">{allBookings.length}</span> transactions
-            {filtered.length !== allBookings.length && filtered.filter(b => b.status !== "Cancelled").length > 0 && (
+            {filtered.length > 0 && (
               <> &mdash; filtered revenue: <span className="font-semibold text-slate-700">{fmt(filteredRevenue)}</span></>
             )}
           </p>
