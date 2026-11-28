@@ -619,8 +619,11 @@ export default function OwnerDashboard() {
             <div className="relative mx-auto w-52 h-52">
               <Doughnut data={doughnutData} options={doughnutOpts} />
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-xs text-slate-400">Total</span>
-                <span className="text-lg font-bold text-slate-800">{fmt(revGrand)}</span>
+                <span className="text-xs text-slate-400">Collected</span>
+                <span className="text-lg font-bold text-slate-800">{fmt(Math.max(0, revGrand - revBreakdown.promos))}</span>
+                {revBreakdown.promos > 0 && (
+                  <span className="text-[10px] text-slate-400 mt-0.5">after −{fmt(revBreakdown.promos)} promo</span>
+                )}
               </div>
             </div>
             {/* Line items */}
